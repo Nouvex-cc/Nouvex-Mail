@@ -43,8 +43,6 @@ function diff(prev: Glyph[], text: string) {
 	return { next, removed };
 }
 
-const ease = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-
 export function TextMorph({ children, icon, className }: { children: string; icon?: ReactNode; className?: string }) {
 	const ref = useRef<HTMLSpanElement>(null);
 	const before = useRef(new Map<number, number>());
@@ -94,14 +92,15 @@ export function TextMorph({ children, icon, className }: { children: string; ico
 				if (!animate) done();
 				else
 					el.animate(
-						{ opacity: [1, 0], filter: ["blur(0)", "blur(2px)"] },
-						{ duration: 120, easing: "ease-out", fill: "forwards" },
+						{ opacity: [1, 0], filter: ["blur(0)", "blur(1px)"] },
+						{ duration: 160, easing: "ease-in", fill: "forwards" },
 					).onfinish = done;
 			} else if (old === undefined) {
 				if (animate)
 					el.animate(
-						{ opacity: [0, 1], filter: ["blur(2px)", "blur(0)"] },
-						{ duration: 220, delay: 100, easing: ease, fill: "backwards" },
+						// Starts together with the leaving letters, so a changed letter crossfades instead of blinking.
+						{ opacity: [0, 1], filter: ["blur(1px)", "blur(0)"] },
+						{ duration: 200, easing: "ease-out", fill: "backwards" },
 					);
 			} else if (animate) {
 				for (const a of el.getAnimations()) a.cancel();
