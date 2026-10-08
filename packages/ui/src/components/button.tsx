@@ -3,6 +3,7 @@ import { Button as BaseButton } from "@base-ui/react/button";
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn, type Styled } from "../lib";
+import { TextMorph } from "./text-morph";
 
 const variants = {
 	primary: "bg-ink text-on-ink hover:opacity-90",
@@ -22,7 +23,7 @@ export type ButtonProps = Styled<BaseButton.Props> & {
 	variant?: keyof typeof variants;
 	size?: keyof typeof sizes;
 	loading?: boolean;
-	/** Label shown on a green layer to confirm the action, e.g. "Saved". */
+	/** Confirms the action: the button turns green and its label morphs into this text, e.g. "Saved". */
 	success?: string | false;
 };
 
@@ -51,24 +52,35 @@ export function Button({
 	...props
 }: ButtonProps) {
 	const ring = usePresence(loading, 200);
-	const done = usePresence(success, 300);
+	const check = usePresence(success, 320);
 
 	return (
 		<>
 			<BaseButton
 				className={cn(
-					"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-100 disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
+					"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-200 disabled:pointer-events-none disabled:opacity-50 data-[success]:border-positive data-[success]:bg-positive data-[success]:text-on-ink data-[success]:opacity-100 [&>svg]:size-4 [&>svg]:shrink-0",
 					variants[variant],
 					sizes[size],
 					className,
 				)}
 				aria-busy={loading || undefined}
-				data-loading={loading || undefined}
+				data-success={success ? "" : undefined}
 				// Stays focusable while busy, but a second click must not submit twice.
 				onClick={loading ? (e) => e.preventDefault() : onClick}
 				{...props}
 			>
-				{children}
+				{typeof children === "string" ? (
+					<span className="inline-flex items-center">
+						{check && (
+							<span data-active={success ? "" : undefined} className="button-check">
+								<Check strokeWidth={2.25} />
+							</span>
+						)}
+						<TextMorph>{success || children}</TextMorph>
+					</span>
+				) : (
+					children
+				)}
 				{ring && (
 					<>
 						<span data-active={loading || undefined} className="button-scrim absolute inset-0 rounded-md bg-scrim" />
@@ -78,16 +90,6 @@ export function Button({
 							</svg>
 						</span>
 					</>
-				)}
-				{done && (
-					<span
-						aria-hidden
-						data-active={success ? "" : undefined}
-						className="button-success absolute -inset-px flex items-center justify-center gap-1.5 rounded-md bg-positive text-on-ink"
-					>
-						<Check strokeWidth={2.25} className="size-4 shrink-0" />
-						{done}
-					</span>
 				)}
 			</BaseButton>
 			<span role="status" className="sr-only">
