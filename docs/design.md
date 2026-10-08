@@ -61,7 +61,7 @@ Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Border
 
 Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The segment grows in over about 450 ms and shrinks out in about 150 ms. The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
 
-In lists (menus, selects, comboboxes, the command palette) one highlight slides to the focused item instead of items lighting up one by one.
+In lists (menus, selects, comboboxes, the command palette) one highlight slides to the focused item instead of items lighting up one by one. Chips (recipients) scale in when added and fade out in place when removed, quick enough never to be waited on; the rest glides.
 
 Checkboxes give slightly under the finger, and their check strokes itself in from left to right (about 180 ms).
 

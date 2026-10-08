@@ -35,8 +35,14 @@ export function Highlight() {
 
 		const watch = new MutationObserver(move);
 		watch.observe(list, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-highlighted"] });
+		// Popups often get their final width after the first highlight (positioning), so follow size changes too.
+		const resize = new ResizeObserver(move);
+		resize.observe(list);
 		move();
-		return () => watch.disconnect();
+		return () => {
+			watch.disconnect();
+			resize.disconnect();
+		};
 	}, []);
 
 	return (

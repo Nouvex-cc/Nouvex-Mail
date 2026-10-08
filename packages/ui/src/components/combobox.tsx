@@ -1,8 +1,87 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import { Check, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { cn, field, item, label, popup, type Styled } from "../lib";
 import { Highlight } from "./highlight";
+
+// Chips appear and leave quickly without blocking anything: a new chip scales in, a removed one leaves a short-lived
+// copy that fades out where it was, and everything else glides to its new place.
+function useChipMotion() {
+	const ref = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		const box = ref.current;
+		if (!box) return;
+		const easing = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+		let rects = new Map<Element, DOMRect>();
+		const snap = () => {
+			rects = new Map([...box.children].map((c) => [c, c.getBoundingClientRect()]));
+		};
+		const ghost = (n: Node) => n instanceof HTMLElement && "ghost" in n.dataset;
+
+		const watch = new MutationObserver((records) => {
+			if (matchMedia("(prefers-reduced-motion: reduce)").matches) return snap();
+			const origin = box.getBoundingClientRect();
+			for (const record of records) {
+				for (const n of record.removedNodes) {
+					const old = rects.get(n as Element);
+					if (!(n instanceof HTMLElement) || ghost(n) || !old) continue;
+					const copy = n.cloneNode(true) as HTMLElement;
+					copy.dataset.ghost = "";
+					copy.inert = true;
+					copy.setAttribute("aria-hidden", "true");
+					Object.assign(copy.style, {
+						position: "absolute",
+						margin: "0",
+						left: `${old.left - origin.left - box.clientLeft}px`,
+						top: `${old.top - origin.top - box.clientTop}px`,
+					});
+					box.append(copy);
+					copy.animate(
+						{ opacity: [1, 0], scale: [1, 0.9] },
+						{ duration: 120, easing: "ease-in", fill: "forwards" },
+					).onfinish = () => copy.remove();
+				}
+				for (const n of record.addedNodes)
+					if (n instanceof HTMLElement && !ghost(n) && n.tagName !== "INPUT")
+						n.animate({ opacity: [0, 1], scale: [0.9, 1] }, { duration: 140, easing });
+			}
+			for (const c of box.children) {
+				const old = rects.get(c);
+				if (ghost(c) || !old) continue;
+				const now = c.getBoundingClientRect();
+				const dx = old.left - now.left;
+				const dy = old.top - now.top;
+				if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)
+					c.animate({ transform: [`translate(${dx}px, ${dy}px)`, "none"] }, { duration: 160, easing });
+			}
+			snap();
+		});
+		watch.observe(box, { childList: true });
+		const resize = new ResizeObserver(snap);
+		resize.observe(box);
+		snap();
+		return () => {
+			watch.disconnect();
+			resize.disconnect();
+		};
+	}, []);
+	return ref;
+}
+
+function Chips({ className, ...props }: Styled<BaseCombobox.Chips.Props>) {
+	const ref = useChipMotion();
+	return (
+		<BaseCombobox.Chips
+			ref={ref}
+			className={cn(
+				"relative flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper px-1.5 py-1 focus-within:border-ink [&_input]:h-6 [&_input]:min-w-16 [&_input]:flex-1 [&_input]:bg-transparent [&_input]:px-1 [&_input]:outline-none [&_input]:placeholder:text-faint",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
 
 // Multiple selection: wrap Chips around Chip items plus the Input, inside <Combobox.Value>{(v) => ...}</Combobox.Value>.
 export const Combobox = {
@@ -11,15 +90,7 @@ export const Combobox = {
 	Input: ({ className, ...props }: Styled<BaseCombobox.Input.Props>) => (
 		<BaseCombobox.Input className={cn(field, className)} {...props} />
 	),
-	Chips: ({ className, ...props }: Styled<BaseCombobox.Chips.Props>) => (
-		<BaseCombobox.Chips
-			className={cn(
-				"flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper px-1.5 py-1 focus-within:border-ink [&_input]:h-6 [&_input]:min-w-16 [&_input]:flex-1 [&_input]:bg-transparent [&_input]:px-1 [&_input]:outline-none [&_input]:placeholder:text-faint",
-				className,
-			)}
-			{...props}
-		/>
-	),
+	Chips,
 	// Unstyled input that sits inside Chips; Chips styles it.
 	ChipsInput: BaseCombobox.Input,
 	Chip: ({ className, children, ...props }: Styled<BaseCombobox.Chip.Props>) => (
