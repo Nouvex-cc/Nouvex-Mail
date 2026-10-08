@@ -70,13 +70,19 @@ export function Button({
 				{...props}
 			>
 				{typeof children === "string" ? (
-					<span className="inline-flex items-center">
-						{check && (
-							<span data-active={success ? "" : undefined} className="button-check">
-								<Check strokeWidth={2.25} />
-							</span>
-						)}
-						<TextMorph>{success || children}</TextMorph>
+					// The invisible copy keeps the button at its original size; the visible label morphs on top of it.
+					<span className="relative inline-flex">
+						<span aria-hidden className="invisible">
+							{children}
+						</span>
+						<span className="absolute inset-0 flex items-center justify-center">
+							{check && (
+								<span data-active={success ? "" : undefined} className="button-check">
+									<Check strokeWidth={2.25} />
+								</span>
+							)}
+							<TextMorph>{success || children}</TextMorph>
+						</span>
 					</span>
 				) : (
 					children

@@ -60,7 +60,7 @@ Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Border
 
 Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The segment grows in over about 450 ms and shrinks out in about 150 ms. The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
 
-When an action needs confirming, the button turns green for about 1.5 s and its label morphs into the past tense with a check in front (`<Button success="Saved">`): letters both words share stay and glide, the rest fades. `TextMorph` does the same for any text that changes in place. Toasts are for things that can be undone or happened elsewhere.
+When an action needs confirming, the button turns green for about 1.5 s and its label morphs into the past tense with a check in front (`<Button success="Saved">`): letters both words share stay and glide, the rest fades. The button keeps its size, so nothing around it moves. `TextMorph` does the same for any text that changes in place. Toasts are for things that can be undone or happened elsewhere.
 
 ## Icons
 
