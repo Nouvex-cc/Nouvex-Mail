@@ -115,7 +115,7 @@ export function AttachmentTile({ name, size, type, previewUrl, progress, onRemov
 
 /** Wrapping row of tiles; tiles that come or go let the others glide into place. */
 export function AttachmentList({ children, className }: { children: ReactNode; className?: string }) {
-	const ref = useGlide<HTMLDivElement>({ enter: true, leave: true });
+	const ref = useGlide<HTMLDivElement>();
 	return (
 		<div ref={ref} className={cn("relative flex flex-wrap gap-2", className)}>
 			{children}

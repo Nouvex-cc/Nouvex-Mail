@@ -3,7 +3,7 @@ import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import type { ComponentProps } from "react";
 import { Check, ChevronRight } from "../icons";
-import { cn, item, label, popup, type Styled } from "../lib";
+import { cn, item, popup, type Styled } from "../lib";
 import { Highlight } from "./highlight";
 
 type PopupProps = Styled<BaseMenu.Popup.Props> & Pick<BaseMenu.Positioner.Props, "side" | "align" | "sideOffset">;
@@ -40,16 +40,8 @@ function MenuItem({ className, ...props }: Styled<BaseMenu.Item.Props>) {
 	return <BaseMenu.Item className={cn(item, className)} {...props} />;
 }
 
-function MenuLinkItem({ className, ...props }: Styled<BaseMenu.LinkItem.Props>) {
-	return <BaseMenu.LinkItem className={cn(item, className)} {...props} />;
-}
-
 function MenuSeparator({ className, ...props }: Styled<BaseMenu.Separator.Props>) {
 	return <BaseMenu.Separator className={cn("-mx-1 my-1 h-px bg-line", className)} {...props} />;
-}
-
-function MenuGroupLabel({ className, ...props }: Styled<BaseMenu.GroupLabel.Props>) {
-	return <BaseMenu.GroupLabel className={cn(label, className)} {...props} />;
 }
 
 function MenuCheckboxItem({ className, children, ...props }: Styled<BaseMenu.CheckboxItem.Props>) {
@@ -60,17 +52,6 @@ function MenuCheckboxItem({ className, children, ...props }: Styled<BaseMenu.Che
 			</BaseMenu.CheckboxItemIndicator>
 			{children}
 		</BaseMenu.CheckboxItem>
-	);
-}
-
-function MenuRadioItem({ className, children, ...props }: Styled<BaseMenu.RadioItem.Props>) {
-	return (
-		<BaseMenu.RadioItem className={cn(item, "relative pr-8 pl-7", className)} {...props}>
-			<BaseMenu.RadioItemIndicator className="absolute left-2">
-				<Check strokeWidth={1.75} />
-			</BaseMenu.RadioItemIndicator>
-			{children}
-		</BaseMenu.RadioItem>
 	);
 }
 
@@ -92,13 +73,8 @@ export const Menu = {
 	Trigger: BaseMenu.Trigger,
 	Popup: MenuPopup,
 	Item: MenuItem,
-	LinkItem: MenuLinkItem,
 	Separator: MenuSeparator,
-	Group: BaseMenu.Group,
-	GroupLabel: MenuGroupLabel,
 	CheckboxItem: MenuCheckboxItem,
-	RadioGroup: BaseMenu.RadioGroup,
-	RadioItem: MenuRadioItem,
 	SubmenuRoot: BaseMenu.SubmenuRoot,
 	SubmenuTrigger: MenuSubmenuTrigger,
 	Shortcut: MenuShortcut,

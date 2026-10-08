@@ -1,58 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog } from "../dialog";
 import { Kbd } from "../kbd";
 
 const typing = (target: EventTarget | null) =>
 	target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
-// One step of a shortcut, e.g. "mod+k", "?", "e". "mod" is ⌘ on Apple, Ctrl elsewhere.
-function matches(e: KeyboardEvent, step: string) {
-	const parts = step.split("+");
-	const key = parts.pop();
-	const mod = parts.includes("mod");
-	if (mod !== (e.metaKey || e.ctrlKey) || parts.includes("alt") !== e.altKey) return false;
-	return e.key.toLowerCase() === key;
-}
-
-/**
- * Runs `handler` for `keys`: a single key ("e"), a chord ("mod+k") or a sequence ("g i", pressed within 800 ms).
- * Plain keys are ignored while the user is typing in a field; chords with mod always work.
- */
-export function useShortcut(keys: string, handler: (e: KeyboardEvent) => void, { enabled = true } = {}) {
+/** Runs `handler` when `key` is pressed, unless the user is typing in a field. */
+export function useShortcut(key: string, handler: (e: KeyboardEvent) => void) {
 	const latest = useRef(handler);
 	latest.current = handler;
 
 	useEffect(() => {
-		if (!enabled) return;
-		const steps = keys.toLowerCase().split(" ");
-		let at = 0;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-
 		const onKey = (e: KeyboardEvent) => {
-			const step = steps[at] ?? "";
-			if (typing(e.target) && !step.includes("mod")) return;
-			if (!matches(e, step)) {
-				at = matches(e, steps[0] ?? "") ? 1 : 0;
-				if (at === 0 || steps.length > 1) return;
-			} else at++;
-			clearTimeout(timer);
-			if (at < steps.length) {
-				timer = setTimeout(() => {
-					at = 0;
-				}, 800);
-				return;
-			}
-			at = 0;
+			if (typing(e.target) || e.key !== key) return;
 			e.preventDefault();
 			latest.current(e);
 		};
 		window.addEventListener("keydown", onKey);
-		return () => {
-			window.removeEventListener("keydown", onKey);
-			clearTimeout(timer);
-		};
-	}, [keys, enabled]);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [key]);
 }
 
 export type ShortcutGroup = { title: string; items: { keys: string; label: string }[] };
@@ -76,17 +43,12 @@ const keyLabel = (key: string) =>
 		)
 		.join(apple ? "" : "+");
 
-export function ShortcutsDialog({
-	open,
-	onOpenChange,
-	groups,
-}: {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	groups: ShortcutGroup[];
-}) {
+// The dialog plus "?" to open it. Render it once anywhere.
+export function useShortcutsDialog(groups: ShortcutGroup[]) {
+	const [open, setOpen] = useState(false);
+	useShortcut("?", () => setOpen(true));
 	return (
-		<Dialog.Root open={open} onOpenChange={onOpenChange}>
+		<Dialog.Root open={open} onOpenChange={setOpen}>
 			<Dialog.Popup className="max-w-2xl">
 				<Dialog.Title>Keyboard shortcuts</Dialog.Title>
 				<div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
@@ -110,11 +72,4 @@ export function ShortcutsDialog({
 			</Dialog.Popup>
 		</Dialog.Root>
 	);
-}
-
-// The dialog plus "?" to open it. Render `dialog` once anywhere.
-export function useShortcutsDialog(groups: ShortcutGroup[]): { dialog: ReactNode; open: () => void } {
-	const [open, setOpen] = useState(false);
-	useShortcut("?", () => setOpen(true));
-	return { dialog: <ShortcutsDialog open={open} onOpenChange={setOpen} groups={groups} />, open: () => setOpen(true) };
 }

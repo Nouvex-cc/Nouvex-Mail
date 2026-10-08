@@ -14,11 +14,10 @@ const ICON = "\u0000";
 let nextKey = 0;
 const glyphs = (text: string) => [...text].map((char) => ({ key: nextKey++, char }));
 
-type By = "letter" | "word" | "text";
-const split = (text: string, by: By) =>
-	by === "text" ? [text] : by === "word" ? text.split(/(\s+)/).filter(Boolean) : [...text];
+type By = "letter" | "text";
+const split = (text: string, by: By) => (by === "text" ? [text] : [...text]);
 
-// Units (letters or words) both texts share, by longest common subsequence, keep their glyphs so they can glide;
+// Letters both texts share, by longest common subsequence, keep their glyphs so they can glide;
 // the rest leaves or enters. "text" makes the whole text one unit, so it simply crossfades.
 function diff(prev: Glyph[], prevText: string, text: string, by: By) {
 	const a = split(prevText, by);
@@ -67,7 +66,7 @@ export function TextMorph({
 }: {
 	children: string;
 	icon?: ReactNode;
-	/** What glides when the text changes: shared letters, shared words, or nothing ("text" crossfades). */
+	/** What glides when the text changes: shared letters, or nothing ("text" crossfades). */
 	by?: By;
 	className?: string;
 }) {
@@ -150,7 +149,7 @@ export function TextMorph({
 					{ transform: [`translateX(${-shift(to, "to")}px) scale(0.95)`, "none"] },
 					{ duration, easing, fill: "both" },
 				);
-				// Whole words crossfade: the new one starts right away so there is no empty moment between them.
+				// Whole texts crossfade: the new one starts right away so there is no empty moment between them.
 				el.animate(
 					{ opacity: [0, 1] },
 					{ duration: duration * 0.5, delay: by === "letter" ? duration * 0.25 : 0, fill: "both" },

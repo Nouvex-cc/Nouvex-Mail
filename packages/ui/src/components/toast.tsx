@@ -5,7 +5,6 @@ import { X } from "../icons";
 
 // Usage: const toast = useToast(); toast.add({ title: "Archived", actionProps: { children: "Undo", onClick } })
 export const useToast = BaseToast.useToastManager;
-export const createToastManager = BaseToast.createToastManager;
 
 export function ToastProvider({ children, ...props }: BaseToast.Provider.Props & { children: ReactNode }) {
 	return (

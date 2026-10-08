@@ -13,16 +13,8 @@ function Button({ className, ...props }: Styled<BaseToolbar.Button.Props>) {
 	return <BaseToolbar.Button className={cn(control, className)} {...props} />;
 }
 
-function Link({ className, ...props }: Styled<BaseToolbar.Link.Props>) {
-	return <BaseToolbar.Link className={cn(control, "no-underline", className)} {...props} />;
-}
-
-function Group({ className, ...props }: Styled<BaseToolbar.Group.Props>) {
-	return <BaseToolbar.Group className={cn("flex items-center gap-0.5", className)} {...props} />;
-}
-
 function Separator({ className, ...props }: Styled<BaseToolbar.Separator.Props>) {
 	return <BaseToolbar.Separator className={cn("mx-1 h-4 w-px bg-line", className)} {...props} />;
 }
 
-export const Toolbar = { Root, Button, Link, Group, Separator };
+export const Toolbar = { Root, Button, Separator };

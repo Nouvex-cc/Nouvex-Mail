@@ -35,10 +35,6 @@ export type ButtonProps = Styled<BaseButton.Props> & {
 	/** Milliseconds the button has to be held; it fills up meanwhile and calls `onHoldComplete` when full. */
 	hold?: number;
 	onHoldComplete?: () => void;
-	/** Shown briefly when a hold button is only tapped, e.g. "Hold to delete". */
-	holdHint?: string;
-	/** Crossfade label changes instead of morphing letters. */
-	fade?: boolean;
 };
 
 // Returns the last active value and keeps it around for `ms` after it goes away, so exit transitions can play.
@@ -56,23 +52,14 @@ function usePresence<T>(value: T | false | undefined, ms: number) {
 }
 
 // Press-and-hold: fills `fill` over `ms`, calls `done` when full, runs back when let go early.
-function useHold(ms: number | undefined, done: (() => void) | undefined, hint: string | undefined) {
+function useHold(ms: number | undefined, done: (() => void) | undefined) {
 	const fill = useRef<HTMLSpanElement>(null);
 	const run = useRef<Animation | null>(null);
-	const pressedAt = useRef(0);
-	const [hinting, setHinting] = useState(false);
-	useEffect(() => {
-		if (!hinting) return;
-		const t = setTimeout(() => setHinting(false), 1600);
-		return () => clearTimeout(t);
-	}, [hinting]);
 
 	const start = () => {
 		const el = fill.current;
 		if (!ms || !el || run.current) return;
 		for (const a of el.getAnimations()) a.cancel();
-		pressedAt.current = performance.now();
-		setHinting(false);
 		const a = el.animate({ scale: ["0 1", "1 1"] }, { duration: ms, fill: "forwards" });
 		run.current = a;
 		a.onfinish = () => {
@@ -90,7 +77,6 @@ function useHold(ms: number | undefined, done: (() => void) | undefined, hint: s
 		a.cancel();
 		run.current = null;
 		el.animate({ scale: [`${progress} 1`, "0 1"] }, { duration: 200, easing: "ease-out" });
-		if (hint && performance.now() - pressedAt.current < 250) setHinting(true);
 	};
 
 	const key = (e: KeyboardEvent, down: boolean) => {
@@ -111,7 +97,7 @@ function useHold(ms: number | undefined, done: (() => void) | undefined, hint: s
 				onContextMenu: (e: { preventDefault: () => void }) => e.preventDefault(),
 			}
 		: {};
-	return { fill, handlers, hinting };
+	return { fill, handlers };
 }
 
 export function Button({
@@ -123,15 +109,13 @@ export function Button({
 	labels = [],
 	hold,
 	onHoldComplete,
-	holdHint,
-	fade,
 	className,
 	children,
 	onClick,
 	...props
 }: ButtonProps) {
 	const ring = usePresence(loading, 200);
-	const { fill, handlers, hinting } = useHold(hold, onHoldComplete, holdHint);
+	const { fill, handlers } = useHold(hold, onHoldComplete);
 	const holdHelp = useId();
 	const timer = usePresence(countdown, 160);
 	const drain = useRef<SVGRectElement>(null);
@@ -180,16 +164,12 @@ export function Button({
 									{label}
 								</span>
 							))}
-							{holdHint && <span className="col-start-1 row-start-1">{holdHint}</span>}
 						</span>
 						<span
 							className={cn("absolute inset-y-0 flex items-center justify-center overflow-hidden", labelArea[size])}
 						>
-							<TextMorph
-								by={fade ? "text" : "letter"}
-								icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}
-							>
-								{success || (hinting && holdHint) || children}
+							<TextMorph icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}>
+								{success || children}
 							</TextMorph>
 						</span>
 					</span>

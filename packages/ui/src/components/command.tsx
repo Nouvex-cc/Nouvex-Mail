@@ -3,7 +3,7 @@ import { Autocomplete as BaseAutocomplete } from "@base-ui/react/autocomplete";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import type { ReactNode } from "react";
 import { Search } from "../icons";
-import { cn, item, label, type Styled } from "../lib";
+import { cn, item, type Styled } from "../lib";
 import { backdrop, dialogPopup } from "./dialog";
 import { Highlight } from "./highlight";
 
@@ -37,10 +37,6 @@ function CommandItem({ className, ...props }: Styled<BaseAutocomplete.Item.Props
 	return <BaseAutocomplete.Item className={cn(item, "scroll-my-1", className)} {...props} />;
 }
 
-function CommandGroupLabel({ className, ...props }: Styled<BaseAutocomplete.GroupLabel.Props>) {
-	return <BaseAutocomplete.GroupLabel className={cn(label, "pt-2", className)} {...props} />;
-}
-
 function CommandEmpty({ className, ...props }: Styled<BaseAutocomplete.Empty.Props>) {
 	return (
 		<BaseAutocomplete.Empty
@@ -55,9 +51,6 @@ export const Command = {
 	Input: CommandInput,
 	List: CommandList,
 	Item: CommandItem,
-	Group: BaseAutocomplete.Group,
-	GroupLabel: CommandGroupLabel,
-	Collection: BaseAutocomplete.Collection,
 	Empty: CommandEmpty,
 };
 

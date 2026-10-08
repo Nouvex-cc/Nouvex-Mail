@@ -2,7 +2,7 @@
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { createContext, type ReactNode, type RefObject, useCallback, useContext, useRef } from "react";
 import { Check, ChevronsUpDown } from "../icons";
-import { cn, item, label, popup, type Styled } from "../lib";
+import { cn, item, popup, type Styled } from "../lib";
 import { Highlight } from "./highlight";
 
 // Over its trigger (data-side="none") the list unfolds from the trigger and folds back into the picked row.
@@ -22,11 +22,7 @@ const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function parts(panel: HTMLElement) {
 	const list = panel.querySelector('[role="listbox"]');
-	const all = [
-		...(list?.querySelectorAll<HTMLElement>(
-			'[role="option"], [role="separator"], [role="group"] > :first-child:not([role="option"])',
-		) ?? []),
-	];
+	const all = [...(list?.querySelectorAll<HTMLElement>('[role="option"], [role="separator"]') ?? [])];
 	return { list, all, rows: all.filter((el) => el.role === "option") };
 }
 
@@ -148,19 +144,17 @@ function Trigger({
 	className,
 	placeholder,
 	children,
-	bare,
 	...props
 }: Styled<BaseSelect.Trigger.Props> & {
 	placeholder?: string;
+	/** Custom content drops the field look (the calendar's month and year). */
 	children?: ReactNode;
-	/** No field look, for a trigger that's just text (the calendar's month and year). */
-	bare?: boolean;
 }) {
 	return (
 		<BaseSelect.Trigger
 			ref={useMotionRef("trigger")}
 			className={cn(
-				!bare &&
+				!children &&
 					"inline-flex h-8 min-w-36 items-center justify-between gap-2 rounded-md border border-line-strong bg-paper px-3 text-ink outline-none transition-colors duration-100 hover:bg-hover open:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30 disabled:opacity-50",
 				className,
 			)}
@@ -220,10 +214,6 @@ export const Select = {
 				<Check strokeWidth={2} />
 			</BaseSelect.ItemIndicator>
 		</BaseSelect.Item>
-	),
-	Group: BaseSelect.Group,
-	GroupLabel: ({ className, ...props }: Styled<BaseSelect.GroupLabel.Props>) => (
-		<BaseSelect.GroupLabel className={cn(label, "px-3", className)} {...props} />
 	),
 	Separator: ({ className, ...props }: Styled<BaseSelect.Separator.Props>) => (
 		<BaseSelect.Separator className={cn("my-1 h-px bg-line", className)} {...props} />

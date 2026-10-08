@@ -32,17 +32,15 @@ function Root({ className, children }: { className?: string; children: ReactNode
 function Section({
 	title,
 	collapsible = false,
-	defaultOpen = true,
 	children,
 }: {
 	title?: string;
 	collapsible?: boolean;
-	defaultOpen?: boolean;
 	children: ReactNode;
 }) {
 	if (collapsible && title)
 		return (
-			<Collapsible.Root defaultOpen={defaultOpen}>
+			<Collapsible.Root defaultOpen>
 				<Collapsible.Trigger className="text-xs font-medium text-muted">{title}</Collapsible.Trigger>
 				<Collapsible.Panel>
 					<div className="grid gap-px pt-0.5">{children}</div>

@@ -32,7 +32,7 @@ function lookup(token: string, map: Map<string, number>) {
 	return undefined;
 }
 
-function localeOrder(): Part[] {
+export function localeOrder(): Part[] {
 	return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" })
 		.formatToParts(new Date(2000, 10, 22))
 		.map((p) => p.type)
@@ -46,7 +46,8 @@ function make(year: number, month: number, day: number) {
 	return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day ? date : null;
 }
 
-const addDays = (from: Date, days: number) => new Date(from.getFullYear(), from.getMonth(), from.getDate() + days);
+export const addDays = (from: Date, days: number) =>
+	new Date(from.getFullYear(), from.getMonth(), from.getDate() + days);
 
 // Day and month from two numbers in the locale's order; if that order can't be right (a "month" above 12), swap.
 function dayMonth(a: number, b: number) {

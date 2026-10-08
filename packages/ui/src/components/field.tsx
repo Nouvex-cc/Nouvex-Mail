@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Field as BaseField } from "@base-ui/react/field";
-import { Fieldset as BaseFieldset } from "@base-ui/react/fieldset";
-import { Form as BaseForm } from "@base-ui/react/form";
 import { cn, field, type Styled } from "../lib";
 import { useCaret } from "./caret";
 
@@ -28,16 +26,3 @@ export const Field = {
 		<BaseField.Error className={cn("text-sm text-danger", className)} {...props} />
 	),
 };
-
-export const Fieldset = {
-	Root: ({ className, ...props }: Styled<BaseFieldset.Root.Props>) => (
-		<BaseFieldset.Root className={cn("grid gap-4", className)} {...props} />
-	),
-	Legend: ({ className, ...props }: Styled<BaseFieldset.Legend.Props>) => (
-		<BaseFieldset.Legend className={cn("text-lg font-semibold", className)} {...props} />
-	),
-};
-
-export function Form({ className, ...props }: Styled<BaseForm.Props>) {
-	return <BaseForm className={cn("grid gap-4", className)} {...props} />;
-}

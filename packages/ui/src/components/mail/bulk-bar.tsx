@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type ReactNode, useEffect, useRef } from "react";
-import { Archive, Clock, MailOpen, Trash2, X } from "../../icons";
+import { Archive, MailOpen, Trash2, X } from "../../icons";
 import { cn } from "../../lib";
 import { TextMorph } from "../text-morph";
 import { Tooltip } from "../tooltip";
@@ -9,7 +9,6 @@ import { Tooltip } from "../tooltip";
 export type BulkBarProps = {
 	count: number;
 	onArchive?: () => void;
-	onSnooze?: () => void;
 	onDelete?: () => void;
 	onMarkRead?: () => void;
 	onClear: () => void;
@@ -19,7 +18,7 @@ const action =
 	"grid size-8 place-items-center rounded-md text-muted outline-none hover:bg-hover hover:text-ink active:scale-95 focus-visible:outline-2 [&_svg]:size-4";
 
 /** Actions for the selected messages. Rises from the bottom of its (positioned) container; Escape clears. */
-export function BulkBar({ count, onArchive, onSnooze, onDelete, onMarkRead, onClear }: BulkBarProps) {
+export function BulkBar({ count, onArchive, onDelete, onMarkRead, onClear }: BulkBarProps) {
 	// Keep the last count while the bar slides away, so its label doesn't morph to "0 selected" on the way out.
 	const shown = useRef(count);
 	if (count > 0) shown.current = count;
@@ -56,7 +55,6 @@ export function BulkBar({ count, onArchive, onSnooze, onDelete, onMarkRead, onCl
 				<TextMorph>{`${shown.current} selected`}</TextMorph>
 			</span>
 			{button("Archive", <Archive strokeWidth={1.75} />, onArchive)}
-			{button("Snooze", <Clock strokeWidth={1.75} />, onSnooze)}
 			{button("Mark as read", <MailOpen strokeWidth={1.75} />, onMarkRead)}
 			{button("Delete", <Trash2 strokeWidth={1.75} />, onDelete)}
 			<span className="mx-1 h-5 w-px bg-line" />

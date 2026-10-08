@@ -3,16 +3,10 @@ import { useEffect, useRef } from "react";
 
 /**
  * Children of the returned element glide to their new place when siblings come or go, instead of jumping.
- * `enter` scales new children in, `leave` keeps a short-lived copy of a removed child fading out where it was.
+ * New children scale in, a removed child leaves a short-lived copy fading out where it was.
  * Used by chips. The element must be positioned (relative).
  */
-export function useGlide<T extends HTMLElement>({
-	enter = false,
-	leave = false,
-}: {
-	enter?: boolean;
-	leave?: boolean;
-} = {}) {
+export function useGlide<T extends HTMLElement>() {
 	const ref = useRef<T>(null);
 	useEffect(() => {
 		const box = ref.current;
@@ -34,7 +28,7 @@ export function useGlide<T extends HTMLElement>({
 			if (matchMedia("(prefers-reduced-motion: reduce)").matches) return snap();
 			const origin = box.getBoundingClientRect();
 			for (const record of records) {
-				for (const n of leave ? record.removedNodes : []) {
+				for (const n of record.removedNodes) {
 					const old = positions.get(n as Element);
 					if (!(n instanceof HTMLElement) || ghost(n) || !old) continue;
 					const copy = n.cloneNode(true) as HTMLElement;
@@ -53,7 +47,7 @@ export function useGlide<T extends HTMLElement>({
 						{ duration: 120, easing: "ease-in", fill: "forwards" },
 					).onfinish = () => copy.remove();
 				}
-				for (const n of enter ? record.addedNodes : [])
+				for (const n of record.addedNodes)
 					if (n instanceof HTMLElement && !ghost(n) && n.tagName !== "INPUT")
 						n.animate({ opacity: [0, 1], scale: [0.9, 1] }, { duration: 140, easing });
 			}
@@ -82,6 +76,6 @@ export function useGlide<T extends HTMLElement>({
 			watch.disconnect();
 			resize.disconnect();
 		};
-	}, [enter, leave]);
+	}, []);
 	return ref;
 }

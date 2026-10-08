@@ -6,8 +6,6 @@ import { Button } from "../button";
 
 export type MailFrameProps = {
 	html: string;
-	allowRemoteImages?: boolean;
-	onAllowRemoteImages?(): void;
 	/** Routes allowed remote images through the image proxy. */
 	proxy?(url: string): string;
 	className?: string;
@@ -60,6 +58,7 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 	const doc = new DOMParser().parseFromString(clean, "text/html");
 	let blocked = 0;
 	const load = (url: string) => (proxy ? proxy(url) : url);
+	const swap = (css: string) => css.replace(cssUrl, (_, q, url) => (allow ? `url(${q}${load(url)}${q})` : "none"));
 
 	for (const a of doc.querySelectorAll("a")) {
 		a.setAttribute("target", "_blank");
@@ -81,13 +80,10 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 		}
 	}
 	for (const el of doc.querySelectorAll<HTMLElement>("[style], [background]")) {
-		const style = el.getAttribute("style");
-		if (style && cssUrl.test(style)) {
-			cssUrl.lastIndex = 0;
-			el.setAttribute(
-				"style",
-				style.replace(cssUrl, (_, q, url) => (allow ? `url(${q}${load(url)}${q})` : "none")),
-			);
+		const style = el.getAttribute("style") ?? "";
+		const swapped = swap(style);
+		if (swapped !== style) {
+			el.setAttribute("style", swapped);
 			if (!allow) blocked++;
 		}
 		const bg = el.getAttribute("background");
@@ -102,7 +98,7 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 
 	for (const style of doc.querySelectorAll("style")) {
 		const css = style.textContent ?? "";
-		const swapped = css.replace(cssUrl, (_, q, url) => (allow ? `url(${q}${load(url)}${q})` : "none"));
+		const swapped = swap(css);
 		if (swapped !== css) {
 			style.textContent = swapped;
 			if (!allow) blocked++;
@@ -120,9 +116,8 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 }
 
 /** Renders a mail in a sandboxed frame (no scripts) that grows with its content, so it never scrolls on its own. */
-export function MailFrame({ html, allowRemoteImages, onAllowRemoteImages, proxy, className }: MailFrameProps) {
-	const [allowedHere, setAllowedHere] = useState(false);
-	const allow = allowRemoteImages ?? allowedHere;
+export function MailFrame({ html, proxy, className }: MailFrameProps) {
+	const [allow, setAllow] = useState(false);
 	const [showQuote, setShowQuote] = useState(false);
 	const [ready, setReady] = useState(false);
 	const frame = useRef<HTMLIFrameElement>(null);
@@ -160,14 +155,7 @@ export function MailFrame({ html, allowRemoteImages, onAllowRemoteImages, proxy,
 			{blocked > 0 && !allow && (
 				<div className="flex items-center justify-between gap-3 rounded-md bg-sunken py-1 pr-1 pl-3 text-sm text-muted">
 					Remote images are hidden
-					<Button
-						size="sm"
-						variant="ghost"
-						onClick={() => {
-							setAllowedHere(true);
-							onAllowRemoteImages?.();
-						}}
-					>
+					<Button size="sm" variant="ghost" onClick={() => setAllow(true)}>
 						Show
 					</Button>
 				</div>

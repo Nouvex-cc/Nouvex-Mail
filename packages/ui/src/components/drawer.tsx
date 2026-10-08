@@ -35,7 +35,6 @@ function DrawerDescription({ className, ...props }: Styled<BaseDrawer.Descriptio
 export const Drawer = {
 	Root: BaseDrawer.Root,
 	Trigger: BaseDrawer.Trigger,
-	Close: BaseDrawer.Close,
 	Popup: DrawerPopup,
 	Title: DrawerTitle,
 	Description: DrawerDescription,

@@ -109,7 +109,7 @@ export function NavigationDemo() {
 					</p>
 				</AppShell>
 			</div>
-			{shortcuts.dialog}
+			{shortcuts}
 		</div>
 	);
 }

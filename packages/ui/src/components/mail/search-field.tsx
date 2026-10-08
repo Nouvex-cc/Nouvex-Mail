@@ -38,10 +38,9 @@ function pastDate(value: string) {
 function dateChip(key: "after" | "before", value: string): Chip | null {
 	const date = pastDate(value);
 	if (!date) return null;
-	const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 	return {
 		key,
-		value: iso,
+		value: date.toLocaleDateString("sv"),
 		label: `${key === "after" ? "After" : "Before"} ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`,
 	};
 }
@@ -72,7 +71,7 @@ export function SearchField({
 	const [active, setActive] = useState(0);
 	const [focused, setFocused] = useState(false);
 	const input = useRef<HTMLInputElement>(null);
-	const row = useGlide<HTMLDivElement>({ enter: true, leave: true });
+	const row = useGlide<HTMLDivElement>();
 	useShortcut("/", () => input.current?.focus());
 
 	const words = text.split(" ");
@@ -95,13 +94,15 @@ export function SearchField({
 			const chip = dateChip(key, value);
 			return chip ? [{ chip, icon: <CalendarDays {...icon} />, words: used }] : [];
 		};
-		if (!text && !chips.length) return flags.map(({ match, icon, ...chip }) => ({ chip, icon, words: 0 }));
+		if (!text && !chips.length) return flags.map(({ match: _match, icon, ...chip }) => ({ chip, icon, words: 0 }));
 		if (Object.hasOwn(people, before)) return person(before as "from" | "to", last, 2);
 		if (Object.hasOwn(people, last)) return person(last as "from" | "to", "", 1);
 		if (Object.hasOwn(dates, before) && last) return date(dates[before as keyof typeof dates], last, 2);
 		if (last.length < 2 || last.includes(":")) return [];
 		return [
-			...flags.filter((f) => f.match.startsWith(last)).map(({ match, icon, ...chip }) => ({ chip, icon, words: 1 })),
+			...flags
+				.filter((f) => f.match.startsWith(last))
+				.map(({ match: _match, icon, ...chip }) => ({ chip, icon, words: 1 })),
 			...person("from", last, 1).slice(0, 3),
 			...(pastDate(last) ? [...date("after", last, 1), ...date("before", last, 1)] : []),
 		];

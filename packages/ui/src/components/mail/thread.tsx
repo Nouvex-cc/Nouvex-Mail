@@ -26,7 +26,6 @@ export type ThreadMessageProps = {
 	date: Date;
 	snippet: string;
 	children: ReactNode;
-	expanded?: boolean;
 	defaultExpanded?: boolean;
 	onReply?(): void;
 	onForward?(): void;
@@ -43,13 +42,11 @@ export function ThreadMessage({
 	date,
 	snippet,
 	children,
-	expanded,
 	defaultExpanded = false,
 	onReply,
 	onForward,
 }: ThreadMessageProps) {
-	const [own, setOwn] = useState(defaultExpanded);
-	const open = expanded ?? own;
+	const [open, setOpen] = useState(defaultExpanded);
 	// The body mounts invisibly as soon as the pointer or focus arrives, so a mail frame has measured itself
 	// by the time the row is clicked and the message opens in one smooth motion.
 	const [ready, setReady] = useState(open);
@@ -65,7 +62,7 @@ export function ThreadMessage({
 				onFocus={() => setReady(true)}
 				onClick={() => {
 					setReady(true);
-					setOwn(!open);
+					setOpen(!open);
 				}}
 				className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
 			>

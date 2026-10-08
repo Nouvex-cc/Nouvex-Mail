@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Checkbox as BaseCheckbox } from "@base-ui/react/checkbox";
-import { CheckboxGroup as BaseCheckboxGroup } from "@base-ui/react/checkbox-group";
 import { cn, type Styled } from "../lib";
 
 // Own paths instead of icons: drawn left to right with pathLength 1 so the mark can stroke itself in.
@@ -34,8 +33,4 @@ export function Checkbox({ className, ...props }: Styled<BaseCheckbox.Root.Props
 			</BaseCheckbox.Indicator>
 		</BaseCheckbox.Root>
 	);
-}
-
-export function CheckboxGroup({ className, ...props }: Styled<BaseCheckboxGroup.Props>) {
-	return <BaseCheckboxGroup className={cn("grid gap-2", className)} {...props} />;
 }

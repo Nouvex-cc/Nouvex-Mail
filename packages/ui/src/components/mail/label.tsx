@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { X } from "../../icons";
 import { cn } from "../../lib";
 
 export type LabelColor = "gray" | "red" | "orange" | "green" | "blue" | "purple";
@@ -20,23 +19,13 @@ export function LabelIcon({ color, className }: { color: LabelColor; className?:
 }
 
 // A label on a message: tinted background, text in a darker shade of the same hue.
-export function LabelChip({ name, color, onRemove }: MailLabel & { onRemove?(): void }) {
+export function LabelChip({ name, color }: MailLabel) {
 	return (
 		<span
 			data-label-color={color}
 			className="label-chip inline-flex h-5 shrink-0 items-center gap-0.5 rounded-sm px-1.5 text-xs font-medium"
 		>
 			{name}
-			{onRemove && (
-				<button
-					type="button"
-					aria-label={`Remove ${name}`}
-					onClick={onRemove}
-					className="-mr-1 grid size-4 place-items-center rounded-sm opacity-70 hover:opacity-100"
-				>
-					<X strokeWidth={2} className="size-3" />
-				</button>
-			)}
 		</span>
 	);
 }

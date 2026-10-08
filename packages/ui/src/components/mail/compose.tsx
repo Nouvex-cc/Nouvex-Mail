@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Clock, Paperclip, Trash2 } from "../../icons";
+import { Clock, Paperclip, Trash2, X } from "../../icons";
 import { cn } from "../../lib";
 import { Collapsible } from "../accordion";
 import { Button } from "../button";
-import { DatePicker } from "../calendar";
 import { useCaret } from "../caret";
 import { Combobox } from "../combobox";
-import { Popover } from "../popover";
 import { TextMorph } from "../text-morph";
 import { Tooltip } from "../tooltip";
 import { AttachmentTile } from "./attachment";
+import { SnoozePicker } from "./snooze-picker";
 
 export type Contact = { name: string; email: string };
 
@@ -29,9 +28,7 @@ export type ComposerProps = {
 	contacts: Contact[];
 	defaultTo?: string[];
 	defaultSubject?: string;
-	defaultBody?: string;
 	onSend(message: OutgoingMessage): void;
-	onDiscard?(): void;
 };
 
 let nextId = 0;
@@ -39,20 +36,6 @@ let nextId = 0;
 const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
 
 const formatWhen = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
-
-const atHour = (d: Date, hour: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), hour);
-
-function quickTimes(now: Date): [string, Date][] {
-	const later = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 3);
-	const tomorrow = atHour(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1), 8);
-	const monday = atHour(new Date(now.getFullYear(), now.getMonth(), now.getDate() + ((8 - now.getDay()) % 7 || 7)), 8);
-	const times: [string, Date][] = [
-		["Tomorrow morning", tomorrow],
-		["Monday morning", monday],
-	];
-	if (later.getDate() === now.getDate()) times.unshift(["Later today", later]);
-	return times;
-}
 
 // One recipient row: contacts as suggestions, anything else typed becomes a chip on Enter or comma
 // (marked when it doesn't look like an address).
@@ -147,31 +130,23 @@ function Recipients({
  * Writing a message. Send waits five seconds with an undo on the button itself; with a time chosen under
  * "Send later" it schedules instead. Files can be attached with the button or dropped anywhere on it.
  */
-export function Composer({
-	contacts,
-	defaultTo = [],
-	defaultSubject = "",
-	defaultBody = "",
-	onSend,
-	onDiscard,
-}: ComposerProps) {
+export function Composer({ contacts, defaultTo = [], defaultSubject = "", onSend }: ComposerProps) {
 	const [to, setTo] = useState(defaultTo);
 	const [cc, setCc] = useState<string[]>([]);
 	const [bcc, setBcc] = useState<string[]>([]);
 	const [showCc, setShowCc] = useState(false);
 	const [showBcc, setShowBcc] = useState(false);
 	const [subject, setSubject] = useState(defaultSubject);
-	const [body, setBody] = useState(defaultBody);
+	const [body, setBody] = useState("");
 	const [files, setFiles] = useState<{ id: number; file: File; url?: string }[]>([]);
 	const [sendAt, setSendAt] = useState<Date>();
-	const [laterOpen, setLaterOpen] = useState(false);
 	const [phase, setPhase] = useState<"idle" | "undo" | "done">("idle");
 	const [dragging, setDragging] = useState(0);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const picker = useRef<HTMLInputElement>(null);
 	const subjectCaret = useCaret<HTMLInputElement>();
-	const bodyCaret = useCaret<HTMLTextAreaElement>();
 	const bodyField = useRef<HTMLTextAreaElement>(null);
+	const bodyCaret = useCaret(bodyField);
 
 	// The body grows with its text instead of scrolling inside the composer.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the text changes
@@ -215,7 +190,7 @@ export function Composer({
 		setShowCc(false);
 		setShowBcc(false);
 		setSubject(defaultSubject);
-		setBody(defaultBody);
+		setBody("");
 		for (const f of files) if (f.url) URL.revokeObjectURL(f.url);
 		setFiles([]);
 		setSendAt(undefined);
@@ -304,10 +279,7 @@ export function Composer({
 			<div className="px-3 py-2">
 				{bodyCaret.wrap(
 					<textarea
-						ref={(el) => {
-							bodyField.current = el;
-							bodyCaret.ref(el);
-						}}
+						ref={bodyCaret.ref}
 						value={body}
 						onChange={(e) => setBody(e.target.value)}
 						aria-label="Message"
@@ -345,57 +317,32 @@ export function Composer({
 				>
 					{phase === "undo" ? "Undo" : sendAt ? "Schedule" : "Send"}
 				</Button>
-				<span className="ml-1 text-sm text-muted tabular-nums">
+				<span className="ml-1 text-sm text-muted">
 					<TextMorph by="text">{sendAt ? formatWhen(sendAt) : ""}</TextMorph>
 				</span>
-
-				<Popover.Root open={laterOpen} onOpenChange={setLaterOpen}>
-					<Tooltip content="Send later">
-						<Popover.Trigger render={<Button size="icon" variant="ghost" aria-label="Send later" />}>
-							<Clock strokeWidth={1.75} />
-						</Popover.Trigger>
+				{sendAt && (
+					<Tooltip content="Send right away instead">
+						<Button
+							size="icon-sm"
+							variant="ghost"
+							aria-label="Send right away instead"
+							onClick={() => setSendAt(undefined)}
+						>
+							<X strokeWidth={1.75} />
+						</Button>
 					</Tooltip>
-					<Popover.Popup className="w-64 gap-1 p-1">
-						{quickTimes(new Date()).map(([label, when]) => (
-							<button
-								key={label}
-								type="button"
-								className="flex items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left outline-none hover:bg-hover focus-visible:bg-hover"
-								onClick={() => {
-									setSendAt(when);
-									setLaterOpen(false);
-								}}
-							>
-								{label}
-								<span className="text-sm text-muted">{formatWhen(when)}</span>
-							</button>
-						))}
-						<div className="p-1">
-							<DatePicker
-								value={undefined}
-								placeholder="Pick a date"
-								onChange={(date) => {
-									if (!date) return;
-									const when = atHour(date, 8);
-									setSendAt(when > new Date() ? when : new Date(Date.now() + 3_600_000));
-									setLaterOpen(false);
-								}}
-							/>
-						</div>
-						{sendAt && (
-							<button
-								type="button"
-								className="rounded-sm px-2 py-1.5 text-left text-muted outline-none hover:bg-hover hover:text-ink focus-visible:bg-hover"
-								onClick={() => {
-									setSendAt(undefined);
-									setLaterOpen(false);
-								}}
-							>
-								Send right away instead
-							</button>
-						)}
-					</Popover.Popup>
-				</Popover.Root>
+				)}
+
+				<Tooltip content="Send later">
+					<SnoozePicker
+						onSnooze={setSendAt}
+						trigger={
+							<Button size="icon" variant="ghost" aria-label="Send later">
+								<Clock strokeWidth={1.75} />
+							</Button>
+						}
+					/>
+				</Tooltip>
 
 				<Tooltip content="Attach files">
 					<Button size="icon" variant="ghost" aria-label="Attach files" onClick={() => picker.current?.click()}>
@@ -423,7 +370,6 @@ export function Composer({
 						onHoldComplete={() => {
 							clearTimeout(timer.current);
 							reset();
-							onDiscard?.();
 						}}
 					>
 						<Trash2 strokeWidth={1.75} />

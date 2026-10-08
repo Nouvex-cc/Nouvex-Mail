@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import { Check, X } from "../icons";
-import { cn, field, item, label, popup, type Styled } from "../lib";
+import { cn, item, popup, type Styled } from "../lib";
 import { useGlide } from "./glide";
 import { Highlight } from "./highlight";
 
 function Chips({ className, ...props }: Styled<BaseCombobox.Chips.Props>) {
-	const ref = useGlide<HTMLDivElement>({ enter: true, leave: true });
+	const ref = useGlide<HTMLDivElement>();
 	return (
 		<BaseCombobox.Chips
 			ref={ref}
@@ -19,13 +19,10 @@ function Chips({ className, ...props }: Styled<BaseCombobox.Chips.Props>) {
 	);
 }
 
-// Multiple selection: wrap Chips around Chip items plus the Input, inside <Combobox.Value>{(v) => ...}</Combobox.Value>.
+// Multiple selection: wrap Chips around Chip items plus the ChipsInput, inside <Combobox.Value>{(v) => ...}</Combobox.Value>.
 export const Combobox = {
 	Root: BaseCombobox.Root,
 	Value: BaseCombobox.Value,
-	Input: ({ className, ...props }: Styled<BaseCombobox.Input.Props>) => (
-		<BaseCombobox.Input className={cn(field, className)} {...props} />
-	),
 	Chips,
 	// Unstyled input that sits inside Chips; Chips styles it.
 	ChipsInput: BaseCombobox.Input,
@@ -73,9 +70,5 @@ export const Combobox = {
 	),
 	Empty: ({ className, ...props }: Styled<BaseCombobox.Empty.Props>) => (
 		<BaseCombobox.Empty className={cn("px-2 py-1.5 text-sm text-muted empty:hidden", className)} {...props} />
-	),
-	Group: BaseCombobox.Group,
-	GroupLabel: ({ className, ...props }: Styled<BaseCombobox.GroupLabel.Props>) => (
-		<BaseCombobox.GroupLabel className={cn(label, className)} {...props} />
 	),
 };

@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DayPicker, type DayPickerProps } from "react-day-picker";
 import { CalendarDays, ChevronLeft, ChevronRight } from "../icons";
 import { cn, field, popup } from "../lib";
-import { parseDate } from "../parse-date";
+import { localeOrder, parseDate } from "../parse-date";
 import { useCaret } from "./caret";
 import { Select } from "./select";
 import { TextMorph } from "./text-morph";
@@ -64,7 +64,6 @@ function Picker({
 			onValueChange={(v) => v !== null && onChange(v)}
 		>
 			<Select.Trigger
-				bare
 				aria-label={`${label}, change ${name}`}
 				className="-mx-1 rounded-sm px-1 tabular-nums outline-none hover:bg-hover focus-visible:outline-2 open:bg-hover"
 			>
@@ -286,22 +285,13 @@ export function RangeCalendar({
 	);
 }
 
-type Part = "day" | "month" | "year";
 const numeric = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
-const isPart = (type: string): type is Part => type === "day" || type === "month" || type === "year";
-
-// Day, month and year in the order the user's locale writes them, e.g. month, day, year for en-US.
-const dateOrder = (): Part[] =>
-	numeric
-		.formatToParts(new Date(2000, 10, 22))
-		.map((p) => p.type)
-		.filter(isPart);
 
 const formatDate = (date: Date) => numeric.format(date);
 
 const datePattern = () => {
 	const separator = numeric.formatToParts(new Date()).find((p) => p.type === "literal")?.value ?? "/";
-	return dateOrder()
+	return localeOrder()
 		.map((t) => ({ day: "DD", month: "MM", year: "YYYY" })[t])
 		.join(separator);
 };

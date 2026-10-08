@@ -32,7 +32,6 @@ function PopoverDescription({ className, ...props }: Styled<BasePopover.Descript
 export const Popover = {
 	Root: BasePopover.Root,
 	Trigger: BasePopover.Trigger,
-	Close: BasePopover.Close,
 	Popup: PopoverPopup,
 	Title: PopoverTitle,
 	Description: PopoverDescription,

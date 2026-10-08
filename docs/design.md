@@ -83,7 +83,7 @@ When an action needs confirming, the button turns green for about 1.5 s and its 
 
 Actions that can be taken back right after (sending) give a short undo window on the button itself: the label morphs to "Undo" and the outline drains for the length of the window (`<Button countdown={5000}>`). Clicking again cancels. When the outline is empty the action happens and the button confirms as above.
 
-Destructive actions that can't be undone are held, not clicked (`<Button hold={1200}>`): the button fills from the left while held, runs back when let go early, and only acts when full. A plain tap shows a hint ("Hold to delete"). Space and Enter can be held too. Longer labels crossfade instead of morphing (`fade`). Toasts are for things that can be undone or happened elsewhere.
+Destructive actions that can't be undone are held, not clicked (`<Button hold={1200}>`): the button fills from the left while held, runs back when let go early, and only acts when full. Space and Enter can be held too. Toasts are for things that can be undone or happened elsewhere.
 
 ## Mail
 
@@ -92,7 +92,7 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 - **Snooze** offers a few times that make sense right now and a field that understands "tomorrow 3pm".
 - **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Opening one grows it in a single motion while the body fades in from under the snippet it replaces; closing runs the same way back. Quoted history hides behind "•••".
 - **HTML mail** renders sanitized in a sandboxed frame without scripts, on a light card in both themes. Remote images stay hidden behind a quiet notice until allowed, and then load through the image proxy.
-- **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and can schedule.
+- **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and schedules with the snooze picker.
 - **Frame** (`AppShell`): logo, sidebar and header are one sunken surface without a dividing line; the content sits in it as a paper panel with a rounded corner (`xl`) where they meet. The logo takes the top left, the sidebar (account picker first) starts below it, and search sits centered in the window.
 - **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; the account picker is a select (see above) showing the current account; search reads like you'd say it ("lena", "from jonas", "since friday", "unread" offer filters that become readable chips; typed operators like `from:` still work), rests as a borderless pill and opens into a card with the suggestions; `?` lists every shortcut.
 

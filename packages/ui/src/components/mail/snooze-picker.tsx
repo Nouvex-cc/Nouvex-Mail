@@ -3,12 +3,11 @@ import { Popover as BasePopover } from "@base-ui/react/popover";
 import { type ReactElement, useState } from "react";
 import { CalendarDays } from "../../icons";
 import { cn, field, popup } from "../../lib";
-import { parseDate } from "../../parse-date";
+import { addDays, parseDate } from "../../parse-date";
 import { Calendar } from "../calendar";
 import { Highlight } from "../highlight";
 
 const at = (day: Date, hour: number) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour);
-const addDays = (day: Date, n: number) => new Date(day.getFullYear(), day.getMonth(), day.getDate() + n);
 
 function quickOptions(now: Date) {
 	const weekday = now.getDay();
@@ -47,14 +46,16 @@ export function parseSnooze(text: string, now = new Date()): Date | null {
 	return date > now ? date : null;
 }
 
-const formatWhen = (date: Date, now: Date) =>
-	date.toLocaleString(undefined, {
-		weekday: date.getTime() - now.getTime() < 6 * 86_400_000 ? "short" : undefined,
-		day: date.getTime() - now.getTime() < 6 * 86_400_000 ? undefined : "numeric",
-		month: date.getTime() - now.getTime() < 6 * 86_400_000 ? undefined : "short",
+function formatWhen(date: Date, now: Date) {
+	const near = date.getTime() - now.getTime() < 6 * 86_400_000;
+	return date.toLocaleString(undefined, {
+		weekday: near ? "short" : undefined,
+		day: near ? undefined : "numeric",
+		month: near ? undefined : "short",
 		hour: "numeric",
 		minute: "2-digit",
 	});
+}
 
 export type SnoozePickerProps = {
 	onSnooze: (until: Date) => void;
@@ -62,17 +63,17 @@ export type SnoozePickerProps = {
 	trigger?: ReactElement;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
-	now?: Date;
 };
 
 /** Quick snooze times, a field that takes typed dates and times, and the full calendar one click away. */
-export function SnoozePicker({ onSnooze, trigger, open, onOpenChange, now: fixedNow }: SnoozePickerProps) {
+// Other props (from a wrapping Tooltip) go to the trigger.
+export function SnoozePicker({ onSnooze, trigger, open, onOpenChange, ...props }: SnoozePickerProps) {
 	const [innerOpen, setInnerOpen] = useState(false);
 	const [text, setText] = useState("");
 	const [invalid, setInvalid] = useState(false);
 	const [calendar, setCalendar] = useState(false);
 	const isOpen = open ?? innerOpen;
-	const now = fixedNow ?? new Date();
+	const now = new Date();
 	const typed = text.trim() ? parseSnooze(text, now) : null;
 
 	const setOpen = (next: boolean) => {
@@ -106,7 +107,7 @@ export function SnoozePicker({ onSnooze, trigger, open, onOpenChange, now: fixed
 
 	return (
 		<BasePopover.Root open={isOpen} onOpenChange={setOpen}>
-			{trigger && <BasePopover.Trigger render={trigger} />}
+			{trigger && <BasePopover.Trigger render={trigger} {...props} />}
 			<BasePopover.Portal>
 				<BasePopover.Positioner sideOffset={6} align="end" className="z-50">
 					<BasePopover.Popup data-snooze className={cn(popup, "w-64 p-1")}>

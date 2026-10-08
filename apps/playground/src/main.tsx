@@ -142,9 +142,7 @@ function DeleteDemo() {
 	return (
 		<Button
 			variant="danger"
-			fade
 			hold={1200}
-			holdHint="Hold to delete"
 			labels={["Deleted"]}
 			success={deleted && "Deleted"}
 			onHoldComplete={() => {
