@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: Apache-2.0
+import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
+import { Menu as BaseMenu } from "@base-ui/react/menu";
+import { Check, ChevronRight } from "lucide-react";
+import type { ComponentProps } from "react";
+import { cn, item, label, popup, type Styled } from "../lib";
+
+type PopupProps = Styled<BaseMenu.Popup.Props> & Pick<BaseMenu.Positioner.Props, "side" | "align" | "sideOffset">;
+
+const popupClass = "min-w-44 p-1";
+
+function MenuPopup({ className, side, align = "start", sideOffset = 4, ...props }: PopupProps) {
+	return (
+		<BaseMenu.Portal>
+			<BaseMenu.Positioner side={side} align={align} sideOffset={sideOffset} className="z-50 outline-none">
+				<BaseMenu.Popup className={cn(popup, popupClass, className)} {...props} />
+			</BaseMenu.Positioner>
+		</BaseMenu.Portal>
+	);
+}
+
+function ContextMenuPopup({ className, ...props }: Styled<BaseMenu.Popup.Props>) {
+	return (
+		<BaseContextMenu.Portal>
+			<BaseContextMenu.Positioner className="z-50 outline-none">
+				<BaseContextMenu.Popup className={cn(popup, popupClass, className)} {...props} />
+			</BaseContextMenu.Positioner>
+		</BaseContextMenu.Portal>
+	);
+}
+
+function MenuItem({ className, ...props }: Styled<BaseMenu.Item.Props>) {
+	return <BaseMenu.Item className={cn(item, className)} {...props} />;
+}
+
+function MenuLinkItem({ className, ...props }: Styled<BaseMenu.LinkItem.Props>) {
+	return <BaseMenu.LinkItem className={cn(item, className)} {...props} />;
+}
+
+function MenuSeparator({ className, ...props }: Styled<BaseMenu.Separator.Props>) {
+	return <BaseMenu.Separator className={cn("-mx-1 my-1 h-px bg-line", className)} {...props} />;
+}
+
+function MenuGroupLabel({ className, ...props }: Styled<BaseMenu.GroupLabel.Props>) {
+	return <BaseMenu.GroupLabel className={cn(label, className)} {...props} />;
+}
+
+function MenuCheckboxItem({ className, children, ...props }: Styled<BaseMenu.CheckboxItem.Props>) {
+	return (
+		<BaseMenu.CheckboxItem className={cn(item, "relative pr-8 pl-7", className)} {...props}>
+			<BaseMenu.CheckboxItemIndicator className="absolute left-2">
+				<Check strokeWidth={1.75} />
+			</BaseMenu.CheckboxItemIndicator>
+			{children}
+		</BaseMenu.CheckboxItem>
+	);
+}
+
+function MenuRadioItem({ className, children, ...props }: Styled<BaseMenu.RadioItem.Props>) {
+	return (
+		<BaseMenu.RadioItem className={cn(item, "relative pr-8 pl-7", className)} {...props}>
+			<BaseMenu.RadioItemIndicator className="absolute left-2">
+				<Check strokeWidth={1.75} />
+			</BaseMenu.RadioItemIndicator>
+			{children}
+		</BaseMenu.RadioItem>
+	);
+}
+
+function MenuSubmenuTrigger({ className, children, ...props }: Styled<BaseMenu.SubmenuTrigger.Props>) {
+	return (
+		<BaseMenu.SubmenuTrigger className={cn(item, "open:bg-hover", className)} {...props}>
+			{children}
+			<ChevronRight strokeWidth={1.75} className="ml-auto text-muted" />
+		</BaseMenu.SubmenuTrigger>
+	);
+}
+
+function MenuShortcut({ className, ...props }: ComponentProps<"span">) {
+	return <span className={cn("ml-auto pl-4 text-xs text-muted", className)} {...props} />;
+}
+
+export const Menu = {
+	Root: BaseMenu.Root,
+	Trigger: BaseMenu.Trigger,
+	Popup: MenuPopup,
+	Item: MenuItem,
+	LinkItem: MenuLinkItem,
+	Separator: MenuSeparator,
+	Group: BaseMenu.Group,
+	GroupLabel: MenuGroupLabel,
+	CheckboxItem: MenuCheckboxItem,
+	RadioGroup: BaseMenu.RadioGroup,
+	RadioItem: MenuRadioItem,
+	SubmenuRoot: BaseMenu.SubmenuRoot,
+	SubmenuTrigger: MenuSubmenuTrigger,
+	Shortcut: MenuShortcut,
+};
+
+export const ContextMenu = {
+	...Menu,
+	Root: BaseContextMenu.Root,
+	Trigger: BaseContextMenu.Trigger,
+	Popup: ContextMenuPopup,
+};

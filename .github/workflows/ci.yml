@@ -21,6 +21,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: touch .env && bun run db:migrate
+      - run: bunx oxlint
       - run: bunx turbo lint typecheck test build --filter='!@nouvex/engine'
 
   go:

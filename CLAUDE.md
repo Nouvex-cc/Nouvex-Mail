@@ -14,12 +14,15 @@ Nouvex Mail is an open-source email client (successor of "Mail Sync") that keeps
 
 ```
 apps/api         Hono + zod-openapi, BetterAuth, Drizzle (schema + migrations in drizzle/)
-apps/web         Vite, React, TanStack Router/Query, Tailwind, shadcn/ui, Dexie
+apps/web         Vite, React, TanStack Router/Query, Tailwind, Dexie
 apps/site        Next.js, website and docs only
 apps/apple       SwiftUI multiplatform, GRDB, swift-openapi-generator (project via xcodegen)
 engine           Go module: go-imap v2, go-smtp, go-message, go-msgauth, pgx + sqlc, NATS
 packages/schema  JSON schemas for NATS messages, TS and Go types are generated from them
 packages/sdk     Headless client core (Apache-2.0)
+packages/ui      Our UI library on Base UI, tokens in src/styles.css (Apache-2.0)
+apps/playground  Temporary component playground, will be deleted
+docs/design.md   Design language, read before any UI work
 ```
 
 ## Commands
@@ -34,20 +37,23 @@ bun run db:migrate
 bun run gen                         # TS/Go types from packages/schema + sqlc
 bun run openapi                     # rewrite apps/apple/Nouvex/openapi.json
 bun run e2e                         # e2e tests
+bun run --cwd apps/playground dev   # component playground on :5174
 cd apps/apple && xcodegen           # generate the Xcode project
 ```
 
 ## Stack
 
 - Go: go-imap v2, go-smtp, go-sasl, go-message, go-msgauth, pgx + sqlc, slog, OpenTelemetry, Sentry
-- TypeScript: Bun (runtime and package manager), Hono + @hono/zod-openapi, BetterAuth, Drizzle, Biome
-- Web: Vite, React, TanStack Router and Query, Tailwind, shadcn/ui, Dexie, DOMPurify
+- TypeScript: Bun (runtime and package manager), Hono + @hono/zod-openapi, BetterAuth, Drizzle, Biome, Oxlint with @shadcn/lint
+- Web: Vite, React, TanStack Router and Query, Tailwind, Base UI via packages/ui, Dexie, DOMPurify
 - Apple: SwiftUI multiplatform, GRDB, swift-openapi-generator
 - Infra: Bun workspaces + Turborepo, Docker, NATS JetStream, PostgreSQL
 
 ## Rules
 
 - Everything is in English: code, comments, UI copy, docs, commits, PRs, issues.
+- UI follows docs/design.md. Use components from `@nouvex/ui`, never shadcn/ui or raw Base UI in apps. Only theme tokens, no raw colors or arbitrary values; `bun run lint` checks it. Need a new look? Add a variant in packages/ui.
+- Don't add easter eggs, playful animations, decorative motion or witty copy. Those are designed by people on the team.
 - Always use the latest stable version of every tool. When unsure, check the current docs instead of working from memory.
 - Change the database schema only through Drizzle migrations, then regenerate the Go code with sqlc (`bun run gen`).
 - Only the Go engine writes mailbox tables.

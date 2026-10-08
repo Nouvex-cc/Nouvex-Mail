@@ -13,7 +13,7 @@ function Home() {
 		<main className="grid min-h-screen place-items-center">
 			<div className="text-center">
 				<h1 className="text-3xl font-semibold">Nouvex Mail</h1>
-				<p className="text-sm text-muted-foreground">API: {health.data?.ok ? "up" : "down"}</p>
+				<p className="text-sm text-muted">API: {health.data?.ok ? "up" : "down"}</p>
 			</div>
 		</main>
 	);
