@@ -62,7 +62,9 @@ Loading buttons darken and a short segment of their outline runs around them (`<
 
 When an action needs confirming, the button turns green for about 1.5 s and its label morphs into the past tense with a check in front (`<Button success="Saved">`): letters both words share stay and glide, the rest fades. The button keeps its size, so nothing around it moves: pass every label it can show (`labels={["Undo", "Sent"]}`) and it sizes to the widest. Leaving letters travel with their neighbours and slide out through the button's edge. `TextMorph` does the same for any text that changes in place.
 
-Actions that can be taken back right after (sending) give a short undo window on the button itself: the label morphs to "Undo" and the outline drains for the length of the window (`<Button countdown={5000}>`). Clicking again cancels. When the outline is empty the action happens and the button confirms as above. Toasts are for things that can be undone or happened elsewhere.
+Actions that can be taken back right after (sending) give a short undo window on the button itself: the label morphs to "Undo" and the outline drains for the length of the window (`<Button countdown={5000}>`). Clicking again cancels. When the outline is empty the action happens and the button confirms as above.
+
+Destructive actions that can't be undone are held, not clicked (`<Button hold={1200}>`): the button fills from the left while held, runs back when let go early, and only acts when full. A plain tap shows a hint ("Hold to delete"). Space and Enter can be held too. Longer labels crossfade instead of morphing (`fade`). Toasts are for things that can be undone or happened elsewhere.
 
 ## Icons
 

@@ -47,7 +47,18 @@ function diff(prev: Glyph[], text: string) {
 	return { next, removed };
 }
 
-export function TextMorph({ children, icon, className }: { children: string; icon?: ReactNode; className?: string }) {
+export function TextMorph({
+	children,
+	icon,
+	fade = false,
+	className,
+}: {
+	children: string;
+	icon?: ReactNode;
+	/** Crossfade whole texts instead of morphing letters; calmer for longer labels. */
+	fade?: boolean;
+	className?: string;
+}) {
 	const ref = useRef<HTMLSpanElement>(null);
 	const before = useRef(new Map<number, number>());
 	const measured = useRef<string | null>(null);
@@ -71,7 +82,7 @@ export function TextMorph({ children, icon, className }: { children: string; ico
 	if (id !== state.id) {
 		// The DOM still shows the old text here, so this is the last chance to see where letters are.
 		before.current = positions();
-		const { next, removed } = diff(state.glyphs, id);
+		const { next, removed } = fade ? { next: glyphs(id), removed: state.glyphs } : diff(state.glyphs, id);
 		setState({ id, glyphs: next, exiting: [...state.exiting, ...removed] });
 	}
 

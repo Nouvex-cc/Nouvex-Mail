@@ -129,6 +129,26 @@ function CommandDemo() {
 	);
 }
 
+function DeleteDemo() {
+	const [deleted, setDeleted] = useState(false);
+	return (
+		<Button
+			variant="danger"
+			fade
+			hold={1200}
+			holdHint="Hold to delete"
+			labels={["Deleted"]}
+			success={deleted && "Deleted"}
+			onHoldComplete={() => {
+				setDeleted(true);
+				setTimeout(() => setDeleted(false), 1500);
+			}}
+		>
+			Delete forever
+		</Button>
+	);
+}
+
 function SendDemo() {
 	const [state, setState] = useState<"idle" | "undo" | "sent">("idle");
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -206,7 +226,7 @@ function App() {
 				<SendDemo />
 				<SaveDraftDemo />
 				<Button variant="ghost">Cancel</Button>
-				<Button variant="danger">Delete forever</Button>
+				<DeleteDemo />
 				<Button size="sm">Small</Button>
 				<Tooltip content="Archive" shortcut="E">
 					<Button size="icon" variant="ghost" aria-label="Archive">
