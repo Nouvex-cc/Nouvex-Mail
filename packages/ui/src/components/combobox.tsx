@@ -13,29 +13,27 @@ function useChipMotion() {
 		const box = ref.current;
 		if (!box) return;
 		const easing = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-		let rects = new Map<Element, DOMRect>();
-		const snap = () => {
-			rects = new Map([...box.children].map((c) => [c, c.getBoundingClientRect()]));
-		};
 		const ghost = (n: Node) => n instanceof HTMLElement && "ghost" in n.dataset;
+		// Layout positions, not on-screen ones: a glide in progress must not look like a change to the next update,
+		// or React's follow-up commits would restart it from the wrong place.
+		let positions = new Map<Element, { x: number; y: number }>();
+		const snap = () => {
+			positions = new Map();
+			for (const c of box.children)
+				if (c instanceof HTMLElement && !ghost(c)) positions.set(c, { x: c.offsetLeft, y: c.offsetTop });
+		};
 
 		const watch = new MutationObserver((records) => {
 			if (matchMedia("(prefers-reduced-motion: reduce)").matches) return snap();
-			const origin = box.getBoundingClientRect();
 			for (const record of records) {
 				for (const n of record.removedNodes) {
-					const old = rects.get(n as Element);
+					const old = positions.get(n as Element);
 					if (!(n instanceof HTMLElement) || ghost(n) || !old) continue;
 					const copy = n.cloneNode(true) as HTMLElement;
 					copy.dataset.ghost = "";
 					copy.inert = true;
 					copy.setAttribute("aria-hidden", "true");
-					Object.assign(copy.style, {
-						position: "absolute",
-						margin: "0",
-						left: `${old.left - origin.left - box.clientLeft}px`,
-						top: `${old.top - origin.top - box.clientTop}px`,
-					});
+					Object.assign(copy.style, { position: "absolute", margin: "0", left: `${old.x}px`, top: `${old.y}px` });
 					box.append(copy);
 					copy.animate(
 						{ opacity: [1, 0], scale: [1, 0.9] },
@@ -47,13 +45,18 @@ function useChipMotion() {
 						n.animate({ opacity: [0, 1], scale: [0.9, 1] }, { duration: 140, easing });
 			}
 			for (const c of box.children) {
-				const old = rects.get(c);
-				if (ghost(c) || !old) continue;
-				const now = c.getBoundingClientRect();
-				const dx = old.left - now.left;
-				const dy = old.top - now.top;
-				if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5)
-					c.animate({ transform: [`translate(${dx}px, ${dy}px)`, "none"] }, { duration: 160, easing });
+				const old = positions.get(c);
+				if (!(c instanceof HTMLElement) || ghost(c) || !old) continue;
+				const dx = old.x - c.offsetLeft;
+				const dy = old.y - c.offsetTop;
+				if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+				// Start from where it is on screen, which includes a glide that's still running.
+				const running = new DOMMatrix(getComputedStyle(c).transform);
+				for (const a of c.getAnimations()) if (a.id === "glide") a.cancel();
+				c.animate(
+					{ transform: [`translate(${dx + running.e}px, ${dy + running.f}px)`, "none"] },
+					{ duration: 160, easing, id: "glide" },
+				);
 			}
 			snap();
 		});
