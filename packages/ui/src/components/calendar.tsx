@@ -2,7 +2,7 @@
 import { Popover } from "@base-ui/react/popover";
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DayPicker, type DayPickerProps } from "react-day-picker";
 import { cn, popup } from "../lib";
 import { Button } from "./button";
@@ -25,93 +25,88 @@ function weekStart(): DayPickerProps["weekStartsOn"] {
 
 const shift = (date: Date, months: number) => new Date(date.getFullYear(), date.getMonth() + months, 1);
 
-// The year is a button that turns into a field: type a year, Enter or click away to jump, Escape to cancel,
-// arrow keys to step.
-function Year({ year, onChange }: { year: number; onChange: (year: number) => void }) {
-	const [editing, setEditing] = useState(false);
-	const button = useRef<HTMLButtonElement>(null);
-	const input = useRef<HTMLInputElement>(null);
-	const width = useRef(0);
+type Option = { value: number; label: string };
 
-	useLayoutEffect(() => {
-		if (!editing || !input.current) return;
-		input.current.style.width = `${width.current}px`;
-		input.current.select();
-	}, [editing]);
+// Month and year in the header: a list that opens around the current value, plus typing. While the list is open,
+// what you type shows in the header and highlights the first match; Enter takes it, or takes a typed value that
+// isn't in the list (a year like 1850, a month number like 3).
+function Picker({
+	value,
+	options,
+	onChange,
+	parse,
+	chars,
+	name,
+}: {
+	value: number;
+	options: Option[];
+	onChange: (value: number) => void;
+	parse: (typed: string) => number | null;
+	chars: RegExp;
+	name: string;
+}) {
+	const [open, setOpen] = useState(false);
+	const [typed, setTyped] = useState("");
+	useEffect(() => {
+		if (!typed) return;
+		const t = setTimeout(() => setTyped(""), 1500);
+		return () => clearTimeout(t);
+	}, [typed]);
+	const label = options.find((o) => o.value === value)?.label ?? String(value);
 
-	const commit = () => {
-		const next = Number(input.current?.value);
-		setEditing(false);
-		if (Number.isInteger(next) && next >= 1000 && next <= 9999 && next !== year) onChange(next);
-	};
-
-	const box = "-mx-1 rounded-sm px-1 font-semibold tabular-nums outline-none";
-	if (editing)
-		return (
-			<input
-				ref={input}
-				defaultValue={year}
-				inputMode="numeric"
-				maxLength={4}
-				aria-label="Year"
-				className={cn(box, "bg-paper text-ink ring-1 ring-line-strong")}
-				onBlur={commit}
-				onKeyDown={(e) => {
-					if (e.key === "Enter") {
-						e.preventDefault();
-						commit();
-					} else if (e.key === "Escape") {
+	return (
+		<Select.Root
+			value={value}
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				setTyped("");
+			}}
+			onValueChange={(v) => v !== null && onChange(v)}
+		>
+			<BaseSelect.Trigger
+				aria-label={`${label}, change ${name}`}
+				className="-mx-1 rounded-sm px-1 tabular-nums outline-none hover:bg-hover focus-visible:outline-2 open:bg-hover"
+			>
+				<BaseSelect.Value>
+					{() => <TextMorph by={typed ? "letter" : "text"}>{typed || label}</TextMorph>}
+				</BaseSelect.Value>
+			</BaseSelect.Trigger>
+			<Select.Popup
+				onKeyDownCapture={(e) => {
+					if (e.key === "Backspace") setTyped((t) => t.slice(0, -1));
+					else if (e.key === "Enter" && typed) {
+						const v = parse(typed);
+						if (v === null) return;
 						e.preventDefault();
 						e.stopPropagation();
-						setEditing(false);
-					} else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-						e.preventDefault();
-						const next = year + (e.key === "ArrowUp" ? 1 : -1);
-						e.currentTarget.value = String(next);
-						onChange(next);
-					}
+						onChange(v);
+						setOpen(false);
+					} else if (e.key.length === 1 && chars.test(e.key)) setTyped((t) => (t + e.key).slice(0, 12));
 				}}
-			/>
-		);
-	return (
-		<button
-			ref={button}
-			type="button"
-			aria-label={`${year}, change year`}
-			className={cn(box, "hover:bg-hover focus-visible:outline-2")}
-			onClick={() => {
-				width.current = button.current?.offsetWidth ?? 0;
-				setEditing(true);
-			}}
-		>
-			<TextMorph>{String(year)}</TextMorph>
-		</button>
-	);
-}
-
-// The month name opens a list of all months around itself, the current one staying in place.
-function Month({ date, onChange }: { date: Date; onChange: (month: number) => void }) {
-	const names = Array.from({ length: 12 }, (_, m) =>
-		new Date(2000, m, 1).toLocaleDateString(undefined, { month: "long" }),
-	);
-	return (
-		<Select.Root value={date.getMonth()} onValueChange={(m) => m !== null && onChange(m)}>
-			<BaseSelect.Trigger
-				aria-label={`${names[date.getMonth()]}, change month`}
-				className="-mx-1 rounded-sm px-1 outline-none hover:bg-hover focus-visible:outline-2 open:bg-hover"
 			>
-				<BaseSelect.Value>{(m: number) => <TextMorph by="text">{names[m] ?? ""}</TextMorph>}</BaseSelect.Value>
-			</BaseSelect.Trigger>
-			<Select.Popup>
-				{names.map((name, m) => (
-					<Select.Item key={name} value={m}>
-						{name}
+				{options.map((o) => (
+					<Select.Item key={o.value} value={o.value}>
+						{o.label}
 					</Select.Item>
 				))}
 			</Select.Popup>
 		</Select.Root>
 	);
 }
+
+const months: Option[] = Array.from({ length: 12 }, (_, m) => ({
+	value: m,
+	label: new Date(2000, m, 1).toLocaleDateString(undefined, { month: "long" }),
+}));
+const parseMonth = (typed: string) => {
+	const n = Number(typed);
+	return Number.isInteger(n) && n >= 1 && n <= 12 ? n - 1 : null;
+};
+const parseYear = (typed: string) => (/^\d{4}$/.test(typed) ? Number(typed) : null);
+// Three years either side; any other year is a few keystrokes away.
+const years = (around: number): Option[] =>
+	Array.from({ length: 7 }, (_, i) => ({ value: around - 3 + i, label: String(around - 3 + i) }));
 
 // The header is ours, not the library's: its caption is rebuilt on every month change and couldn't animate across
 // it. Here the month name crossfades while the year stays and glides.
@@ -122,12 +117,9 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 		setShown(date);
 		onMonthChange?.(date);
 	};
-	const monthName = current.toLocaleDateString(undefined, { month: "long" });
-
-	// Month and year are separate elements now, so the year glides by hand when the month name changes width.
+	// Month and year are separate elements, so the year glides by hand whenever the month label changes width.
 	const yearBox = useRef<HTMLSpanElement>(null);
 	const yearLeft = useRef<number | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: re-measure whenever the month name changes
 	useLayoutEffect(() => {
 		const el = yearBox.current;
 		if (!el) return;
@@ -142,15 +134,29 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 				{ duration: 400, easing: "cubic-bezier(0.19, 1, 0.22, 1)" },
 			);
 		yearLeft.current = left;
-	}, [monthName]);
+	});
 
 	return (
 		<div className={cn("grid gap-2 p-3 select-none", className)}>
 			<div className="flex h-7 items-center justify-between pl-1">
 				<span aria-live="polite" className="relative flex items-baseline gap-1 font-semibold">
-					<Month date={current} onChange={(m) => go(new Date(current.getFullYear(), m, 1))} />
+					<Picker
+						name="month"
+						value={current.getMonth()}
+						options={months}
+						parse={parseMonth}
+						chars={/[\p{L}\d]/u}
+						onChange={(m) => go(new Date(current.getFullYear(), m, 1))}
+					/>
 					<span ref={yearBox} className="inline-flex">
-						<Year year={current.getFullYear()} onChange={(year) => go(new Date(year, current.getMonth(), 1))} />
+						<Picker
+							name="year"
+							value={current.getFullYear()}
+							options={years(current.getFullYear())}
+							parse={parseYear}
+							chars={/\d/}
+							onChange={(year) => go(new Date(year, current.getMonth(), 1))}
+						/>
 					</span>
 				</span>
 				<span className="flex gap-0.5">
