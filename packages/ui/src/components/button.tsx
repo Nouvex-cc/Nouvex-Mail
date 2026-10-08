@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Button as BaseButton } from "@base-ui/react/button";
+import { useEffect, useState } from "react";
 import { cn, type Styled } from "../lib";
 
 const variants = {
@@ -31,6 +32,17 @@ export function Button({
 	onClick,
 	...props
 }: ButtonProps) {
+	// Keep the ring mounted briefly after loading ends so it can shrink out.
+	const [ring, setRing] = useState(loading);
+	useEffect(() => {
+		if (loading) {
+			setRing(true);
+			return;
+		}
+		const t = setTimeout(() => setRing(false), 200);
+		return () => clearTimeout(t);
+	}, [loading]);
+
 	return (
 		<BaseButton
 			className={cn(
@@ -46,11 +58,11 @@ export function Button({
 			{...props}
 		>
 			{children}
-			{loading && (
+			{(loading || ring) && (
 				<>
-					<span className="absolute inset-0 rounded-md bg-scrim" />
+					<span data-active={loading || undefined} className="button-scrim absolute inset-0 rounded-md bg-scrim" />
 					<span aria-hidden className="pointer-events-none absolute -inset-1">
-						<svg className="button-ring size-full overflow-visible">
+						<svg aria-hidden data-active={loading || undefined} className="button-ring size-full overflow-visible">
 							<rect pathLength={100} />
 						</svg>
 					</span>

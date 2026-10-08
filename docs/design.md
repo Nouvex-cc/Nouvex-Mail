@@ -58,7 +58,7 @@ Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Border
 
 120 to 200 ms, ease-out, enter slightly faster than exit. Popups fade and scale from 98%, dialogs from 96%. Nothing animates on page load. `prefers-reduced-motion` turns everything into instant changes.
 
-Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
+Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The segment grows in over about 200 ms and shrinks out a little faster. The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
 
 ## Icons
 
