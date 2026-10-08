@@ -2,6 +2,7 @@
 import { Toast as BaseToast } from "@base-ui/react/toast";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { useGlide } from "./glide";
 
 // Usage: const toast = useToast(); toast.add({ title: "Archived", actionProps: { children: "Undo", onClick } })
 export const useToast = BaseToast.useToastManager;
@@ -12,11 +13,22 @@ export function ToastProvider({ children, ...props }: BaseToast.Provider.Props &
 		<BaseToast.Provider limit={3} {...props}>
 			{children}
 			<BaseToast.Portal>
-				<BaseToast.Viewport className="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-full max-w-sm flex-col-reverse gap-2 px-4 outline-none">
-					<ToastList />
-				</BaseToast.Viewport>
+				<ToastViewport />
 			</BaseToast.Portal>
 		</BaseToast.Provider>
+	);
+}
+
+// Toasts make room for each other by gliding instead of jumping; their own enter and exit come from Base UI.
+function ToastViewport() {
+	const ref = useGlide<HTMLDivElement>();
+	return (
+		<BaseToast.Viewport
+			ref={ref}
+			className="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-full max-w-sm flex-col-reverse gap-2 px-4 outline-none"
+		>
+			<ToastList />
+		</BaseToast.Viewport>
 	);
 }
 

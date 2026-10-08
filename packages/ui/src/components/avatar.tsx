@@ -23,7 +23,13 @@ export function Avatar({ src, name, size = "md", className }: AvatarProps) {
 				className,
 			)}
 		>
-			{src && <BaseAvatar.Image src={src} alt={name} className="size-full object-cover" />}
+			{src && (
+				<BaseAvatar.Image
+					src={src}
+					alt={name}
+					className="size-full object-cover transition-opacity duration-200 starting:opacity-0"
+				/>
+			)}
 			<BaseAvatar.Fallback>{initials(name)}</BaseAvatar.Fallback>
 		</BaseAvatar.Root>
 	);

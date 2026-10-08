@@ -11,12 +11,12 @@ export function Radio({ className, ...props }: Styled<BaseRadio.Root.Props>) {
 	return (
 		<BaseRadio.Root
 			className={cn(
-				"grid size-4 shrink-0 place-items-center rounded-full border border-line-strong bg-paper outline-none transition duration-100 checked:border-ink disabled:opacity-50",
+				"grid size-4 shrink-0 place-items-center rounded-full border border-line-strong bg-paper outline-none transition duration-150 ease-out active:scale-92 checked:border-ink disabled:opacity-50",
 				className,
 			)}
 			{...props}
 		>
-			<BaseRadio.Indicator className="size-2 rounded-full bg-ink" />
+			<BaseRadio.Indicator className="size-2 rounded-full bg-ink transition-transform duration-150 ease-out starting:scale-0 ending:scale-0" />
 		</BaseRadio.Root>
 	);
 }

@@ -148,7 +148,7 @@ export function Button({
 		<>
 			<BaseButton
 				className={cn(
-					"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-200 disabled:pointer-events-none disabled:opacity-50 data-[success]:border-positive data-[success]:bg-positive data-[success]:text-on-ink data-[success]:opacity-100 [&>svg]:size-4 [&>svg]:shrink-0",
+					"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-200 active:scale-98 disabled:pointer-events-none disabled:opacity-50 data-[success]:border-positive data-[success]:bg-positive data-[success]:text-on-ink data-[success]:opacity-100 [&>svg]:size-4 [&>svg]:shrink-0",
 					variants[variant],
 					sizes[size],
 					className,

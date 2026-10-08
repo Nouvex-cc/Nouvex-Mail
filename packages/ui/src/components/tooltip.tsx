@@ -18,7 +18,7 @@ export function Tooltip({ content, shortcut, side, children }: TooltipProps) {
 			<BaseTooltip.Trigger render={children} />
 			<BaseTooltip.Portal>
 				<BaseTooltip.Positioner side={side} sideOffset={6} className="z-50">
-					<BaseTooltip.Popup className="flex origin-(--transform-origin) items-center gap-2 rounded-md bg-ink px-2 py-1 text-sm text-on-ink shadow-pop transition duration-100 ease-out starting:scale-98 starting:opacity-0 ending:opacity-0 [&_kbd]:border-on-ink/30 [&_kbd]:text-on-ink/70">
+					<BaseTooltip.Popup className="flex origin-(--transform-origin) items-center gap-2 rounded-md bg-ink px-2 py-1 text-sm text-on-ink shadow-pop transition duration-100 ease-out data-instant:transition-none starting:scale-98 starting:opacity-0 ending:opacity-0 [&_kbd]:border-on-ink/30 [&_kbd]:text-on-ink/70">
 						{content}
 						{shortcut && <Kbd>{shortcut}</Kbd>}
 					</BaseTooltip.Popup>
