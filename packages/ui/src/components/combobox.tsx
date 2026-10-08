@@ -2,6 +2,7 @@
 import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import { Check, X } from "lucide-react";
 import { cn, field, item, label, popup, type Styled } from "../lib";
+import { Highlight } from "./highlight";
 
 // Multiple selection: wrap Chips around Chip items plus the Input, inside <Combobox.Value>{(v) => ...}</Combobox.Value>.
 export const Combobox = {
@@ -41,11 +42,12 @@ export const Combobox = {
 				<BaseCombobox.Popup
 					className={cn(
 						popup,
-						"max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1",
+						"relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1",
 						className,
 					)}
 					{...props}
 				>
+					<Highlight />
 					{children}
 				</BaseCombobox.Popup>
 			</BaseCombobox.Positioner>

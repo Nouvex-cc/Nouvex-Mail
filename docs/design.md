@@ -61,6 +61,8 @@ Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Border
 
 Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The segment grows in over about 450 ms and shrinks out in about 150 ms. The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
 
+In lists (menus, selects, comboboxes, the command palette) one highlight slides to the focused item instead of items lighting up one by one.
+
 Checkboxes give slightly under the finger, and their check strokes itself in from left to right (about 180 ms).
 
 Calendars page with a short fade-through: the old month fades out almost in place, the new one fades in from the paging direction once the old one is gone, so dates never overlap. The month name crossfades while the year stays put. Month and year each open a list around themselves (all months, three years either side) and also take typing: the middle row turns into the field showing what you type and the best match is highlighted; Enter takes it or a typed value outside the list (a year like 1850, a month number). Today has a dot, the week starts on the user's regional first day, and picking a date closes the picker.

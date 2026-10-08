@@ -2,6 +2,7 @@
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Check, ChevronsUpDown } from "lucide-react";
 import { cn, item, label, popup, type Styled } from "../lib";
+import { Highlight } from "./highlight";
 
 export const Select = {
 	Root: BaseSelect.Root,
@@ -23,7 +24,8 @@ export const Select = {
 		<BaseSelect.Portal>
 			<BaseSelect.Positioner sideOffset={4} className="outline-none">
 				<BaseSelect.Popup className={cn(popup, "min-w-(--anchor-width) p-1 ending:duration-0", className)} {...props}>
-					<BaseSelect.List className="max-h-(--available-height) overflow-y-auto outline-none">
+					<BaseSelect.List className="relative max-h-(--available-height) overflow-y-auto outline-none">
+						<Highlight />
 						{children}
 					</BaseSelect.List>
 				</BaseSelect.Popup>

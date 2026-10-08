@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn, item, label, type Styled } from "../lib";
 import { backdrop, dialogPopup } from "./dialog";
+import { Highlight } from "./highlight";
 
 // Always open and rendered inline: the list is the palette, not a dropdown.
 const CommandRoot = ((props: BaseAutocomplete.Root.Props<unknown>) => (
@@ -25,7 +26,8 @@ function CommandInput({ className, ...props }: Styled<BaseAutocomplete.Input.Pro
 
 function CommandList({ className, ...props }: Styled<BaseAutocomplete.List.Props>) {
 	return (
-		<div className="max-h-80 overflow-y-auto overscroll-contain">
+		<div className="relative max-h-80 overflow-y-auto overscroll-contain">
+			<Highlight />
 			<BaseAutocomplete.List className={cn("p-1 empty:p-0", className)} {...props} />
 		</div>
 	);

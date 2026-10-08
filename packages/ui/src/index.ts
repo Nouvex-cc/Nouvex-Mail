@@ -10,6 +10,7 @@ export * from "./components/command";
 export * from "./components/dialog";
 export * from "./components/drawer";
 export * from "./components/field";
+export * from "./components/highlight";
 export * from "./components/input";
 export * from "./components/kbd";
 export * from "./components/menu";

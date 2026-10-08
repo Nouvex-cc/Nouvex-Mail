@@ -4,26 +4,33 @@ import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { Check, ChevronRight } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn, item, label, popup, type Styled } from "../lib";
+import { Highlight } from "./highlight";
 
 type PopupProps = Styled<BaseMenu.Popup.Props> & Pick<BaseMenu.Positioner.Props, "side" | "align" | "sideOffset">;
 
-const popupClass = "min-w-44 p-1";
+const popupClass = "relative min-w-44 p-1";
 
-function MenuPopup({ className, side, align = "start", sideOffset = 4, ...props }: PopupProps) {
+function MenuPopup({ className, side, align = "start", sideOffset = 4, children, ...props }: PopupProps) {
 	return (
 		<BaseMenu.Portal>
 			<BaseMenu.Positioner side={side} align={align} sideOffset={sideOffset} className="z-50 outline-none">
-				<BaseMenu.Popup className={cn(popup, popupClass, className)} {...props} />
+				<BaseMenu.Popup className={cn(popup, popupClass, className)} {...props}>
+					<Highlight />
+					{children}
+				</BaseMenu.Popup>
 			</BaseMenu.Positioner>
 		</BaseMenu.Portal>
 	);
 }
 
-function ContextMenuPopup({ className, ...props }: Styled<BaseMenu.Popup.Props>) {
+function ContextMenuPopup({ className, children, ...props }: Styled<BaseMenu.Popup.Props>) {
 	return (
 		<BaseContextMenu.Portal>
 			<BaseContextMenu.Positioner className="z-50 outline-none">
-				<BaseContextMenu.Popup className={cn(popup, popupClass, className)} {...props} />
+				<BaseContextMenu.Popup className={cn(popup, popupClass, className)} {...props}>
+					<Highlight />
+					{children}
+				</BaseContextMenu.Popup>
 			</BaseContextMenu.Positioner>
 		</BaseContextMenu.Portal>
 	);
