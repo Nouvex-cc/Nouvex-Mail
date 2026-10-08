@@ -39,7 +39,7 @@ Raw Tailwind colors don't exist in this project (the default palette is removed)
 
 ## Type
 
-Figtree on the web, SF Pro on Apple. Base size is 14px, the app is dense but not cramped.
+Schibsted Grotesk on the web, SF Pro on Apple. Base size is 14px, the app is dense but not cramped.
 
 | Token | Size | Use |
 |---|---|---|

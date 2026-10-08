@@ -21,7 +21,7 @@ const cssUrl = /url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi;
 const base = `<style>
 	:root { color-scheme: light; }
 	html { background: #fff; color: #1f1d1b; }
-	body { margin: 0; padding: 16px 20px; font: 14px/1.55 "Figtree Variable", system-ui, -apple-system, sans-serif; overflow-wrap: anywhere; }
+	body { margin: 0; padding: 16px 20px; font: 14px/1.55 "Schibsted Grotesk Variable", system-ui, -apple-system, sans-serif; overflow-wrap: anywhere; }
 	body > * { max-width: 72ch; }
 	img { max-width: 100%; height: auto; }
 	img[data-src] { display: none; }

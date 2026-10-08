@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 @import "tailwindcss";
-@import "@fontsource-variable/figtree";
+@import "@fontsource-variable/schibsted-grotesk";
 
 @source "./";
 
@@ -70,7 +70,7 @@
 	--color-current: currentColor;
 
 	--font-*: initial;
-	--font-sans: "Figtree Variable", ui-sans-serif, system-ui, sans-serif;
+	--font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
 	--font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
 	--text-*: initial;
