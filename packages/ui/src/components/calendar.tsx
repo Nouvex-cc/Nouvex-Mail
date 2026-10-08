@@ -28,7 +28,7 @@ const shift = (date: Date, months: number) => new Date(date.getFullYear(), date.
 type Option = { value: number; label: string };
 
 // Month and year in the header: a list that opens around the current value, plus typing. While the list is open,
-// what you type shows in the header and highlights the first match; Enter takes it, or takes a typed value that
+// the middle row (over the header) becomes the field showing what you type, and the first match is highlighted; Enter takes it, or takes a typed value that
 // isn't in the list (a year like 1850, a month number like 3).
 function Picker({
 	value,
@@ -68,9 +68,7 @@ function Picker({
 				aria-label={`${label}, change ${name}`}
 				className="-mx-1 rounded-sm px-1 tabular-nums outline-none hover:bg-hover focus-visible:outline-2 open:bg-hover"
 			>
-				<BaseSelect.Value>
-					{() => <TextMorph by={typed ? "letter" : "text"}>{typed || label}</TextMorph>}
-				</BaseSelect.Value>
+				<BaseSelect.Value>{() => <TextMorph by="text">{label}</TextMorph>}</BaseSelect.Value>
 			</BaseSelect.Trigger>
 			<Select.Popup
 				onKeyDownCapture={(e) => {
@@ -86,8 +84,16 @@ function Picker({
 				}}
 			>
 				{options.map((o) => (
-					<Select.Item key={o.value} value={o.value}>
-						{o.label}
+					// `label` keeps matching on the option itself while the middle row shows what's being typed.
+					<Select.Item key={o.value} value={o.value} label={o.label}>
+						{typed && o.value === value ? (
+							<span className="-mx-1 inline-flex items-center rounded-sm bg-paper px-1 ring-1 ring-line-strong">
+								{typed}
+								<span data-idle className="text-caret ml-px inline-block h-4 w-0.5 rounded-full bg-ink" />
+							</span>
+						) : (
+							o.label
+						)}
 					</Select.Item>
 				))}
 			</Select.Popup>
