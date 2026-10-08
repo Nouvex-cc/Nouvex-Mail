@@ -16,12 +16,35 @@ export type MailFrameProps = {
 const remote = /^https?:\/\//i;
 const cssUrl = /url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi;
 
+// The frame is its own document and doesn't see the app's fonts, so it gets copies of the app's @font-face rules and
+// the same font stack (--font-sans). Stylesheets from other origins can't be read and are skipped.
+let font: { faces: string; stack: string } | undefined;
+function appFont() {
+	if (font) return font;
+	const stack = getComputedStyle(document.documentElement).getPropertyValue("--font-sans") || "system-ui, sans-serif";
+	const family = stack.split(",")[0]?.trim() ?? "";
+	const faces = [...document.styleSheets]
+		.flatMap((sheet) => {
+			try {
+				return [...sheet.cssRules];
+			} catch {
+				return [];
+			}
+		})
+		.filter((rule) => rule instanceof CSSFontFaceRule && rule.style.getPropertyValue("font-family").trim() === family)
+		.map((rule) => rule.cssText)
+		.join("\n");
+	font = { faces, stack };
+	return font;
+}
+
 // Inside the frame: a light card in both themes (mails bring their own colors), readable defaults, quotes hidden
 // until the toggle outside shows them.
-const base = `<style>
+const base = ({ faces, stack }: { faces: string; stack: string }) => `<style>
+	${faces}
 	:root { color-scheme: light; }
 	html { background: #fff; color: #1f1d1b; }
-	body { margin: 0; padding: 16px 20px; font: 14px/1.55 "Schibsted Grotesk Variable", system-ui, -apple-system, sans-serif; overflow-wrap: anywhere; }
+	body { margin: 0; padding: 16px 20px; font: 14px/1.55 ${stack}; overflow-wrap: anywhere; }
 	body > * { max-width: 72ch; }
 	img { max-width: 100%; height: auto; }
 	img[data-src] { display: none; }
@@ -152,7 +175,7 @@ export function MailFrame({ html, allowRemoteImages, onAllowRemoteImages, proxy,
 			<iframe
 				ref={frame}
 				title="Message"
-				srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base}</head><body>${body}</body></html>`}
+				srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont())}</head><body>${body}</body></html>`}
 				sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
 				className="block h-0 w-full overflow-hidden rounded-lg border border-line data-[ready]:transition-all data-[ready]:duration-150 data-[ready]:ease-out"
 				data-ready={ready || undefined}
