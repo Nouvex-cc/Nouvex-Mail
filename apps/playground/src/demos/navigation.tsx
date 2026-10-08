@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { AccountSwitcher, SearchField, Sidebar, useShortcutsDialog } from "@nouvex/ui";
+import { AccountSwitcher, AppShell, SearchField, Sidebar, useShortcutsDialog } from "@nouvex/ui";
 import { Archive, Clock, File, Inbox, Send, Star, Trash2 } from "lucide-react";
 import { useState } from "react";
 
@@ -73,35 +73,40 @@ export function NavigationDemo() {
 
 	return (
 		<div className="grid w-full gap-3">
-			<div className="flex h-120 w-full overflow-hidden rounded-lg border border-line">
-				<div className="w-60 shrink-0 border-r border-line">
-					<Sidebar.Root>
-						<AccountSwitcher accounts={accounts} current={account} onChange={setAccount} onAddAccount={() => {}} />
-						<Sidebar.Section>
-							{folders.map((f) => (
-								<Sidebar.Item key={f.id} {...f} active={active === f.id} onSelect={() => setActive(f.id)} />
-							))}
-						</Sidebar.Section>
-						<Sidebar.Section title="Labels" collapsible>
-							{labels.map((l) => (
-								<Sidebar.Label key={l.id} {...l} active={active === l.id} onSelect={() => setActive(l.id)} />
-							))}
-						</Sidebar.Section>
-					</Sidebar.Root>
-				</div>
-				<div className="grid flex-1 content-start gap-3 p-4">
-					<SearchField
-						contacts={contacts}
-						onSearch={(q) =>
-							setQuery([q.text, ...q.filters.map((f) => `${f.key}:${f.value}`)].filter(Boolean).join(" "))
-						}
-					/>
-					<p className="text-sm text-muted">
+			<div className="h-120 w-full overflow-hidden rounded-lg border border-line">
+				<AppShell
+					className="h-full"
+					sidebar={
+						<Sidebar.Root>
+							<AccountSwitcher accounts={accounts} current={account} onChange={setAccount} onAddAccount={() => {}} />
+							<Sidebar.Section>
+								{folders.map((f) => (
+									<Sidebar.Item key={f.id} {...f} active={active === f.id} onSelect={() => setActive(f.id)} />
+								))}
+							</Sidebar.Section>
+							<Sidebar.Section title="Labels" collapsible>
+								{labels.map((l) => (
+									<Sidebar.Label key={l.id} {...l} active={active === l.id} onSelect={() => setActive(l.id)} />
+								))}
+							</Sidebar.Section>
+						</Sidebar.Root>
+					}
+					header={
+						<SearchField
+							className="w-full max-w-xl"
+							contacts={contacts}
+							onSearch={(q) =>
+								setQuery([q.text, ...q.filters.map((f) => `${f.key}:${f.value}`)].filter(Boolean).join(" "))
+							}
+						/>
+					}
+				>
+					<p className="p-4 text-sm text-muted">
 						{query
 							? `Searching: ${query}`
 							: "Try from:lena, after:friday, has:attachment. Press / to focus, ? for shortcuts."}
 					</p>
-				</div>
+				</AppShell>
 			</div>
 			{shortcuts.dialog}
 		</div>
