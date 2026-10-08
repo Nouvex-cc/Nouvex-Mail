@@ -53,7 +53,7 @@ cd apps/apple && xcodegen         # Xcode-Projekt erzeugen
 - NATS-Nachrichten nur über `packages/schema` definieren, nie Typen von Hand duplizieren.
 - Zugangsdaten und Tokens immer verschlüsselt speichern (Envelope-Encryption) und nie loggen.
 - HTML-Mails nur im sandboxed iframe mit DOMPurify rendern, Remote-Bilder über den Bild-Proxy.
-- Go: golangci-lint muss grün sein, Tests laufen mit -race. TypeScript: bun test, im Web Vitest. E2E-Tests mit e2e by TesterArmy (`bun run e2e`).
+- Go: golangci-lint muss grün sein, Tests laufen mit -race. TypeScript: bun test, im Web Vitest. E2E-Tests mit e2e by TesterArmy (`bun run e2e`, Doku offline in `node_modules/e2e/docs`).
 - Pakete nur mit bun und bunx verwalten und ausführen, nie mit npm, npx, pnpm oder yarn.
 - Aktueller Scope: IMAP und SMTP first. Gmail-OAuth und Gmail API sind bewusst zurückgestellt.
 
