@@ -4,8 +4,9 @@ import { Select as BaseSelect } from "@base-ui/react/select";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DayPicker, type DayPickerProps } from "react-day-picker";
-import { cn, popup } from "../lib";
-import { Button } from "./button";
+import { cn, field, popup } from "../lib";
+import { parseDate } from "../parse-date";
+import { useCaret } from "./caret";
 import { Select } from "./select";
 import { TextMorph } from "./text-morph";
 
@@ -212,6 +213,26 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 	);
 }
 
+type Part = "day" | "month" | "year";
+const numeric = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
+const isPart = (type: string): type is Part => type === "day" || type === "month" || type === "year";
+
+// Day, month and year in the order the user's locale writes them, e.g. month, day, year for en-US.
+const dateOrder = (): Part[] =>
+	numeric
+		.formatToParts(new Date(2000, 10, 22))
+		.map((p) => p.type)
+		.filter(isPart);
+
+const formatDate = (date: Date) => numeric.format(date);
+
+const datePattern = () => {
+	const separator = numeric.formatToParts(new Date()).find((p) => p.type === "literal")?.value ?? "/";
+	return dateOrder()
+		.map((t) => ({ day: "DD", month: "MM", year: "YYYY" })[t])
+		.join(separator);
+};
+
 export type DatePickerProps = {
 	value: Date | undefined;
 	onChange: (date: Date | undefined) => void;
@@ -219,24 +240,80 @@ export type DatePickerProps = {
 	className?: string;
 };
 
-export function DatePicker({ value, onChange, placeholder = "Pick a date", className }: DatePickerProps) {
+/**
+ * Typing first: the field takes a date as text, the button on its right opens the calendar. Enter or leaving the
+ * field applies the text; something that isn't a date stays visible and marked so it can be fixed, Escape restores.
+ */
+export function DatePicker({ value, onChange, placeholder, className }: DatePickerProps) {
 	const [open, setOpen] = useState(false);
+	const [text, setText] = useState(value ? formatDate(value) : "");
+	const [invalid, setInvalid] = useState(false);
+	const box = useRef<HTMLDivElement>(null);
+	const caret = useCaret<HTMLInputElement>();
+
+	// Follow value changes from outside (or from the calendar).
+	const shown = useRef(value);
+	if (shown.current !== value) {
+		shown.current = value;
+		setText(value ? formatDate(value) : "");
+		setInvalid(false);
+	}
+
+	const apply = () => {
+		if (!text.trim()) {
+			setInvalid(false);
+			if (value) onChange(undefined);
+			return;
+		}
+		const date = parseDate(text);
+		if (!date) return setInvalid(true);
+		setInvalid(false);
+		setText(formatDate(date));
+		if (date.getTime() !== value?.getTime()) onChange(date);
+	};
+
 	return (
 		<Popover.Root open={open} onOpenChange={setOpen}>
-			<Popover.Trigger render={<Button className={cn("font-normal", className)} />}>
-				<CalendarDays strokeWidth={1.75} className="text-muted" />
-				{value ? (
-					value.toLocaleDateString(undefined, { dateStyle: "medium" })
-				) : (
-					<span className="text-faint">{placeholder}</span>
+			<div ref={box} className={cn("relative", className)}>
+				{caret.wrap(
+					<input
+						ref={caret.ref}
+						value={text}
+						placeholder={placeholder ?? datePattern()}
+						inputMode="numeric"
+						aria-invalid={invalid || undefined}
+						data-invalid={invalid || undefined}
+						className={cn(field, "pr-9 tabular-nums", caret.caretClass)}
+						onChange={(e) => {
+							setText(e.target.value);
+							setInvalid(false);
+						}}
+						onBlur={apply}
+						onKeyDown={(e) => {
+							if (e.key === "Enter") apply();
+							else if (e.key === "Escape" && !open) {
+								setText(value ? formatDate(value) : "");
+								setInvalid(false);
+							} else if (e.key === "ArrowDown" && e.altKey) {
+								e.preventDefault();
+								setOpen(true);
+							}
+						}}
+					/>,
 				)}
-			</Popover.Trigger>
+				<Popover.Trigger
+					aria-label="Open calendar"
+					className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted outline-none hover:bg-hover hover:text-ink focus-visible:outline-2 open:bg-hover open:text-ink"
+				>
+					<CalendarDays strokeWidth={1.75} className="size-4" />
+				</Popover.Trigger>
+			</div>
 			<Popover.Portal>
-				<Popover.Positioner sideOffset={6} align="start">
+				<Popover.Positioner anchor={box} sideOffset={6} align="start">
 					<Popover.Popup className={popup}>
 						<Calendar
 							mode="single"
-							defaultMonth={value}
+							defaultMonth={value ?? parseDate(text) ?? undefined}
 							selected={value}
 							onSelect={(date) => {
 								onChange(date);

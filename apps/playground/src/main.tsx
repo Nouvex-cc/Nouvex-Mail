@@ -294,7 +294,7 @@ function App() {
 						</Select.Popup>
 					</Select.Root>
 					<OTPField />
-					<DatePicker value={date} onChange={setDate} placeholder="Send later" />
+					<DatePicker value={date} onChange={setDate} />
 				</div>
 			</Section>
 

@@ -31,3 +31,4 @@ export * from "./components/toggle";
 export * from "./components/toolbar";
 export * from "./components/tooltip";
 export * from "./components/virtual-list";
+export * from "./parse-date";

@@ -12,4 +12,4 @@ export const item =
 	"relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 outline-none disabled:text-faint [&_svg]:size-4 [&_svg]:shrink-0";
 export const label = "px-2 py-1 text-xs font-medium text-muted";
 export const field =
-	"h-8 w-full rounded-md border border-line-strong bg-paper px-2.5 text-base text-ink outline-none placeholder:text-faint focus-visible:border-ink focus-visible:outline-0 invalid:border-danger disabled:opacity-50";
+	"h-8 w-full rounded-md border border-line-strong bg-paper px-2.5 text-base text-ink outline-none placeholder:text-faint focus-visible:border-ink focus-visible:outline-0 invalid:border-danger invalid:focus-visible:border-danger disabled:opacity-50";
