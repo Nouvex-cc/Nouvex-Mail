@@ -1,0 +1,40 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ts:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env: { POSTGRES_USER: nouvex, POSTGRES_PASSWORD: nouvex, POSTGRES_DB: nouvex }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U nouvex" --health-interval 2s
+    env:
+      DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
+      BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: touch .env && bun run db:migrate
+      - run: bunx turbo lint typecheck test build --filter='!@nouvex/engine'
+
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: engine/go.mod, cache-dependency-path: engine/go.sum }
+      - uses: golangci/golangci-lint-action@v9
+        with: { working-directory: engine }
+      - run: go test -race ./...
+      - uses: sqlc-dev/setup-sqlc@v5
+        with: { sqlc-version: "1.31.1" }
+      - run: sqlc diff

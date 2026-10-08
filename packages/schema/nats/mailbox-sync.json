@@ -1,0 +1,11 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MailboxSync",
+	"description": "Command: API asks the engine to sync one account.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" }
+	},
+	"required": ["accountId"],
+	"additionalProperties": false
+}

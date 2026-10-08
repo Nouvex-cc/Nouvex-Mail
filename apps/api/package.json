@@ -1,0 +1,36 @@
+{
+	"name": "@nouvex/api",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --watch --env-file=../../.env src/index.ts",
+		"build": "bun build src/index.ts --target bun --outdir dist",
+		"test": "bun test --env-file=../../.env",
+		"lint": "biome check .",
+		"typecheck": "tsc",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "bun --env-file=../../.env src/migrate.ts",
+		"openapi": "bun --env-file=../../.env src/openapi.ts > ../apple/Nouvex/openapi.json",
+		"auth:generate": "bunx --bun auth generate --config src/auth.ts --output src/db/auth-schema.ts -y"
+	},
+	"dependencies": {
+		"@better-auth/passkey": "^1.7.7",
+		"@hono/otel": "^1.2.0",
+		"@hono/zod-openapi": "^1.6.3",
+		"@nats-io/jetstream": "^3.4.0",
+		"@nats-io/transport-node": "^3.4.0",
+		"@nouvex/schema": "workspace:*",
+		"@opentelemetry/api": "^1.9.1",
+		"@opentelemetry/exporter-trace-otlp-http": "^0.223.0",
+		"@opentelemetry/sdk-node": "^0.223.0",
+		"@sentry/bun": "^11.5.0",
+		"better-auth": "^1.7.7",
+		"drizzle-orm": "^0.45.3",
+		"hono": "^4.13.13",
+		"zod": "^4.6.5"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.2",
+		"drizzle-kit": "^0.31.11"
+	}
+}

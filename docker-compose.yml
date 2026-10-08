@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: nouvex
+      POSTGRES_PASSWORD: nouvex
+      POSTGRES_DB: nouvex
+    ports: ["${PG_PORT:-5432}:5432"]
+    volumes: [pg:/var/lib/postgresql]
+    healthcheck:
+      test: pg_isready -U nouvex
+      interval: 2s
+
+  nats:
+    image: nats:2.15
+    command: -js -sd /data -m 8222
+    ports: ["4222:4222", "8222:8222"]
+    volumes: [nats:/data]
+
+  s3:
+    image: chrislusf/seaweedfs
+    command: server -s3 -dir=/data
+    ports: ["8333:8333"]
+    volumes: [s3:/data]
+
+  stalwart:
+    image: stalwartlabs/stalwart:latest
+    ports: ["1143:143", "1993:993", "8080:8080"]
+    volumes: [stalwart:/opt/stalwart]
+
+  mailpit:
+    image: axllent/mailpit
+    ports: ["1025:1025", "8025:8025"]
+
+  lgtm:
+    image: grafana/otel-lgtm
+    profiles: [obs]
+    ports: ["3001:3000", "4317:4317", "4318:4318"]
+
+volumes:
+  pg:
+  nats:
+  s3:
+  stalwart:

@@ -1,0 +1,11 @@
+{
+  "name": "@nouvex/engine",
+  "private": true,
+  "scripts": {
+    "dev": "set -a && . ../.env && set +a && go run ./cmd/engine",
+    "build": "go build -o bin/engine ./cmd/engine",
+    "test": "go test -race ./...",
+    "lint": "golangci-lint run",
+    "gen": "sqlc generate && go tool go-jsonschema -t --tags json -p msg -o internal/msg/msg.go ../packages/schema/nats/*.json"
+  }
+}
