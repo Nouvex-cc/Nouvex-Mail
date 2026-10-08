@@ -92,7 +92,7 @@ export function AccountSwitcher({
 			<Select.Trigger
 				ref={trigger}
 				aria-label="Account"
-				className="flex h-12 w-full shrink-0 items-center justify-between gap-2 rounded-md px-2 outline-none transition-colors duration-100 hover:bg-hover open:bg-hover active:scale-99 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30"
+				className="flex h-12 w-full shrink-0 items-center justify-between gap-2 rounded-md px-2 outline-none transition-colors duration-100 hover:bg-hover open:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30"
 			>
 				<Select.Value className="min-w-0">{identity}</Select.Value>
 				<End unread={entries.find((e) => e.id === current)?.unread}>
