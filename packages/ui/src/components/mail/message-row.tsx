@@ -20,7 +20,6 @@ export type MessageRowProps = {
 	/** Some row in the list is selected: checkboxes stay visible on every row. */
 	selecting?: boolean;
 	attachments?: number;
-	onSelectedChange?: (selected: boolean, shiftKey: boolean) => void;
 	onOpen?: () => void;
 	onArchive?: () => void;
 	onSnooze?: (until: Date) => void;
@@ -32,7 +31,8 @@ const action =
 
 /**
  * One message in a list. Hovering (or focusing) swaps the date for quick actions; on touch, swiping left archives
- * and swiping right opens snooze. Shortcuts while focused: Enter open, E archive, H snooze, # delete, X select.
+ * and swiping right opens snooze. Shortcuts while focused: Enter open, E archive, H snooze, # delete. Selecting
+ * is handled by MessageList.
  */
 export function MessageRow({
 	from,
@@ -44,7 +44,6 @@ export function MessageRow({
 	selected = false,
 	selecting = false,
 	attachments = 0,
-	onSelectedChange,
 	onOpen,
 	onArchive,
 	onSnooze,
@@ -53,7 +52,6 @@ export function MessageRow({
 	const [snoozing, setSnoozing] = useState(false);
 	const [dx, setDx] = useState(0);
 	const swipe = useRef<{ x: number; y: number; axis?: "x" | "y" } | null>(null);
-	const shift = useRef(false);
 	const content = useRef<HTMLDivElement>(null);
 	// The content follows the finger; set directly instead of through a style prop.
 	useLayoutEffect(() => {
@@ -110,10 +108,7 @@ export function MessageRow({
 			tabIndex={0}
 			aria-selected={selected}
 			aria-label={`${unread ? "Unread, " : ""}${from}, ${subject}, ${formatMailDateLong(date)}`}
-			className={cn(
-				"group relative touch-pan-y overflow-hidden rounded-md outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2",
-				selected && "bg-selected",
-			)}
+			className="group relative touch-pan-y overflow-hidden rounded-md outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2"
 			onClick={() => onOpen?.()}
 			onKeyDown={(e) => {
 				if (e.target !== e.currentTarget) return;
@@ -122,7 +117,6 @@ export function MessageRow({
 				else if (key === "e") onArchive?.();
 				else if (key === "h") setSnoozing(true);
 				else if (key === "#") onDelete?.();
-				else if (key === "x") onSelectedChange?.(!selected, e.shiftKey);
 				else return;
 				e.preventDefault();
 			}}
@@ -156,23 +150,15 @@ export function MessageRow({
 				</div>
 			)}
 			<div ref={content} className={cn("relative flex h-11 items-center gap-3 px-2", dx !== 0 && "bg-paper")}>
-				{/* Pressing here and dragging across rows selects them (handled by MessageList). */}
+				{/* The whole left edge, not just the checkbox: press to toggle, drag across rows to select them (MessageList). */}
+				<span data-select-handle className="absolute inset-y-0 left-0 z-10 w-12 touch-none" />
 				<span
-					data-select-handle
 					className={cn(
-						"flex touch-none opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100",
+						"flex opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100",
 						(selecting || selected) && "opacity-100",
 					)}
-					onClickCapture={(e) => {
-						shift.current = e.shiftKey;
-						e.stopPropagation();
-					}}
 				>
-					<Checkbox
-						aria-label={`Select message from ${from}`}
-						checked={selected}
-						onCheckedChange={(checked) => onSelectedChange?.(checked, shift.current)}
-					/>
+					<Checkbox aria-hidden tabIndex={-1} checked={selected} className="pointer-events-none" />
 				</span>
 				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ink", !unread && "invisible")} />
 				<span className={cn("w-40 shrink-0 truncate", unread && "font-semibold")}>{from}</span>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { BulkBar, type MailLabel, MessageList, MessageRow, useToast } from "@nouvex/ui";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 const now = new Date();
 const ago = (days: number, hours = 0, minutes = 0) =>
@@ -118,7 +118,6 @@ const initial: Message[] = [
 export function InboxDemo() {
 	const [messages, setMessages] = useState(initial);
 	const [selected, setSelected] = useState<Set<number>>(new Set());
-	const last = useRef<number | null>(null);
 	const toast = useToast();
 
 	const remove = (ids: number[], title: string) => {
@@ -137,33 +136,13 @@ export function InboxDemo() {
 	return (
 		<div className="relative w-full">
 			<div className="h-120 overflow-y-auto rounded-lg border border-line p-1">
-				<MessageList
-					onSelectRange={(from, to) =>
-						setSelected((s) => new Set([...s, ...messages.slice(from, to + 1).map((m) => m.id)]))
-					}
-				>
-					{messages.map((m, i) => (
+				<MessageList onSelectionChange={(rows) => setSelected(new Set(rows.map((i) => messages[i]?.id ?? -1)))}>
+					{messages.map((m) => (
 						<MessageRow
 							key={m.id}
 							{...m}
 							selected={selected.has(m.id)}
 							selecting={selected.size > 0}
-							onSelectedChange={(on, shift) => {
-								setSelected((s) => {
-									const next = new Set(s);
-									// Shift extends from the last row clicked, like in any file list.
-									const range =
-										shift && last.current !== null
-											? messages.slice(Math.min(last.current, i), Math.max(last.current, i) + 1)
-											: [m];
-									for (const r of range) {
-										if (on) next.add(r.id);
-										else next.delete(r.id);
-									}
-									return next;
-								});
-								last.current = i;
-							}}
 							onOpen={() => setMessages((ms) => ms.map((x) => (x.id === m.id ? { ...x, unread: false } : x)))}
 							onArchive={() => remove([m.id], "Archived")}
 							onDelete={() => remove([m.id], "Deleted")}

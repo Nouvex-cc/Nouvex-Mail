@@ -263,6 +263,17 @@
 	}
 }
 
+/* One shape behind a run of selected messages; it follows the run as it grows or shrinks. */
+@utility selection-run {
+	position: absolute;
+	pointer-events: none;
+	border-radius: var(--radius-md);
+	background: var(--selected);
+	transition:
+		top 160ms var(--ease-out),
+		height 160ms var(--ease-out);
+}
+
 /* Slider thumb and fill: a jump to a new value glides quickly; while dragging they follow the pointer directly. */
 @utility slider-glide {
 	transition:
