@@ -30,6 +30,7 @@ Warm neutrals, never pure black or white. The accent is ink, same as the logo. C
 | `hover` / `selected` | row and item states |
 | `danger` | destructive actions, errors |
 | `scrim` | dimmed backdrop behind dialogs |
+| `hold` | fill of a hold-to-confirm button |
 | `positive` | confirmed actions (button success state) |
 
 Raw Tailwind colors don't exist in this project (the default palette is removed), so `bg-blue-500` won't compile into anything.

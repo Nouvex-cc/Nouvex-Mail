@@ -165,7 +165,7 @@ export function Button({
 					<span
 						ref={fill}
 						aria-hidden
-						className="pointer-events-none absolute inset-0 origin-left scale-x-0 rounded-md bg-ink/15"
+						className="pointer-events-none absolute inset-0 origin-left scale-x-0 rounded-md bg-hold"
 					/>
 				)}
 				{typeof children === "string" ? (

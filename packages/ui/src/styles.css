@@ -28,6 +28,7 @@
 	--selected: light-dark(oklch(0.935 0.005 75), oklch(0.29 0.007 60));
 	--danger: light-dark(oklch(0.56 0.19 28), oklch(0.68 0.17 28));
 	--positive: light-dark(oklch(0.52 0.14 150), oklch(0.74 0.14 150));
+	--hold: light-dark(oklch(0.2 0.006 60 / 0.15), oklch(0.94 0.004 75 / 0.32));
 	--scrim: light-dark(oklch(0.2 0.01 60 / 0.2), oklch(0 0 0 / 0.5));
 	--shadow-color: light-dark(oklch(0.2 0.01 60), oklch(0 0 0));
 }
@@ -57,6 +58,7 @@
 	--color-danger: var(--danger);
 	--color-positive: var(--positive);
 	--color-scrim: var(--scrim);
+	--color-hold: var(--hold);
 	--color-transparent: transparent;
 	--color-current: currentColor;
 
