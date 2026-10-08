@@ -213,6 +213,80 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 	);
 }
 
+export type DateRange = { from: Date | undefined; to?: Date | undefined };
+
+const dayFromCell = (iso: string | undefined) => {
+	const [y, m, d] = (iso ?? "").split("-").map(Number);
+	return y && m && d ? new Date(y, m - 1, d) : null;
+};
+const span = (a: Date, b: Date): DateRange => (a <= b ? { from: a, to: b } : { from: b, to: a });
+
+/**
+ * Pick a range by clicking start and end, or by pressing on a day and dragging across others (like selecting
+ * several photos at once). Keyboard selection goes through the day picker's own range logic.
+ */
+export function RangeCalendar({
+	value,
+	onChange,
+	className,
+}: {
+	value: DateRange | undefined;
+	onChange: (range: DateRange | undefined) => void;
+	className?: string;
+}) {
+	const drag = useRef<{ anchor: Date; moved: boolean } | null>(null);
+	// The day under the pointer, also when a finger slides across cells.
+	const dayAt = (x: number, y: number) =>
+		dayFromCell(document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-day]")?.dataset.day);
+
+	return (
+		<div
+			className={cn("touch-none", className)}
+			onPointerDown={(e) => {
+				const day = e.button === 0 ? dayAt(e.clientX, e.clientY) : null;
+				if (!day) return;
+				drag.current = { anchor: day, moved: false };
+				e.currentTarget.setPointerCapture(e.pointerId);
+			}}
+			onPointerMove={(e) => {
+				const d = drag.current;
+				const day = d && dayAt(e.clientX, e.clientY);
+				if (!d || !day || (!d.moved && day.getTime() === d.anchor.getTime())) return;
+				d.moved = true;
+				onChange(span(d.anchor, day));
+			}}
+			onPointerUp={() => {
+				const d = drag.current;
+				drag.current = null;
+				if (!d || d.moved) return;
+				// A plain click: first one starts a new range, the second one closes it.
+				if (!value?.from || value.to) onChange({ from: d.anchor, to: undefined });
+				else onChange(span(value.from, d.anchor));
+			}}
+			onPointerCancel={() => {
+				drag.current = null;
+			}}
+		>
+			<Calendar
+				mode="range"
+				selected={value}
+				defaultMonth={value?.from}
+				// Pointer clicks are handled above; a click with detail 0 comes from the keyboard.
+				onSelect={(range, _day, _modifiers, e) => {
+					if (e.detail === 0) onChange(range);
+				}}
+				classNames={{
+					range_start: "rounded-l-md bg-selected",
+					range_end: "rounded-r-md bg-selected",
+					// The band wraps by week, so it gets round ends wherever a row starts or stops.
+					range_middle:
+						"bg-selected first:rounded-l-md last:rounded-r-md [&>button]:bg-transparent! [&>button]:text-ink! [&>button]:hover:bg-hover!",
+				}}
+			/>
+		</div>
+	);
+}
+
 type Part = "day" | "month" | "year";
 const numeric = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
 const isPart = (type: string): type is Part => type === "day" || type === "month" || type === "year";

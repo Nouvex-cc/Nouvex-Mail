@@ -12,6 +12,7 @@ import {
 	CommandDialog,
 	ContextMenu,
 	DatePicker,
+	type DateRange,
 	Dialog,
 	Drawer,
 	Field,
@@ -25,6 +26,7 @@ import {
 	Progress,
 	Radio,
 	RadioGroup,
+	RangeCalendar,
 	Resizable,
 	ScrollArea,
 	Select,
@@ -216,6 +218,7 @@ function LoadingDemo({
 
 function App() {
 	const [date, setDate] = useState<Date | undefined>();
+	const [range, setRange] = useState<DateRange | undefined>();
 	return (
 		<main className="mx-auto max-w-5xl px-6 py-10">
 			<header className="flex flex-wrap items-center justify-between gap-4 pb-6">
@@ -456,6 +459,7 @@ function App() {
 					</Accordion.Item>
 				</Accordion.Root>
 				<Calendar mode="single" />
+				<RangeCalendar value={range} onChange={setRange} />
 				<div className="grid w-64 gap-6">
 					<Slider label="Text size" defaultValue={40} showValue />
 					<Slider label="Quiet hours" defaultValue={[22, 70]} />

@@ -69,6 +69,8 @@ Checkboxes give slightly under the finger, and their check strokes itself in fro
 
 Calendars page with a short fade-through: the old month fades out almost in place, the new one fades in from the paging direction once the old one is gone, so dates never overlap. The month name crossfades while the year stays put. Month and year each open a list around themselves (all months, three years either side) and also take typing: the middle row turns into the field showing what you type and the best match is highlighted; Enter takes it or a typed value outside the list (a year like 1850, a month number). Today has a dot, the week starts on the user's regional first day, and picking a date closes the picker.
 
+Ranges are picked by clicking start and end, or by pressing a day and dragging across the others, the way you select several photos at once. The band between start and end rounds off at each week's edge.
+
 Date fields are typed first; the button on their right opens the calendar. They take almost any way of writing a date (15.10.2026, 10/15/26, 20261015, Oct 15, 15. Oktober, tomorrow, in 2 weeks, friday) and rewrite it in the user's own format. Something that isn't a date stays visible and turns red; Escape restores.
 
 Text fields draw their own caret: it glides to the next character (90 ms) instead of jumping, stays solid while typing and only blinks once you pause. Email and number fields keep the native caret because browsers don't report its position there.
