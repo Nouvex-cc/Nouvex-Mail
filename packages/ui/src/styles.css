@@ -122,8 +122,8 @@
 		stroke-dasharray: 20 80;
 		opacity: 1;
 		transition:
-			stroke-dasharray 220ms var(--ease-out),
-			opacity 120ms var(--ease-out);
+			stroke-dasharray 450ms cubic-bezier(0.4, 0, 0.2, 1),
+			opacity 300ms ease-out;
 		@starting-style {
 			stroke-dasharray: 0 100;
 			opacity: 0;
@@ -136,7 +136,7 @@
 	transition: opacity 160ms ease-in;
 	&[data-active] {
 		opacity: 1;
-		transition: opacity 120ms var(--ease-out);
+		transition: opacity 300ms var(--ease-out);
 		@starting-style {
 			opacity: 0;
 		}
