@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Select } from "@base-ui/react/select";
-import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, Layers, Plus } from "lucide-react";
 import { Fragment, type ReactNode, useRef, useState } from "react";
 import { cn, item as itemClass, popup } from "../../lib";
 import { Avatar } from "../avatar";
@@ -58,18 +58,10 @@ export function AccountSwitcher({
 			name: "All inboxes",
 			detail: `${accounts.length} accounts`,
 			unread: accounts.some((a) => a.unread),
-			// Two accounts overlapping, like a group.
+			// Same circle as an account's avatar, so every row lines up.
 			picture: (
-				<span className="relative size-8">
-					{accounts.slice(0, 2).map((a, i) => (
-						<Avatar
-							key={a.id}
-							src={a.avatarUrl}
-							name={a.name.charAt(0)}
-							size="sm"
-							className={cn("absolute size-6 ring-2 ring-raised", i ? "right-0 bottom-0" : "top-0 left-0")}
-						/>
-					))}
+				<span className="grid size-8 place-items-center rounded-full bg-selected text-muted">
+					<Layers strokeWidth={1.75} className="size-4" />
 				</span>
 			),
 		},
