@@ -22,7 +22,7 @@ export const Select = {
 	Popup: ({ className, children, ...props }: Styled<BaseSelect.Popup.Props>) => (
 		<BaseSelect.Portal>
 			<BaseSelect.Positioner sideOffset={4} className="outline-none">
-				<BaseSelect.Popup className={cn(popup, "min-w-(--anchor-width) p-1", className)} {...props}>
+				<BaseSelect.Popup className={cn(popup, "min-w-(--anchor-width) p-1 ending:duration-0", className)} {...props}>
 					<BaseSelect.List className="max-h-(--available-height) overflow-y-auto outline-none">
 						{children}
 					</BaseSelect.List>
