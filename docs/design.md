@@ -91,7 +91,7 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 - **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Opening one grows it in a single motion while the body fades in from under the snippet it replaces; closing runs the same way back. Quoted history hides behind "•••".
 - **HTML mail** renders sanitized in a sandboxed frame without scripts, on a light card in both themes. Remote images stay hidden behind a quiet notice until allowed, and then load through the image proxy.
 - **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and can schedule.
-- **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; accounts sit side by side as avatars, a pill slides to the current one and its name and address morph in underneath; search turns `from:` and friends into chips; `?` lists every shortcut.
+- **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; the account picker shows the current account and opens its list around it, so the current entry stays in place and the others unfold above and below (below only, when there's no room above); search turns `from:` and friends into chips; `?` lists every shortcut.
 
 ## Icons
 
