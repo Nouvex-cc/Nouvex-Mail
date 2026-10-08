@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib";
 
 type Glyph = { key: number; char: string };
+
+// Stands in for the optional icon inside the glyph list, so it enters, leaves and glides like a letter.
+const ICON = "\u0000";
 
 let nextKey = 0;
 const glyphs = (text: string) => [...text].map((char) => ({ key: nextKey++, char }));
@@ -42,25 +45,28 @@ function diff(prev: Glyph[], text: string) {
 
 const ease = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
-export function TextMorph({ children, className }: { children: string; className?: string }) {
+export function TextMorph({ children, icon, className }: { children: string; icon?: ReactNode; className?: string }) {
 	const ref = useRef<HTMLSpanElement>(null);
+	// Letter positions relative to the offset parent, which stays put while this element re-centers.
 	const lefts = useRef(new Map<number, number>());
-	const width = useRef(0);
-	const measured = useRef("");
-	const [state, setState] = useState(() => ({ text: children, glyphs: glyphs(children), exiting: [] as Glyph[] }));
+	const measured = useRef<string | null>(null);
+	const lastIcon = useRef(icon);
+	if (icon) lastIcon.current = icon;
+	const id = `${icon ? ICON : ""}${children}`;
+	const [state, setState] = useState(() => ({ id, glyphs: glyphs(id), exiting: [] as Glyph[] }));
 
-	if (children !== state.text) {
-		const { next, removed } = diff(state.glyphs, children);
-		setState({ text: children, glyphs: next, exiting: [...state.exiting, ...removed] });
+	if (id !== state.id) {
+		const { next, removed } = diff(state.glyphs, id);
+		setState({ id, glyphs: next, exiting: [...state.exiting, ...removed] });
 	}
 
 	useLayoutEffect(() => {
 		const root = ref.current;
 		// Runs again when a leaving letter is cleaned up; only a new text needs measuring.
-		if (!root || measured.current === state.text) return;
-		measured.current = state.text;
-		for (const a of root.getAnimations()) a.cancel();
-		const animate = width.current > 0 && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+		if (!root || measured.current === state.id) return;
+		const animate = measured.current !== null && !matchMedia("(prefers-reduced-motion: reduce)").matches;
+		measured.current = state.id;
+		const base = root.offsetLeft;
 		const exiting = new Set(state.exiting.map((g) => g.key));
 
 		for (const el of root.querySelectorAll<HTMLElement>("[data-key]")) {
@@ -69,44 +75,48 @@ export function TextMorph({ children, className }: { children: string; className
 			if (exiting.has(key)) {
 				if (el.dataset.leaving) continue;
 				el.dataset.leaving = "1";
-				el.style.left = `${old ?? 0}px`;
+				el.style.left = `${(old ?? base) - base}px`;
 				const done = () => setState((s) => ({ ...s, exiting: s.exiting.filter((g) => g.key !== key) }));
 				if (!animate) done();
 				else
 					el.animate(
 						{ opacity: [1, 0], filter: ["blur(0)", "blur(2px)"] },
-						{ duration: 160, easing: "ease-in", fill: "forwards" },
+						{ duration: 120, easing: "ease-out", fill: "forwards" },
 					).onfinish = done;
 			} else if (old === undefined) {
 				if (animate)
 					el.animate(
 						{ opacity: [0, 1], filter: ["blur(2px)", "blur(0)"] },
-						{ duration: 220, delay: 80, easing: ease, fill: "backwards" },
+						{ duration: 220, delay: 100, easing: ease, fill: "backwards" },
 					);
-			} else if (animate && old !== el.offsetLeft) {
-				el.animate({ transform: [`translateX(${old - el.offsetLeft}px)`, "none"] }, { duration: 320, easing: ease });
+			} else if (animate && old !== base + el.offsetLeft) {
+				el.animate(
+					{ transform: [`translateX(${old - base - el.offsetLeft}px)`, "none"] },
+					{ duration: 320, easing: ease },
+				);
 			}
 		}
 
-		const w = root.offsetWidth;
-		if (animate && width.current !== w)
-			root.animate({ width: [`${width.current}px`, `${w}px`] }, { duration: 320, easing: ease });
-		width.current = w;
 		lefts.current = new Map(
-			state.glyphs.map((g) => [g.key, root.querySelector<HTMLElement>(`[data-key="${g.key}"]`)?.offsetLeft ?? 0]),
+			state.glyphs.map((g) => [
+				g.key,
+				base + (root.querySelector<HTMLElement>(`[data-key="${g.key}"]`)?.offsetLeft ?? 0),
+			]),
 		);
 	}, [state]);
 
+	const render = (g: Glyph) => (g.char === ICON ? <span className="flex pr-1.5">{lastIcon.current}</span> : g.char);
+
 	return (
-		<span ref={ref} className={cn("relative inline-block whitespace-pre", className)}>
+		<span ref={ref} className={cn("relative inline-flex items-center whitespace-pre", className)}>
 			{state.glyphs.map((g) => (
 				<span key={g.key} data-key={g.key} className="inline-block">
-					{g.char}
+					{render(g)}
 				</span>
 			))}
 			{state.exiting.map((g) => (
-				<span key={g.key} data-key={g.key} aria-hidden className="absolute top-0">
-					{g.char}
+				<span key={g.key} data-key={g.key} aria-hidden className="absolute top-1/2 -translate-y-1/2">
+					{render(g)}
 				</span>
 			))}
 		</span>

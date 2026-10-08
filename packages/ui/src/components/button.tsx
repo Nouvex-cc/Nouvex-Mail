@@ -52,7 +52,6 @@ export function Button({
 	...props
 }: ButtonProps) {
 	const ring = usePresence(loading, 200);
-	const check = usePresence(success, 320);
 
 	return (
 		<>
@@ -76,12 +75,9 @@ export function Button({
 							{children}
 						</span>
 						<span className="absolute inset-0 flex items-center justify-center">
-							{check && (
-								<span data-active={success ? "" : undefined} className="button-check">
-									<Check strokeWidth={2.25} />
-								</span>
-							)}
-							<TextMorph>{success || children}</TextMorph>
+							<TextMorph icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}>
+								{success || children}
+							</TextMorph>
 						</span>
 					</span>
 				) : (
