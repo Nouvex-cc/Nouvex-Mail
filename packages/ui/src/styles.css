@@ -270,6 +270,71 @@
 	}
 }
 
+/* Toasts as a deck (Base UI's stacking recipe, quieter): the newest sits in front, older ones peek out as
+   slightly smaller cards behind it with their content hidden. Hovering or focusing the stack fans it out.
+   New toasts rise from below; leaving ones drop away or follow the swipe. */
+@utility toast-card {
+	--gap: 0.5rem;
+	--peek: 0.5rem;
+	--scale: calc(max(0, 1 - (var(--toast-index) * 0.05)));
+	--shrink: calc(1 - var(--scale));
+	--height: var(--toast-frontmost-height, var(--toast-height));
+	--offset-y: calc(var(--toast-offset-y) * -1 + (var(--toast-index) * var(--gap) * -1) + var(--toast-swipe-movement-y));
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: calc(1000 - var(--toast-index));
+	height: var(--height);
+	transform-origin: bottom center;
+	transform: translateX(var(--toast-swipe-movement-x))
+		translateY(
+			calc(var(--toast-swipe-movement-y) - (var(--toast-index) * var(--peek)) - (var(--shrink) * var(--height)))
+		)
+		scale(var(--scale));
+	transition:
+		transform 400ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 400ms cubic-bezier(0.22, 1, 0.36, 1),
+		height 150ms var(--ease-out);
+	&[data-expanded] {
+		height: var(--toast-height);
+		transform: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y));
+	}
+	&[data-starting-style],
+	&[data-ending-style] {
+		transform: translateY(150%);
+	}
+	&[data-limited],
+	&[data-ending-style] {
+		opacity: 0;
+	}
+	&[data-ending-style][data-swipe-direction="down"] {
+		transform: translateY(calc(var(--toast-swipe-movement-y) + 150%));
+	}
+	&[data-ending-style][data-swipe-direction="right"] {
+		transform: translateX(calc(var(--toast-swipe-movement-x) + 120%)) translateY(var(--offset-y));
+	}
+	/* Bridges the gap between cards so the stack doesn't collapse while the pointer crosses it. */
+	&::after {
+		content: "";
+		position: absolute;
+		top: 100%;
+		left: 0;
+		width: 100%;
+		height: calc(var(--gap) + 1px);
+	}
+}
+
+@utility toast-content {
+	transition: opacity 250ms cubic-bezier(0.22, 1, 0.36, 1);
+	&[data-behind] {
+		opacity: 0;
+	}
+	&[data-expanded] {
+		opacity: 1;
+	}
+}
+
 @keyframes button-ring {
 	to {
 		stroke-dashoffset: -100;

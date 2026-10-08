@@ -2,7 +2,6 @@
 import { Toast as BaseToast } from "@base-ui/react/toast";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useGlide } from "./glide";
 
 // Usage: const toast = useToast(); toast.add({ title: "Archived", actionProps: { children: "Undo", onClick } })
 export const useToast = BaseToast.useToastManager;
@@ -13,46 +12,37 @@ export function ToastProvider({ children, ...props }: BaseToast.Provider.Props &
 		<BaseToast.Provider limit={3} {...props}>
 			{children}
 			<BaseToast.Portal>
-				<ToastViewport />
+				<BaseToast.Viewport className="fixed inset-x-4 bottom-4 z-50 mx-auto max-w-90 outline-none sm:bottom-6">
+					<ToastList />
+				</BaseToast.Viewport>
 			</BaseToast.Portal>
 		</BaseToast.Provider>
 	);
 }
 
-// Toasts make room for each other by gliding instead of jumping; their own enter and exit come from Base UI.
-function ToastViewport() {
-	// Same duration and curve as a toast entering, so the stack moves as one.
-	const ref = useGlide<HTMLDivElement>({ duration: 200 });
-	return (
-		<BaseToast.Viewport
-			ref={ref}
-			className="fixed inset-x-0 bottom-4 z-50 mx-auto flex w-full max-w-sm flex-col-reverse gap-2 px-4 outline-none"
-		>
-			<ToastList />
-		</BaseToast.Viewport>
-	);
-}
-
-// Toasts stack in normal flow, not as a collapsed deck. At most three are visible.
+// A deck: see toast-card in styles.css for how cards stack, fan out and leave.
 function ToastList() {
 	const { toasts } = BaseToast.useToastManager();
 	return toasts.map((toast) => (
 		<BaseToast.Root
 			key={toast.id}
 			toast={toast}
-			className="flex translate-x-(--toast-swipe-movement-x) translate-y-(--toast-swipe-movement-y) select-none items-center gap-3 rounded-lg border border-line bg-raised py-2.5 pr-2 pl-3.5 text-ink shadow-pop transition duration-200 ease-out starting:translate-y-[calc(100%+--spacing(2))] starting:opacity-0 ending:opacity-0 ending:duration-150 data-limited:hidden"
+			swipeDirection={["down", "right"]}
+			className="toast-card cursor-default rounded-lg border border-line bg-raised text-ink shadow-pop select-none focus-visible:outline-2 focus-visible:-outline-offset-1"
 		>
-			<BaseToast.Content className="grid min-w-0 flex-1 gap-0.5">
-				<BaseToast.Title className="font-medium" />
-				<BaseToast.Description className="text-sm text-muted" />
+			<BaseToast.Content className="toast-content flex items-center gap-3 overflow-hidden py-2.5 pr-2 pl-3.5">
+				<div className="grid min-w-0 flex-1 gap-0.5">
+					<BaseToast.Title className="truncate font-medium" />
+					<BaseToast.Description className="text-sm text-muted" />
+				</div>
+				<BaseToast.Action className="h-7 shrink-0 rounded-md px-2 text-sm font-semibold transition-colors duration-100 hover:bg-hover" />
+				<BaseToast.Close
+					aria-label="Dismiss"
+					className="grid size-7 shrink-0 place-items-center rounded-md text-muted transition-colors duration-100 hover:bg-hover hover:text-ink [&_svg]:size-4"
+				>
+					<X strokeWidth={1.75} />
+				</BaseToast.Close>
 			</BaseToast.Content>
-			<BaseToast.Action className="h-7 shrink-0 rounded-md px-2 text-sm font-semibold hover:bg-hover" />
-			<BaseToast.Close
-				aria-label="Dismiss"
-				className="grid size-7 shrink-0 place-items-center rounded-md text-muted hover:bg-hover hover:text-ink [&_svg]:size-4"
-			>
-				<X strokeWidth={1.75} />
-			</BaseToast.Close>
 		</BaseToast.Root>
 	));
 }

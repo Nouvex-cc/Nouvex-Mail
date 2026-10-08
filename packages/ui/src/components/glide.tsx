@@ -4,14 +4,12 @@ import { useEffect, useRef } from "react";
 /**
  * Children of the returned element glide to their new place when siblings come or go, instead of jumping.
  * `enter` scales new children in, `leave` keeps a short-lived copy of a removed child fading out where it was.
- * Used by chips and toasts. The element must be positioned (relative).
+ * Used by chips. The element must be positioned (relative).
  */
 export function useGlide<T extends HTMLElement>({
 	enter = false,
 	leave = false,
-	duration = 160,
 }: {
-	duration?: number;
 	enter?: boolean;
 	leave?: boolean;
 } = {}) {
@@ -71,7 +69,7 @@ export function useGlide<T extends HTMLElement>({
 				for (const a of c.getAnimations()) if (a.id === "glide") a.cancel();
 				c.animate(
 					{ transform: [`translate(${dx + running.e}px, ${dy + running.f}px)`, "none"] },
-					{ duration, easing, id: "glide" },
+					{ duration: 160, easing, id: "glide" },
 				);
 			}
 			snap();
@@ -84,6 +82,6 @@ export function useGlide<T extends HTMLElement>({
 			watch.disconnect();
 			resize.disconnect();
 		};
-	}, [enter, leave, duration]);
+	}, [enter, leave]);
 	return ref;
 }
