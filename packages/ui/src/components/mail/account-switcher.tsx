@@ -106,7 +106,7 @@ export function AccountSwitcher({
 							popup,
 							// Rows run edge to edge and there's no border, so the current one lands exactly on the trigger:
 							// same width, same corners, no zoom.
-							"w-(--anchor-width) overflow-hidden rounded-md border-0 starting:scale-100 ending:scale-100",
+							"w-(--anchor-width) overflow-hidden rounded-md border-0 shadow-dialog starting:scale-100 ending:scale-100",
 						)}
 					>
 						<Select.List className="relative max-h-(--available-height) overflow-y-auto outline-none">
