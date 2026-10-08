@@ -65,6 +65,8 @@ Loading buttons darken and a short segment of their outline runs around them (`<
 
 In lists (menus, selects, comboboxes, the command palette) one highlight slides to the focused item instead of items lighting up one by one. Chips (recipients) scale in when added and fade out in place when removed, quick enough never to be waited on; the rest glides.
 
+A select opens over its trigger: the chosen row lands exactly on the trigger's tile, the list unfolds up and down out of it, and picking another row folds the list back while that row glides onto the trigger. Rows run edge to edge, so the row on the trigger is the trigger's size. The account picker and the calendar's month and year use the same select. Where there's no room (or on touch) the list drops below and fades in.
+
 Sliders have an upright rounded bar instead of a round knob; it grows a little while hovered or dragged. Clicking further along the track glides it there (120 ms); dragging follows the pointer directly.
 
 Controls give slightly under the finger: buttons, toggles, checkboxes and radios press in a little (not a trigger that opens a list over itself, the list would land off by the press), a switch's thumb stretches once while it travels. A checkbox's check strokes itself in, a radio's dot grows from the center. Single-choice toggle groups slide one pill to the active option, like lists. Toasts form a deck at the bottom: the newest in front, older ones as slightly smaller cards peeking out behind with their text hidden. Hovering or focusing fans the deck out; new toasts rise from below, dismissed ones drop away or follow a swipe to the side, and the timer pauses while the pointer is on them. Fields get the focus ring with a small gap around them, so it never sits on the border, avatars fade in once their image has loaded.
@@ -91,7 +93,7 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 - **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Opening one grows it in a single motion while the body fades in from under the snippet it replaces; closing runs the same way back. Quoted history hides behind "•••".
 - **HTML mail** renders sanitized in a sandboxed frame without scripts, on a light card in both themes. Remote images stay hidden behind a quiet notice until allowed, and then load through the image proxy.
 - **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and can schedule.
-- **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; the account picker shows the current account and its list opens out of that tile: the panel unfolds up and down while the other accounts fade in beside it, and picking one folds the panel back as the picked row glides onto the trigger (with no room above, the list simply drops down below); search turns `from:` and friends into chips; `?` lists every shortcut.
+- **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; the account picker is a select (see above) showing the current account; search turns `from:` and friends into chips; `?` lists every shortcut.
 
 ## Icons
 

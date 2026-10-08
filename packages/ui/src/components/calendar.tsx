@@ -65,12 +65,13 @@ function Picker({
 			}}
 			onValueChange={(v) => v !== null && onChange(v)}
 		>
-			<BaseSelect.Trigger
+			<Select.Trigger
+				bare
 				aria-label={`${label}, change ${name}`}
 				className="-mx-1 rounded-sm px-1 tabular-nums outline-none hover:bg-hover focus-visible:outline-2 open:bg-hover"
 			>
-				<BaseSelect.Value>{() => <TextMorph by="text">{label}</TextMorph>}</BaseSelect.Value>
-			</BaseSelect.Trigger>
+				<BaseSelect.Value data-fold-hide>{() => <TextMorph by="text">{label}</TextMorph>}</BaseSelect.Value>
+			</Select.Trigger>
 			<Select.Popup
 				onKeyDownCapture={(e) => {
 					if (e.key === "Backspace") setTyped((t) => t.slice(0, -1));
