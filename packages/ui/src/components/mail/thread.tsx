@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Collapsible as BaseCollapsible } from "@base-ui/react/collapsible";
 import { Forward, Reply } from "lucide-react";
-import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode, useState } from "react";
+import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode, useId, useState } from "react";
 import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Avatar } from "../avatar";
 import { Button } from "../button";
 import { Tooltip } from "../tooltip";
 
-const panel =
-	"h-(--collapsible-panel-height) overflow-hidden transition-all duration-150 ease-out starting:h-0 ending:h-0";
+// Opens by growing a grid row and fading the body in from under the snippet; see thread-panel in styles.css.
+function Panel({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
+	return (
+		<section id={id} data-open={open || undefined} inert={!open} className="thread-panel">
+			<div>
+				<div className="thread-body">{children}</div>
+			</div>
+		</section>
+	);
+}
 
 export type ThreadMessageProps = {
 	from: string;
@@ -40,22 +47,36 @@ export function ThreadMessage({
 	onReply,
 	onForward,
 }: ThreadMessageProps) {
+	const [own, setOwn] = useState(defaultExpanded);
+	const open = expanded ?? own;
+	// The body mounts invisibly as soon as the pointer or focus arrives, so a mail frame has measured itself
+	// by the time the row is clicked and the message opens in one smooth motion.
+	const [ready, setReady] = useState(open);
+	const panelId = useId();
+
 	return (
-		<BaseCollapsible.Root
-			open={expanded}
-			defaultOpen={defaultExpanded}
-			className="group border-b border-line last:border-b-0"
-		>
-			<BaseCollapsible.Trigger className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2">
+		<div data-open={open || undefined} className="group border-b border-line last:border-b-0">
+			<button
+				type="button"
+				aria-expanded={open}
+				aria-controls={panelId}
+				onPointerEnter={() => setReady(true)}
+				onFocus={() => setReady(true)}
+				onClick={() => {
+					setReady(true);
+					setOwn(!open);
+				}}
+				className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
+			>
 				<Avatar name={from} />
 				<span className="grid min-w-0 flex-1">
 					<span className="truncate font-medium">{from}</span>
 					{/* Same line, two texts: the snippet when closed, address and recipients when open. */}
 					<span className="grid text-sm text-muted">
-						<span className="col-start-1 row-start-1 truncate transition-opacity duration-150 group-data-open:opacity-0">
+						<span className="col-start-1 row-start-1 truncate transition-opacity duration-200 group-data-open:opacity-0">
 							{snippet}
 						</span>
-						<span className="col-start-1 row-start-1 truncate opacity-0 transition-opacity duration-150 group-data-open:opacity-100">
+						<span className="col-start-1 row-start-1 truncate opacity-0 transition-opacity duration-200 group-data-open:opacity-100">
 							{[email, to?.length ? `to ${to.join(", ")}` : ""].filter(Boolean).join(" · ")}
 						</span>
 					</span>
@@ -63,29 +84,31 @@ export function ThreadMessage({
 				<Tooltip content={formatMailDateLong(date)}>
 					<span className="shrink-0 self-start pt-0.5 text-xs text-muted tabular-nums">{formatMailDate(date)}</span>
 				</Tooltip>
-			</BaseCollapsible.Trigger>
-			<BaseCollapsible.Panel className={panel}>
-				<div className="grid gap-3 pr-4 pb-4 pl-15">
-					{children}
-					{(onReply || onForward) && (
-						<div className="flex gap-2">
-							{onReply && (
-								<Button size="sm" onClick={onReply}>
-									<Reply strokeWidth={1.75} />
-									Reply
-								</Button>
-							)}
-							{onForward && (
-								<Button size="sm" onClick={onForward}>
-									<Forward strokeWidth={1.75} />
-									Forward
-								</Button>
-							)}
-						</div>
-					)}
-				</div>
-			</BaseCollapsible.Panel>
-		</BaseCollapsible.Root>
+			</button>
+			<Panel open={open} id={panelId}>
+				{ready && (
+					<div className="grid gap-3 pr-4 pb-4 pl-15">
+						{children}
+						{(onReply || onForward) && (
+							<div className="flex gap-2">
+								{onReply && (
+									<Button size="sm" onClick={onReply}>
+										<Reply strokeWidth={1.75} />
+										Reply
+									</Button>
+								)}
+								{onForward && (
+									<Button size="sm" onClick={onForward}>
+										<Forward strokeWidth={1.75} />
+										Forward
+									</Button>
+								)}
+							</div>
+						)}
+					</div>
+				)}
+			</Panel>
+		</div>
 	);
 }
 
@@ -110,15 +133,19 @@ export function Thread({ subject, children, className }: { subject: string; chil
 				{fold ? (
 					<>
 						{items[0]}
-						<BaseCollapsible.Root open={showAll} onOpenChange={setShowAll}>
-							{!showAll && (
-								<BaseCollapsible.Trigger className="flex w-full items-center gap-3 border-b border-line px-4 py-2 text-left text-sm text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2">
-									<span className="h-px w-6 bg-line-strong" />
-									{middle.length} earlier {middle.length === 1 ? "message" : "messages"}
-								</BaseCollapsible.Trigger>
-							)}
-							<BaseCollapsible.Panel className={cn(panel, "border-b border-line")}>{middle}</BaseCollapsible.Panel>
-						</BaseCollapsible.Root>
+						{!showAll && (
+							<button
+								type="button"
+								onClick={() => setShowAll(true)}
+								className="flex w-full items-center gap-3 border-b border-line px-4 py-2 text-left text-sm text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2"
+							>
+								<span className="h-px w-6 bg-line-strong" />
+								{middle.length} earlier {middle.length === 1 ? "message" : "messages"}
+							</button>
+						)}
+						<Panel open={showAll}>
+							<div className="border-b border-line">{middle}</div>
+						</Panel>
 						{items.slice(-2)}
 					</>
 				) : (

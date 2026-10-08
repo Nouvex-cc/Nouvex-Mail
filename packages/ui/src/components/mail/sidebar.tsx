@@ -4,6 +4,7 @@ import { cn } from "../../lib";
 import { Collapsible } from "../accordion";
 import { Highlight } from "../highlight";
 import { Tooltip } from "../tooltip";
+import { type LabelColor, LabelIcon } from "./label";
 
 // Arrow keys move between items across sections, like a list.
 function moveFocus(e: KeyboardEvent<HTMLElement>) {
@@ -96,22 +97,8 @@ function Item({ icon, label, active, unread, count, shortcut, onSelect }: Sideba
 	);
 }
 
-// Label colors are the one place hues are allowed. They come from the --label-* tokens in styles.css.
-const dots = {
-	gray: "bg-(--label-gray)",
-	red: "bg-(--label-red)",
-	orange: "bg-(--label-orange)",
-	green: "bg-(--label-green)",
-	blue: "bg-(--label-blue)",
-	purple: "bg-(--label-purple)",
-};
-
-export type LabelColor = keyof typeof dots;
-
 function Label({ color, ...props }: Omit<SidebarItemProps, "icon"> & { color: LabelColor }) {
-	return (
-		<Item {...props} icon={<span aria-hidden className={cn("mx-1 size-2 shrink-0 rounded-full", dots[color])} />} />
-	);
+	return <Item {...props} icon={<LabelIcon color={color} />} />;
 }
 
 export const Sidebar = { Root, Section, Item, Label };

@@ -33,7 +33,7 @@ Warm neutrals, never pure black or white. The accent is ink, same as the logo. C
 | `hold` | fill of a hold-to-confirm button |
 | `positive` | confirmed actions (button success state) |
 
-Mail labels get one of six muted hues (`--label-gray`, `red`, `orange`, `green`, `blue`, `purple`) as a small dot. That's the only color beyond the palette above, and it carries information.
+Mail labels get one of six muted hues (`--label-gray`, `red`, `orange`, `green`, `blue`, `purple`) as a tag: a tag-shaped icon in the sidebar, a tinted chip with darker text in front of the subject. That's the only color beyond the palette above, and it carries information.
 
 Raw Tailwind colors don't exist in this project (the default palette is removed), so `bg-blue-500` won't compile into anything.
 
@@ -67,7 +67,7 @@ In lists (menus, selects, comboboxes, the command palette) one highlight slides 
 
 Sliders have an upright rounded bar instead of a round knob; it grows a little while hovered or dragged. Clicking further along the track glides it there (120 ms); dragging follows the pointer directly.
 
-Controls give slightly under the finger: buttons, toggles, checkboxes and radios press in a little, a switch's thumb stretches once while it travels. A checkbox's check strokes itself in, a radio's dot grows from the center. Single-choice toggle groups slide one pill to the active option, like lists. Toasts form a deck at the bottom: the newest in front, older ones as slightly smaller cards peeking out behind with their text hidden. Hovering or focusing fans the deck out; new toasts rise from below, dismissed ones drop away or follow a swipe to the side, and the timer pauses while the pointer is on them. Field borders fade on focus, avatars fade in once their image has loaded.
+Controls give slightly under the finger: buttons, toggles, checkboxes and radios press in a little, a switch's thumb stretches once while it travels. A checkbox's check strokes itself in, a radio's dot grows from the center. Single-choice toggle groups slide one pill to the active option, like lists. Toasts form a deck at the bottom: the newest in front, older ones as slightly smaller cards peeking out behind with their text hidden. Hovering or focusing fans the deck out; new toasts rise from below, dismissed ones drop away or follow a swipe to the side, and the timer pauses while the pointer is on them. Fields get the focus ring with a small gap around them, so it never sits on the border, avatars fade in once their image has loaded.
 
 Calendars page with a short fade-through: the old month fades out almost in place, the new one fades in from the paging direction once the old one is gone, so dates never overlap. The month name crossfades while the year stays put. Month and year each open a list around themselves (all months, three years either side) and also take typing: the middle row turns into the field showing what you type and the best match is highlighted; Enter takes it or a typed value outside the list (a year like 1850, a month number). Today has a dot, the week starts on the user's regional first day, and picking a date closes the picker.
 
@@ -88,10 +88,10 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 - **Rows** show sender, subject and snippet on one line, the date on the right (time today, weekday this week, date before). Unread is a dot plus semibold, nothing louder. On hover the date crossfades into archive, snooze and delete; on touch a row swipes (left archive, right snooze).
 - **Selection** works with checkboxes, Shift for ranges and dragging across rows. A bar with bulk actions rises from the bottom; Escape clears.
 - **Snooze** offers a few times that make sense right now and a field that understands "tomorrow 3pm".
-- **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Quoted history hides behind "•••".
+- **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Opening one grows it in a single motion while the body fades in from under the snippet it replaces; closing runs the same way back. Quoted history hides behind "•••".
 - **HTML mail** renders sanitized in a sandboxed frame without scripts, on a light card in both themes. Remote images stay hidden behind a quiet notice until allowed, and then load through the image proxy.
 - **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and can schedule.
-- **Navigation:** one sliding highlight marks the current folder; label dots are the only extra color; search turns `from:` and friends into chips; `?` lists every shortcut.
+- **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; accounts sit side by side as avatars, a pill slides to the current one and its name and address morph in underneath; search turns `from:` and friends into chips; `?` lists every shortcut.
 
 ## Icons
 

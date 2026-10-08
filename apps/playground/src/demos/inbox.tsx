@@ -1,12 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { BulkBar, MessageList, MessageRow, useToast } from "@nouvex/ui";
+import { BulkBar, type MailLabel, MessageList, MessageRow, useToast } from "@nouvex/ui";
 import { useRef, useState } from "react";
 
 const now = new Date();
 const ago = (days: number, hours = 0, minutes = 0) =>
 	new Date(now.getFullYear(), now.getMonth(), now.getDate() - days, hours || now.getHours() - 1, minutes);
 
-const initial = [
+type Message = {
+	id: number;
+	from: string;
+	subject: string;
+	snippet: string;
+	date: Date;
+	unread?: boolean;
+	attachments?: number;
+	labels?: MailLabel[];
+};
+
+const initial: Message[] = [
 	{
 		id: 1,
 		from: "Lena Hartmann",
@@ -19,6 +30,7 @@ const initial = [
 		id: 2,
 		from: "Deutsche Bahn",
 		subject: "Your ticket Karlsruhe → Berlin",
+		labels: [{ name: "Travel", color: "blue" }],
 		snippet: "ICE 374, Fri 07:12, seat 54 in car 7. Have a good trip.",
 		date: ago(0, 8, 15),
 		unread: true,
@@ -44,6 +56,7 @@ const initial = [
 		id: 5,
 		from: "Hetzner Online",
 		subject: "Invoice R0012345678",
+		labels: [{ name: "Receipts", color: "green" }],
 		snippet: "Your invoice for September is ready.",
 		date: ago(1, 6, 0),
 		attachments: 1,
@@ -66,6 +79,7 @@ const initial = [
 		id: 8,
 		from: "Sofia Rossi",
 		subject: "Photos from the wedding",
+		labels: [{ name: "Family", color: "orange" }],
 		snippet: "Finally sorted through them, here's the shared album.",
 		date: ago(4, 21, 5),
 		unread: true,

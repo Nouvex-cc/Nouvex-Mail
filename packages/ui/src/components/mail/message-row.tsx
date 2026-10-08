@@ -5,12 +5,15 @@ import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Checkbox } from "../checkbox";
 import { Tooltip } from "../tooltip";
+import { LabelChip, type MailLabel } from "./label";
 import { SnoozePicker } from "./snooze-picker";
 
 export type MessageRowProps = {
 	from: string;
 	subject: string;
 	snippet?: string;
+	/** Shown as chips in front of the subject, at most two. */
+	labels?: MailLabel[];
 	date: Date;
 	unread?: boolean;
 	selected?: boolean;
@@ -35,6 +38,7 @@ export function MessageRow({
 	from,
 	subject,
 	snippet,
+	labels = [],
 	date,
 	unread = false,
 	selected = false,
@@ -172,9 +176,14 @@ export function MessageRow({
 				</span>
 				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ink", !unread && "invisible")} />
 				<span className={cn("w-40 shrink-0 truncate", unread && "font-semibold")}>{from}</span>
-				<span className="min-w-0 flex-1 truncate">
-					<span className={cn(unread && "font-semibold")}>{subject}</span>
-					{snippet && <span className="text-muted"> · {snippet}</span>}
+				<span className="flex min-w-0 flex-1 items-center gap-1.5">
+					{labels.slice(0, 2).map((l) => (
+						<LabelChip key={l.name} {...l} />
+					))}
+					<span className="min-w-0 truncate">
+						<span className={cn(unread && "font-semibold")}>{subject}</span>
+						{snippet && <span className="text-muted"> · {snippet}</span>}
+					</span>
 				</span>
 				{attachments > 0 && (
 					<Paperclip

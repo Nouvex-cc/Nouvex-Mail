@@ -11,7 +11,7 @@ function Chips({ className, ...props }: Styled<BaseCombobox.Chips.Props>) {
 		<BaseCombobox.Chips
 			ref={ref}
 			className={cn(
-				"relative flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper px-1.5 py-1 focus-within:border-ink [&_input]:h-6 [&_input]:min-w-16 [&_input]:flex-1 [&_input]:bg-transparent [&_input]:px-1 [&_input]:outline-none [&_input]:placeholder:text-faint",
+				"relative flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper px-1.5 py-1 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink/30 [&_input]:h-6 [&_input]:min-w-16 [&_input]:flex-1 [&_input]:bg-transparent [&_input]:px-1 [&_input]:outline-none [&_input]:placeholder:text-faint",
 				className,
 			)}
 			{...props}

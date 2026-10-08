@@ -100,7 +100,7 @@ export function SearchField({
 		<div className={cn("relative", className)}>
 			<div
 				ref={box}
-				className="relative flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper py-1 pr-1.5 pl-8 transition-colors duration-150 focus-within:border-ink"
+				className="relative flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper py-1 pr-1.5 pl-8 transition-colors duration-150 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink/30"
 				onPointerDown={(e) => {
 					if (e.target === e.currentTarget) {
 						e.preventDefault();

@@ -342,6 +342,46 @@
 	}
 }
 
+/* Mail labels: data-label-color picks the hue; chips tint their background with it, icons fill with it. */
+@utility label-chip {
+	background: color-mix(in oklab, var(--label, var(--label-gray)) 18%, var(--paper));
+	color: color-mix(in oklab, var(--label, var(--label-gray)) 70%, var(--ink));
+}
+
+@utility label-icon {
+	color: var(--label, var(--label-gray));
+}
+
+/* Thread messages open by growing a grid row (follows the content as it loads, no measured height to overshoot)
+   while the body fades in from just under the snippet it replaces. */
+@utility thread-panel {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 320ms var(--ease-out);
+	& > div {
+		min-height: 0;
+		overflow: hidden;
+	}
+	&[data-open] {
+		grid-template-rows: 1fr;
+	}
+}
+
+@utility thread-body {
+	opacity: 0;
+	translate: 0 -0.5rem;
+	transition:
+		opacity 150ms ease-in,
+		translate 150ms ease-in;
+	[data-open] > div > & {
+		opacity: 1;
+		translate: 0 0;
+		transition:
+			opacity 260ms var(--ease-out) 40ms,
+			translate 320ms var(--ease-out);
+	}
+}
+
 @keyframes button-ring {
 	to {
 		stroke-dashoffset: -100;
@@ -349,6 +389,24 @@
 }
 
 @layer base {
+	[data-label-color="gray"] {
+		--label: var(--label-gray);
+	}
+	[data-label-color="red"] {
+		--label: var(--label-red);
+	}
+	[data-label-color="orange"] {
+		--label: var(--label-orange);
+	}
+	[data-label-color="green"] {
+		--label: var(--label-green);
+	}
+	[data-label-color="blue"] {
+		--label: var(--label-blue);
+	}
+	[data-label-color="purple"] {
+		--label: var(--label-purple);
+	}
 	* {
 		border-color: var(--line);
 	}
