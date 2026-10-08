@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Popover } from "@base-ui/react/popover";
+import { Select as BaseSelect } from "@base-ui/react/select";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { DayPicker, type DayPickerProps } from "react-day-picker";
 import { cn, popup } from "../lib";
 import { Button } from "./button";
+import { Select } from "./select";
 import { TextMorph } from "./text-morph";
 
 const nav =
@@ -87,6 +89,30 @@ function Year({ year, onChange }: { year: number; onChange: (year: number) => vo
 	);
 }
 
+// The month name opens a list of all months around itself, the current one staying in place.
+function Month({ date, onChange }: { date: Date; onChange: (month: number) => void }) {
+	const names = Array.from({ length: 12 }, (_, m) =>
+		new Date(2000, m, 1).toLocaleDateString(undefined, { month: "long" }),
+	);
+	return (
+		<Select.Root value={date.getMonth()} onValueChange={(m) => m !== null && onChange(m)}>
+			<BaseSelect.Trigger
+				aria-label={`${names[date.getMonth()]}, change month`}
+				className="-mx-1 rounded-sm px-1 outline-none hover:bg-hover focus-visible:outline-2 open:bg-hover"
+			>
+				<BaseSelect.Value>{(m: number) => <TextMorph by="text">{names[m] ?? ""}</TextMorph>}</BaseSelect.Value>
+			</BaseSelect.Trigger>
+			<Select.Popup>
+				{names.map((name, m) => (
+					<Select.Item key={name} value={m}>
+						{name}
+					</Select.Item>
+				))}
+			</Select.Popup>
+		</Select.Root>
+	);
+}
+
 // The header is ours, not the library's: its caption is rebuilt on every month change and couldn't animate across
 // it. Here the month name crossfades while the year stays and glides.
 export function Calendar({ className, classNames, month, defaultMonth, onMonthChange, ...props }: DayPickerProps) {
@@ -122,7 +148,7 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 		<div className={cn("grid gap-2 p-3 select-none", className)}>
 			<div className="flex h-7 items-center justify-between pl-1">
 				<span aria-live="polite" className="relative flex items-baseline gap-1 font-semibold">
-					<TextMorph by="text">{monthName}</TextMorph>
+					<Month date={current} onChange={(m) => go(new Date(current.getFullYear(), m, 1))} />
 					<span ref={yearBox} className="inline-flex">
 						<Year year={current.getFullYear()} onChange={(year) => go(new Date(year, current.getMonth(), 1))} />
 					</span>
