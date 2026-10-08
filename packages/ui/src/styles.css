@@ -256,6 +256,20 @@
 	}
 }
 
+/* Slider thumb and fill: a jump to a new value glides quickly; while dragging they follow the pointer directly. */
+@utility slider-glide {
+	transition:
+		inset-inline-start 120ms var(--ease-out),
+		width 120ms var(--ease-out),
+		scale 150ms var(--ease-out);
+	[data-moving] & {
+		transition:
+			inset-inline-start 0ms,
+			width 0ms,
+			scale 150ms var(--ease-out);
+	}
+}
+
 @keyframes button-ring {
 	to {
 		stroke-dashoffset: -100;

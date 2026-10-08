@@ -63,7 +63,7 @@ Loading buttons darken and a short segment of their outline runs around them (`<
 
 In lists (menus, selects, comboboxes, the command palette) one highlight slides to the focused item instead of items lighting up one by one. Chips (recipients) scale in when added and fade out in place when removed, quick enough never to be waited on; the rest glides.
 
-Sliders have an upright rounded bar instead of a round knob; it grows a little while hovered or dragged.
+Sliders have an upright rounded bar instead of a round knob; it grows a little while hovered or dragged. Clicking further along the track glides it there (120 ms); dragging follows the pointer directly.
 
 Checkboxes give slightly under the finger, and their check strokes itself in from left to right (about 180 ms).
 

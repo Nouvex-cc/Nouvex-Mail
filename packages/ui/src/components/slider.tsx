@@ -20,15 +20,24 @@ export function Slider({ label, showValue = false, className, ...props }: Slider
 					{showValue && <BaseSlider.Value className="text-muted tabular-nums" />}
 				</div>
 			)}
-			<BaseSlider.Control className="group flex h-6 w-full cursor-pointer touch-none items-center select-none data-disabled:cursor-default data-disabled:opacity-50">
+			<BaseSlider.Control
+				// Jumps (a click further along, arrow keys) glide; once the pointer moves while pressed, the thumb follows
+				// it directly without easing.
+				onPointerMove={(e) => {
+					if (e.buttons) e.currentTarget.dataset.moving = "";
+				}}
+				onPointerUp={(e) => delete e.currentTarget.dataset.moving}
+				onPointerCancel={(e) => delete e.currentTarget.dataset.moving}
+				className="group flex h-6 w-full cursor-pointer touch-none items-center select-none data-disabled:cursor-default data-disabled:opacity-50"
+			>
 				<BaseSlider.Track className="relative h-1 w-full rounded-full bg-line-strong">
-					<BaseSlider.Indicator className="rounded-full bg-ink" />
+					<BaseSlider.Indicator className="slider-glide rounded-full bg-ink" />
 					{Array.from({ length: thumbs }, (_, i) => (
 						<BaseSlider.Thumb
 							// biome-ignore lint/suspicious/noArrayIndexKey: one thumb per value, fixed count
 							key={i}
 							index={thumbs > 1 ? i : undefined}
-							className="h-4 w-1 rounded-full bg-ink outline-none ring-2 ring-paper transition-transform duration-150 ease-out group-hover:scale-x-150 group-hover:scale-y-125 focus-visible:outline-2 focus-visible:outline-offset-2 data-dragging:scale-x-150 data-dragging:scale-y-125"
+							className="slider-glide h-4 w-1 rounded-full bg-ink outline-none ring-2 ring-paper group-hover:scale-x-150 group-hover:scale-y-125 focus-visible:outline-2 focus-visible:outline-offset-2 data-dragging:scale-x-150 data-dragging:scale-y-125"
 						/>
 					))}
 				</BaseSlider.Track>
