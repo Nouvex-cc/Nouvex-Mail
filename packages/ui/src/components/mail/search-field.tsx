@@ -215,7 +215,7 @@ export function SearchField({
 						!focused && !text && !chips.length && <Kbd className="mt-2 mr-1 shrink-0">/</Kbd>
 					)}
 				</div>
-				<div data-open={open || undefined} className="fold-panel">
+				<div data-open={open || undefined} inert={!open} className="fold-panel">
 					<div>
 						<div role="listbox" className="relative border-t border-line p-1.5">
 							<Highlight className="rounded-md" />

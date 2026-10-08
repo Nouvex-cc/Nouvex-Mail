@@ -76,6 +76,7 @@ export function NavigationDemo() {
 			<div className="h-120 w-full overflow-hidden rounded-lg border border-line">
 				<AppShell
 					className="h-full"
+					logo={<span role="img" aria-label="Nouvex" className="logo" />}
 					sidebar={
 						<Sidebar.Root>
 							<AccountSwitcher accounts={accounts} current={account} onChange={setAccount} onAddAccount={() => {}} />
@@ -93,7 +94,7 @@ export function NavigationDemo() {
 					}
 					header={
 						<SearchField
-							className="w-full max-w-xl"
+							className="ml-auto w-full max-w-md"
 							contacts={contacts}
 							onSearch={(q) =>
 								setQuery([q.text, ...q.filters.map((f) => `${f.key}:${f.value}`)].filter(Boolean).join(" "))
