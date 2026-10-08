@@ -63,6 +63,8 @@ Loading buttons darken and a short segment of their outline runs around them (`<
 
 In lists (menus, selects, comboboxes, the command palette) one highlight slides to the focused item instead of items lighting up one by one. Chips (recipients) scale in when added and fade out in place when removed, quick enough never to be waited on; the rest glides.
 
+Sliders have an upright rounded bar instead of a round knob; it grows a little while hovered or dragged.
+
 Checkboxes give slightly under the finger, and their check strokes itself in from left to right (about 180 ms).
 
 Calendars page with a short fade-through: the old month fades out almost in place, the new one fades in from the paging direction once the old one is gone, so dates never overlap. The month name crossfades while the year stays put. Month and year each open a list around themselves (all months, three years either side) and also take typing: the middle row turns into the field showing what you type and the best match is highlighted; Enter takes it or a typed value outside the list (a year like 1850, a month number). Today has a dot, the week starts on the user's regional first day, and picking a date closes the picker.

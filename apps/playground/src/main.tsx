@@ -29,6 +29,7 @@ import {
 	ScrollArea,
 	Select,
 	Separator,
+	Slider,
 	Spinner,
 	Switch,
 	Tabs,
@@ -455,6 +456,11 @@ function App() {
 					</Accordion.Item>
 				</Accordion.Root>
 				<Calendar mode="single" />
+				<div className="grid w-64 gap-6">
+					<Slider label="Text size" defaultValue={40} showValue />
+					<Slider label="Quiet hours" defaultValue={[22, 70]} />
+					<Slider defaultValue={60} disabled />
+				</div>
 			</Section>
 
 			<Section title="Mail layout: resizable panes, collapsible folders, virtual list, toolbar">
