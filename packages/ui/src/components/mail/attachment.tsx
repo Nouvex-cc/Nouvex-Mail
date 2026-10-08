@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Progress as BaseProgress } from "@base-ui/react/progress";
-import { File, FileArchive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, X } from "lucide-react";
 import type { ReactNode } from "react";
+import { File, FileArchive, FileAudio, FileImage, FileSpreadsheet, FileText, FileVideo, X } from "../../icons";
 import { cn } from "../../lib";
 import { useGlide } from "../glide";
 

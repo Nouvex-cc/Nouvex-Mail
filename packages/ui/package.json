@@ -5,12 +5,14 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./styles.css": "./src/styles.css"
+		"./styles.css": "./src/styles.css",
+		"./icons": "./src/icons.tsx"
 	},
 	"scripts": {
 		"lint": "biome check .",
 		"typecheck": "tsc",
-		"test": "bun test"
+		"test": "bun test",
+		"icons": "bun scripts/icons.ts && biome format --write src/icons.tsx"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.8.0",
@@ -18,11 +20,11 @@
 		"@tanstack/react-virtual": "^3.14.13",
 		"cn": "^0.4.0",
 		"dompurify": "^3.4.16",
-		"lucide-react": "^1.53.0",
 		"react-day-picker": "^10.0.2",
 		"react-resizable-panels": "^4.14.3"
 	},
 	"devDependencies": {
+		"@iconify-json/mingcute": "^1.2.8",
 		"@types/bun": "^1.4.2",
 		"@types/react": "^19.3.0",
 		"@types/react-dom": "^19.3.0",

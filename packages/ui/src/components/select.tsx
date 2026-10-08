@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Select as BaseSelect } from "@base-ui/react/select";
-import { Check, ChevronsUpDown } from "lucide-react";
 import { createContext, type ReactNode, type RefObject, useCallback, useContext, useRef } from "react";
+import { Check, ChevronsUpDown } from "../icons";
 import { cn, item, label, popup, type Styled } from "../lib";
 import { Highlight } from "./highlight";
 

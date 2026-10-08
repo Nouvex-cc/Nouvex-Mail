@@ -98,7 +98,7 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 
 ## Icons
 
-Lucide on the web, SF Symbols on Apple, 16px, stroke 1.75. An icon sits next to a word or replaces one in a toolbar with a tooltip. Never decorate with icons.
+MingCute (line style) on the web, SF Symbols on Apple, 16px, stroke 1.75. Import them from `@nouvex/ui/icons`; to add one, put it in `packages/ui/scripts/icons.ts` and run `bun run --cwd packages/ui icons`, which writes plain components (no icon font, nothing fetched at runtime). An icon sits next to a word or replaces one in a toolbar with a tooltip. Never decorate with icons.
 
 ## Don't
 

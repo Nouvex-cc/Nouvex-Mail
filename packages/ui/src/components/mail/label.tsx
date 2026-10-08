@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { X } from "lucide-react";
+import { X } from "../../icons";
 import { cn } from "../../lib";
 
 export type LabelColor = "gray" | "red" | "orange" | "green" | "blue" | "purple";

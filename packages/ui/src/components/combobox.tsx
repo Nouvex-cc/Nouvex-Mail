@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
-import { Check, X } from "lucide-react";
+import { Check, X } from "../icons";
 import { cn, field, item, label, popup, type Styled } from "../lib";
 import { useGlide } from "./glide";
 import { Highlight } from "./highlight";

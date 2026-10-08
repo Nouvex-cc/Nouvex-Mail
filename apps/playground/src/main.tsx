@@ -45,7 +45,7 @@ import {
 	useToast,
 	VirtualList,
 } from "@nouvex/ui";
-import { Archive, Bold, Clock, Forward, Italic, Reply, Trash2, Underline } from "lucide-react";
+import { Archive, Bold, Clock, Forward, Italic, Reply, Trash2, Underline } from "@nouvex/ui/icons";
 import { type ReactNode, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ComposerDemo } from "./demos/composer";

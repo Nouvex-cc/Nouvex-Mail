@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { PreviewCard } from "@base-ui/react/preview-card";
-import { Check, Copy, Inbox, PenLine } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { Check, Copy, Inbox, PenLine } from "../../icons";
 import { cn, popup } from "../../lib";
 import { Avatar } from "../avatar";
 import { Button } from "../button";

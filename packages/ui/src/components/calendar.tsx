@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Popover } from "@base-ui/react/popover";
 import { Select as BaseSelect } from "@base-ui/react/select";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DayPicker, type DayPickerProps } from "react-day-picker";
+import { CalendarDays, ChevronLeft, ChevronRight } from "../icons";
 import { cn, field, popup } from "../lib";
 import { parseDate } from "../parse-date";
 import { useCaret } from "./caret";

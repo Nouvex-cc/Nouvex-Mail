@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Archive, Clock, Paperclip, Trash2 } from "lucide-react";
+
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { Archive, Clock, Paperclip, Trash2 } from "../../icons";
 import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Checkbox } from "../checkbox";

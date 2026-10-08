@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Button as BaseButton } from "@base-ui/react/button";
-import { Check } from "lucide-react";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { Check } from "../icons";
 import { cn, type Styled } from "../lib";
 import { TextMorph } from "./text-morph";
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import { Check, ChevronRight } from "lucide-react";
 import type { ComponentProps } from "react";
+import { Check, ChevronRight } from "../icons";
 import { cn, item, label, popup, type Styled } from "../lib";
 import { Highlight } from "./highlight";
 

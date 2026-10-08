@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Forward, Reply } from "lucide-react";
+
 import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode, useId, useState } from "react";
+import { Forward, Reply } from "../../icons";
 import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Avatar } from "../avatar";

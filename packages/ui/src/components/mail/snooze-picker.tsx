@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Popover as BasePopover } from "@base-ui/react/popover";
-import { CalendarDays } from "lucide-react";
 import { type ReactElement, useState } from "react";
+import { CalendarDays } from "../../icons";
 import { cn, field, popup } from "../../lib";
 import { parseDate } from "../../parse-date";
 import { Calendar } from "../calendar";

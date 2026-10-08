@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Toast as BaseToast } from "@base-ui/react/toast";
-import { X } from "lucide-react";
 import type { ReactNode } from "react";
+import { X } from "../icons";
 
 // Usage: const toast = useToast(); toast.add({ title: "Archived", actionProps: { children: "Undo", onClick } })
 export const useToast = BaseToast.useToastManager;

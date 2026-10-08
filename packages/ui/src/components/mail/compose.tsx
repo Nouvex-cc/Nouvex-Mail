@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Clock, Paperclip, Trash2 } from "lucide-react";
+
 import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Clock, Paperclip, Trash2 } from "../../icons";
 import { cn } from "../../lib";
 import { Collapsible } from "../accordion";
 import { Button } from "../button";

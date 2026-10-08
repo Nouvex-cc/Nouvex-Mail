@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Autocomplete as BaseAutocomplete } from "@base-ui/react/autocomplete";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
-import { Search } from "lucide-react";
 import type { ReactNode } from "react";
+import { Search } from "../icons";
 import { cn, item, label, type Styled } from "../lib";
 import { backdrop, dialogPopup } from "./dialog";
 import { Highlight } from "./highlight";

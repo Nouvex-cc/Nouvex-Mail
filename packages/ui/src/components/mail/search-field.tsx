@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { CalendarDays, Mail, Paperclip, Search, Star, User, X } from "lucide-react";
+
 import { type ReactNode, useRef, useState } from "react";
+import { CalendarDays, Mail, Paperclip, Search, Star, User, X } from "../../icons";
 import { cn, item } from "../../lib";
 import { parseDate } from "../../parse-date";
 import { useGlide } from "../glide";

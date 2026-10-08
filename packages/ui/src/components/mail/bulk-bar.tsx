@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Archive, Clock, MailOpen, Trash2, X } from "lucide-react";
+
 import { type ReactNode, useEffect, useRef } from "react";
+import { Archive, Clock, MailOpen, Trash2, X } from "../../icons";
 import { cn } from "../../lib";
 import { TextMorph } from "../text-morph";
 import { Tooltip } from "../tooltip";

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { AccountSwitcher, AppShell, SearchField, Sidebar, useShortcutsDialog } from "@nouvex/ui";
-import { Archive, Clock, File, Inbox, Send, Star, Trash2 } from "lucide-react";
+import { Archive, Clock, File, Inbox, Send, Star, Trash2 } from "@nouvex/ui/icons";
 import { useState } from "react";
 
 const accounts = [

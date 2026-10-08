@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Select as BaseSelect } from "@base-ui/react/select";
-import { Check, ChevronsUpDown, Layers, Plus } from "lucide-react";
 import { Fragment, type ReactNode, useRef, useState } from "react";
+import { Check, ChevronsUpDown, Layers, Plus } from "../../icons";
 import { cn, item as itemClass } from "../../lib";
 import { Avatar } from "../avatar";
 import { Select } from "../select";

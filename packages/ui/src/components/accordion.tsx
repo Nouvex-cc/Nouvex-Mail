@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Accordion as BaseAccordion } from "@base-ui/react/accordion";
 import { Collapsible as BaseCollapsible } from "@base-ui/react/collapsible";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "../icons";
 import { cn, type Styled } from "../lib";
 
 const trigger =
