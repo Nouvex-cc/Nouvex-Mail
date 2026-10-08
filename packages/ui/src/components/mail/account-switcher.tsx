@@ -109,16 +109,16 @@ export function AccountSwitcher({
 					<Select.Popup
 						className={cn(
 							popup,
-							// The current entry lands exactly on the trigger: same width (popup padding and border added), no zoom,
-							// and one pixel down for the border when it opens over the trigger.
-							"w-[calc(var(--anchor-width)+--spacing(2.5))] p-1 starting:scale-100 ending:scale-100 data-[side=none]:translate-y-px",
+							// Rows run edge to edge, so the current one lands exactly on the trigger: same width (plus the
+							// border), same corners, no zoom, and one pixel down for the border when it opens over the trigger.
+							"w-[calc(var(--anchor-width)+2px)] overflow-hidden rounded-md starting:scale-100 ending:scale-100 data-[side=none]:translate-y-px",
 						)}
 					>
 						<Select.List className="relative max-h-(--available-height) overflow-y-auto outline-none">
-							<Highlight className="rounded-md" />
+							<Highlight className="rounded-none" />
 							{entries.map((e, i) => (
 								<Fragment key={e.id}>
-									<Select.Item value={e.id} className={cn(itemClass, "h-12 justify-between")}>
+									<Select.Item value={e.id} className={cn(itemClass, "h-12 justify-between rounded-none")}>
 										<Select.ItemText className="min-w-0">
 											<Identity {...e} />
 										</Select.ItemText>
@@ -126,13 +126,13 @@ export function AccountSwitcher({
 											<Check strokeWidth={2} />
 										</Select.ItemIndicator>
 									</Select.Item>
-									{i === 0 && <Select.Separator className="mx-2 my-1 h-px bg-line" />}
+									{i === 0 && <Select.Separator className="h-px bg-line" />}
 								</Fragment>
 							))}
 							{onAddAccount && (
 								<>
-									<Select.Separator className="mx-2 my-1 h-px bg-line" />
-									<Select.Item value={add} className={cn(itemClass, "h-10 gap-2.5 text-muted")}>
+									<Select.Separator className="h-px bg-line" />
+									<Select.Item value={add} className={cn(itemClass, "h-10 gap-2.5 rounded-none text-muted")}>
 										<span className="grid size-8 place-items-center">
 											<Plus strokeWidth={1.75} />
 										</span>
