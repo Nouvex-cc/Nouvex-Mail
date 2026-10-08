@@ -8,7 +8,7 @@ export const Select = {
 	Trigger: ({ className, placeholder, ...props }: Styled<BaseSelect.Trigger.Props> & { placeholder?: string }) => (
 		<BaseSelect.Trigger
 			className={cn(
-				"inline-flex h-8 min-w-36 items-center justify-between gap-2 rounded-md border border-line-strong bg-paper px-2.5 text-ink outline-none hover:bg-hover open:bg-hover disabled:opacity-50",
+				"inline-flex h-8 min-w-36 items-center justify-between gap-2 rounded-md border border-line-strong bg-paper px-3 text-ink outline-none hover:bg-hover open:bg-hover disabled:opacity-50",
 				className,
 			)}
 			{...props}
@@ -31,10 +31,10 @@ export const Select = {
 		</BaseSelect.Portal>
 	),
 	Item: ({ className, children, ...props }: Styled<BaseSelect.Item.Props>) => (
-		<BaseSelect.Item className={cn(item, "pr-8", className)} {...props}>
+		<BaseSelect.Item className={cn(item, "data-selected:font-medium", className)} {...props}>
 			<BaseSelect.ItemText>{children}</BaseSelect.ItemText>
-			<BaseSelect.ItemIndicator className="ml-auto">
-				<Check strokeWidth={1.75} />
+			<BaseSelect.ItemIndicator className="ml-auto pl-4 text-ink">
+				<Check strokeWidth={2} />
 			</BaseSelect.ItemIndicator>
 		</BaseSelect.Item>
 	),
