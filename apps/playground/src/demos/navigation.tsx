@@ -104,7 +104,7 @@ export function NavigationDemo() {
 					<p className="p-4 text-sm text-muted">
 						{query
 							? `Searching: ${query}`
-							: "Try from:lena, after:friday, has:attachment. Press / to focus, ? for shortcuts."}
+							: "Try lena, from jonas, since friday, unread. Press / to focus, ? for shortcuts."}
 					</p>
 				</AppShell>
 			</div>

@@ -364,9 +364,9 @@
 	color: var(--label, var(--label-gray));
 }
 
-/* Thread messages open by growing a grid row (follows the content as it loads, no measured height to overshoot)
-   while the body fades in from just under the snippet it replaces. */
-@utility thread-panel {
+/* Opens by growing a grid row, which follows the content as it loads, so there's no measured height to overshoot.
+   Thread messages and the search card use it. */
+@utility fold-panel {
 	display: grid;
 	grid-template-rows: 0fr;
 	transition: grid-template-rows 320ms var(--ease-out);

@@ -46,7 +46,7 @@ function tile(panel: HTMLElement, row: HTMLElement) {
 // current one. They don't travel the whole way, so they never pile up on top of each other.
 function unfold(m: Motion) {
 	const panel = m.popup;
-	if (!panel || panel.dataset.side !== "none") return;
+	if (panel?.dataset.side !== "none") return;
 	const { list, all, rows } = parts(panel);
 	const anchor = list?.querySelector<HTMLElement>('[role="option"][data-selected]') ?? rows[0];
 	if (!anchor) return;

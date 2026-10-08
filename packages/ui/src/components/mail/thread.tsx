@@ -7,10 +7,10 @@ import { Avatar } from "../avatar";
 import { Button } from "../button";
 import { Tooltip } from "../tooltip";
 
-// Opens by growing a grid row and fading the body in from under the snippet; see thread-panel in styles.css.
+// Opens by growing a grid row and fading the body in from under the snippet; see fold-panel in styles.css.
 function Panel({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
 	return (
-		<section id={id} data-open={open || undefined} inert={!open} className="thread-panel">
+		<section id={id} data-open={open || undefined} inert={!open} className="fold-panel">
 			<div>
 				<div className="thread-body">{children}</div>
 			</div>
