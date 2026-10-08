@@ -198,45 +198,60 @@
 	}
 }
 
-/* Calendar month change: old and new weeks slide as two joined panels (same timing, full width), clipped by
-   the calendar, so their numbers never overlap. The caption crossfades. */
+/* Calendar month change: the old month fades out almost in place, then the new one fades in from the paging
+   direction. Little travel keeps it calm; the new month waits until the old one is nearly gone so dates never
+   overlap. The caption crossfades. */
 @utility calendar-in-left {
-	animation: calendar-in-left 300ms var(--ease-out) both;
+	animation: calendar-in-left 200ms var(--ease-out) 90ms both;
 }
 @utility calendar-in-right {
-	animation: calendar-in-right 300ms var(--ease-out) both;
+	animation: calendar-in-right 200ms var(--ease-out) 90ms both;
 }
+/* The library ends the change when the leaving month's animation ends, so it runs for the whole 290 ms
+   and is simply invisible after the first third. */
 @utility calendar-out-left {
-	animation: calendar-out-left 300ms var(--ease-out) both;
+	animation: calendar-out-left 290ms ease-in both;
 }
 @utility calendar-out-right {
-	animation: calendar-out-right 300ms var(--ease-out) both;
+	animation: calendar-out-right 290ms ease-in both;
 }
 @utility calendar-fade-in {
-	animation: calendar-fade 220ms ease-out both;
+	animation: calendar-fade 200ms ease-out 90ms both;
 }
 @utility calendar-fade-out {
-	animation: calendar-fade 160ms ease-in reverse both;
+	animation: calendar-out-fade 290ms ease-in both;
 }
 
 @keyframes calendar-in-left {
 	from {
-		transform: translateX(-100%);
+		opacity: 0;
+		transform: translateX(-12px);
 	}
 }
 @keyframes calendar-in-right {
 	from {
-		transform: translateX(100%);
+		opacity: 0;
+		transform: translateX(12px);
 	}
 }
 @keyframes calendar-out-left {
+	35%,
 	to {
-		transform: translateX(-100%);
+		opacity: 0;
+		transform: translateX(-12px);
 	}
 }
 @keyframes calendar-out-right {
+	35%,
 	to {
-		transform: translateX(100%);
+		opacity: 0;
+		transform: translateX(12px);
+	}
+}
+@keyframes calendar-out-fade {
+	35%,
+	to {
+		opacity: 0;
 	}
 }
 @keyframes calendar-fade {

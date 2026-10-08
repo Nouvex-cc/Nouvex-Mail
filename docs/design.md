@@ -63,7 +63,7 @@ Loading buttons darken and a short segment of their outline runs around them (`<
 
 Checkboxes give slightly under the finger, and their check strokes itself in from left to right (about 180 ms).
 
-Calendars page by sliding the old and new month as two joined panels, so dates never overlap. Today has a dot, the week starts on the user's regional first day, and picking a date closes the picker.
+Calendars page with a short fade-through: the old month fades out almost in place, the new one fades in from the paging direction once the old one is gone, so dates never overlap. Today has a dot, the week starts on the user's regional first day, and picking a date closes the picker.
 
 Text fields draw their own caret: it glides to the next character (90 ms) instead of jumping, stays solid while typing and only blinks once you pause. Email and number fields keep the native caret because browsers don't report its position there.
 
