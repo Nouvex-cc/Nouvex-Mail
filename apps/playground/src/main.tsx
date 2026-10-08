@@ -43,7 +43,7 @@ import {
 	VirtualList,
 } from "@nouvex/ui";
 import { Archive, Bold, Clock, Forward, Italic, Reply, Trash2, Underline } from "lucide-react";
-import { type ReactNode, StrictMode, useEffect, useState } from "react";
+import { type ReactNode, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 
@@ -129,6 +129,29 @@ function CommandDemo() {
 	);
 }
 
+function SendDemo() {
+	const [state, setState] = useState<"idle" | "undo" | "sent">("idle");
+	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+	return (
+		<Button
+			variant="primary"
+			countdown={state === "undo" ? 5000 : undefined}
+			success={state === "sent" && "Sent"}
+			onClick={() => {
+				clearTimeout(timer.current);
+				if (state !== "idle") return setState("idle");
+				setState("undo");
+				timer.current = setTimeout(() => {
+					setState("sent");
+					timer.current = setTimeout(() => setState("idle"), 1500);
+				}, 5000);
+			}}
+		>
+			{state === "undo" ? "Undo" : "Send"}
+		</Button>
+	);
+}
+
 function SaveDraftDemo() {
 	const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
 	return (
@@ -178,7 +201,7 @@ function App() {
 			</header>
 
 			<Section title="Button">
-				<Button variant="primary">Send</Button>
+				<SendDemo />
 				<SaveDraftDemo />
 				<Button variant="ghost">Cancel</Button>
 				<Button variant="danger">Delete forever</Button>

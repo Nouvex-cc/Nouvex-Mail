@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Button as BaseButton } from "@base-ui/react/button";
 import { Check } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn, type Styled } from "../lib";
 import { TextMorph } from "./text-morph";
 
@@ -25,6 +25,8 @@ export type ButtonProps = Styled<BaseButton.Props> & {
 	loading?: boolean;
 	/** Confirms the action: the button turns green and its label morphs into this text, e.g. "Saved". */
 	success?: string | false;
+	/** Milliseconds; the outline drains over this time, e.g. while "Undo" is still possible. */
+	countdown?: number;
 };
 
 // Returns the last active value and keeps it around for `ms` after it goes away, so exit transitions can play.
@@ -46,12 +48,23 @@ export function Button({
 	size = "md",
 	loading = false,
 	success,
+	countdown,
 	className,
 	children,
 	onClick,
 	...props
 }: ButtonProps) {
 	const ring = usePresence(loading, 200);
+	const timer = usePresence(countdown, 160);
+	const drain = useRef<SVGRectElement>(null);
+	useEffect(() => {
+		if (countdown)
+			drain.current?.animate({ strokeDasharray: ["100 0", "0 100"] }, { duration: countdown, fill: "forwards" });
+	}, [countdown]);
+
+	// Temporary labels ("Undo", "Saved") must not resize the button, so the size follows the last resting label.
+	const resting = useRef(children);
+	if (!loading && !success && !countdown) resting.current = children;
 
 	return (
 		<>
@@ -72,7 +85,7 @@ export function Button({
 					// The invisible copy keeps the button at its original size; the visible label morphs on top of it.
 					<span className="relative inline-flex">
 						<span aria-hidden className="invisible">
-							{children}
+							{resting.current}
 						</span>
 						<span className="absolute inset-0 flex items-center justify-center">
 							<TextMorph icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}>
@@ -87,11 +100,26 @@ export function Button({
 					<>
 						<span data-active={loading || undefined} className="button-scrim absolute inset-0 rounded-md bg-scrim" />
 						<span aria-hidden className="pointer-events-none absolute -inset-1">
-							<svg aria-hidden data-active={loading || undefined} className="button-ring size-full overflow-visible">
+							<svg
+								aria-hidden
+								data-active={loading || undefined}
+								className="button-outline button-ring size-full overflow-visible"
+							>
 								<rect pathLength={100} />
 							</svg>
 						</span>
 					</>
+				)}
+				{timer && (
+					<span aria-hidden className="pointer-events-none absolute -inset-1">
+						<svg
+							aria-hidden
+							data-active={countdown ? "" : undefined}
+							className="button-outline button-countdown size-full overflow-visible"
+						>
+							<rect ref={drain} pathLength={100} />
+						</svg>
+					</span>
 				)}
 			</BaseButton>
 			<span role="status" className="sr-only">
