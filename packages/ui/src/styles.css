@@ -198,6 +198,53 @@
 	}
 }
 
+/* Calendar month change: old and new weeks slide as two joined panels (same timing, full width), clipped by
+   the calendar, so their numbers never overlap. The caption crossfades. */
+@utility calendar-in-left {
+	animation: calendar-in-left 300ms var(--ease-out) both;
+}
+@utility calendar-in-right {
+	animation: calendar-in-right 300ms var(--ease-out) both;
+}
+@utility calendar-out-left {
+	animation: calendar-out-left 300ms var(--ease-out) both;
+}
+@utility calendar-out-right {
+	animation: calendar-out-right 300ms var(--ease-out) both;
+}
+@utility calendar-fade-in {
+	animation: calendar-fade 220ms ease-out both;
+}
+@utility calendar-fade-out {
+	animation: calendar-fade 160ms ease-in reverse both;
+}
+
+@keyframes calendar-in-left {
+	from {
+		transform: translateX(-100%);
+	}
+}
+@keyframes calendar-in-right {
+	from {
+		transform: translateX(100%);
+	}
+}
+@keyframes calendar-out-left {
+	to {
+		transform: translateX(-100%);
+	}
+}
+@keyframes calendar-out-right {
+	to {
+		transform: translateX(100%);
+	}
+}
+@keyframes calendar-fade {
+	from {
+		opacity: 0;
+	}
+}
+
 @keyframes button-ring {
 	to {
 		stroke-dashoffset: -100;
