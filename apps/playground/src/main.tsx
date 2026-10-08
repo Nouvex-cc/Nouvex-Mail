@@ -135,6 +135,7 @@ function SendDemo() {
 	return (
 		<Button
 			variant="primary"
+			labels={["Undo", "Sent"]}
 			countdown={state === "undo" ? 5000 : undefined}
 			success={state === "sent" && "Sent"}
 			onClick={() => {
@@ -156,6 +157,7 @@ function SaveDraftDemo() {
 	const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
 	return (
 		<Button
+			labels={["Saved"]}
 			loading={state === "saving"}
 			success={state === "saved" && "Saved"}
 			onClick={() => {

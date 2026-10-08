@@ -4,6 +4,10 @@ import { cn } from "../lib";
 
 type Glyph = { key: number; char: string };
 
+// Motion follows torph (github.com/lochie/torph): strong ease-out, letters scale from 95% and travel with the flow.
+const duration = 400;
+const easing = "cubic-bezier(0.19, 1, 0.22, 1)";
+
 // Stands in for the optional icon inside the glyph list, so it enters, leaves and glides like a letter.
 const ICON = "\u0000";
 
@@ -80,36 +84,49 @@ export function TextMorph({ children, icon, className }: { children: string; ico
 		const x = root.offsetParent.getBoundingClientRect().left;
 		const rootLeft = root.getBoundingClientRect().left - x;
 		const exiting = new Set(state.exiting.map((g) => g.key));
+		const els = [...root.querySelectorAll<HTMLElement>("[data-key]")];
+		const key = (el: HTMLElement) => Number(el.dataset.key);
 
-		for (const el of root.querySelectorAll<HTMLElement>("[data-key]")) {
-			const key = Number(el.dataset.key);
-			const old = before.current.get(key);
-			if (exiting.has(key)) {
+		// Letters both texts share: where they were and where they are now.
+		const kept: { from: number; to: number }[] = [];
+		for (const el of els) {
+			const from = before.current.get(key(el));
+			if (from === undefined || exiting.has(key(el))) continue;
+			for (const a of el.getAnimations()) a.cancel();
+			const to = el.getBoundingClientRect().left - x;
+			kept.push({ from, to });
+			if (animate && Math.abs(from - to) > 0.1)
+				el.animate({ transform: [`translateX(${from - to}px)`, "none"] }, { duration, easing });
+		}
+		// New and leaving letters travel with their nearest shared neighbour, so nothing stands still while the rest moves.
+		const shift = (pos: number, side: "from" | "to") => {
+			const left = kept.filter((k) => k[side] <= pos).at(-1) ?? kept.find((k) => k[side] > pos);
+			return left ? left.to - left.from : 0;
+		};
+
+		for (const el of els) {
+			const old = before.current.get(key(el));
+			if (exiting.has(key(el))) {
 				if (el.dataset.leaving) continue;
 				el.dataset.leaving = "1";
 				el.style.left = `${(old ?? rootLeft) - rootLeft}px`;
-				const done = () => setState((s) => ({ ...s, exiting: s.exiting.filter((g) => g.key !== key) }));
-				if (!animate) done();
-				else
-					el.animate(
-						{ opacity: [1, 0], filter: ["blur(0)", "blur(1px)"] },
-						{ duration: 160, easing: "ease-in", fill: "forwards" },
-					).onfinish = done;
-			} else if (old === undefined) {
-				if (animate)
-					el.animate(
-						// Starts together with the leaving letters, so a changed letter crossfades instead of blinking.
-						{ opacity: [0, 1], filter: ["blur(1px)", "blur(0)"] },
-						{ duration: 200, easing: "ease-out", fill: "backwards" },
-					);
-			} else if (animate) {
-				for (const a of el.getAnimations()) a.cancel();
-				const dx = old - (el.getBoundingClientRect().left - x);
-				if (Math.abs(dx) > 0.1)
-					el.animate(
-						{ transform: [`translateX(${dx}px)`, "none"] },
-						{ duration: 380, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
-					);
+				const done = () => setState((s) => ({ ...s, exiting: s.exiting.filter((g) => g.key !== key(el)) }));
+				if (!animate) {
+					done();
+					continue;
+				}
+				el.animate(
+					{ transform: `translateX(${shift(old ?? 0, "from")}px) scale(0.95)`, offset: 1 },
+					{ duration, easing, fill: "both" },
+				);
+				el.animate({ opacity: 0, offset: 1 }, { duration: duration * 0.25, fill: "both" }).onfinish = done;
+			} else if (old === undefined && animate) {
+				const to = el.getBoundingClientRect().left - x;
+				el.animate(
+					{ transform: [`translateX(${-shift(to, "to")}px) scale(0.95)`, "none"] },
+					{ duration, easing, fill: "both" },
+				);
+				el.animate({ opacity: [0, 1] }, { duration: duration * 0.5, delay: duration * 0.25, fill: "both" });
 			}
 		}
 	}, [state]);

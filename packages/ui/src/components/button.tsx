@@ -12,6 +12,9 @@ const variants = {
 	danger: "bg-danger text-on-ink hover:opacity-90",
 };
 
+// Lets the morphing label use the button's padding, so letters leave through the button's edge, not past it.
+const labelArea = { sm: "-inset-x-2.5", md: "-inset-x-3", icon: "inset-x-0", "icon-sm": "inset-x-0" };
+
 const sizes = {
 	sm: "h-7 px-2.5 text-sm",
 	md: "h-8 px-3",
@@ -27,6 +30,8 @@ export type ButtonProps = Styled<BaseButton.Props> & {
 	success?: string | false;
 	/** Milliseconds; the outline drains over this time, e.g. while "Undo" is still possible. */
 	countdown?: number;
+	/** Every other label this button can morph into ("Undo", "Sent"). It sizes to the widest, so it never resizes. */
+	labels?: string[];
 };
 
 // Returns the last active value and keeps it around for `ms` after it goes away, so exit transitions can play.
@@ -49,6 +54,7 @@ export function Button({
 	loading = false,
 	success,
 	countdown,
+	labels = [],
 	className,
 	children,
 	onClick,
@@ -82,12 +88,21 @@ export function Button({
 				{...props}
 			>
 				{typeof children === "string" ? (
-					// The invisible copy keeps the button at its original size; the visible label morphs on top of it.
+					// Invisible copies of every label, stacked, give the button its size; the visible label morphs on top.
+					// Extra labels reserve room for the check that success shows in front of them.
 					<span className="relative inline-flex">
-						<span aria-hidden className="invisible">
-							{resting.current}
+						<span aria-hidden className="invisible inline-grid">
+							<span className="col-start-1 row-start-1">{resting.current}</span>
+							{labels.map((label) => (
+								<span key={label} className="col-start-1 row-start-1 flex">
+									<span className="w-5.5 shrink-0" />
+									{label}
+								</span>
+							))}
 						</span>
-						<span className="absolute inset-0 flex items-center justify-center">
+						<span
+							className={cn("absolute inset-y-0 flex items-center justify-center overflow-hidden", labelArea[size])}
+						>
 							<TextMorph icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}>
 								{success || children}
 							</TextMorph>
