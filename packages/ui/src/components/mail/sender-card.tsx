@@ -34,7 +34,7 @@ export function SenderCard({ name, email, avatarUrl, onWrite, onShowMessages, ch
 				<PreviewCard.Positioner side="bottom" align="start" sideOffset={8} className="z-50">
 					{/* Lives in a portal but React still bubbles its clicks to the row; they must not open the message. */}
 					<PreviewCard.Popup
-						className={cn(popup, "grid w-72 gap-3 p-3")}
+						className={cn(popup, "grid w-72 gap-3 rounded-xl p-3")}
 						onClick={(e) => e.stopPropagation()}
 						onKeyDown={(e) => e.stopPropagation()}
 					>
@@ -49,7 +49,7 @@ export function SenderCard({ name, email, avatarUrl, onWrite, onShowMessages, ch
 								variant="ghost"
 								aria-label={copied ? "Copied" : "Copy address"}
 								onClick={copy}
-								className="text-muted hover:text-ink"
+								className="rounded-full text-muted hover:text-ink"
 							>
 								{copied ? <Check strokeWidth={2} /> : <Copy strokeWidth={1.75} />}
 							</Button>
@@ -57,13 +57,13 @@ export function SenderCard({ name, email, avatarUrl, onWrite, onShowMessages, ch
 						{(onWrite || onShowMessages) && (
 							<div className="flex gap-2">
 								{onWrite && (
-									<Button size="sm" onClick={onWrite} className="flex-1 justify-center">
+									<Button size="sm" onClick={onWrite} className="h-8 flex-1 justify-center rounded-full">
 										<PenLine strokeWidth={1.75} />
 										Write
 									</Button>
 								)}
 								{onShowMessages && (
-									<Button size="sm" onClick={onShowMessages} className="flex-1 justify-center">
+									<Button size="sm" onClick={onShowMessages} className="h-8 flex-1 justify-center rounded-full">
 										<Inbox strokeWidth={1.75} />
 										All messages
 									</Button>

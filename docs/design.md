@@ -55,7 +55,7 @@ Weights: 400 body, 500 UI labels, 600 emphasis and unread. No light weights, no 
 
 ## Shape and depth
 
-Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Borders separate, shadows only lift things that float (`shadow-pop`, `shadow-dialog`). Never both a heavy border and a shadow on the same element.
+Radius `sm` 6, `md` 8, `lg` 12, `xl` 20. Inputs and buttons use `md`, popups `lg`. Cards about a person (the sender card) are softer: `xl` with pill buttons. Borders separate, shadows only lift things that float (`shadow-pop`, `shadow-dialog`). Never both a heavy border and a shadow on the same element.
 
 ## Motion
 
