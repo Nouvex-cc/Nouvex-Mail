@@ -48,6 +48,10 @@ import {
 import { Archive, Bold, Clock, Forward, Italic, Reply, Trash2, Underline } from "lucide-react";
 import { type ReactNode, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { ComposerDemo } from "./demos/composer";
+import { InboxDemo } from "./demos/inbox";
+import { NavigationDemo } from "./demos/navigation";
+import { ReadingDemo } from "./demos/reading";
 import "./index.css";
 
 const contacts = ["Lena Hartmann", "Jonas Weber", "Mira Okafor", "Paul Schneider", "Sofia Rossi"];
@@ -216,7 +220,7 @@ function LoadingDemo({
 	);
 }
 
-function App() {
+function Components() {
 	const [date, setDate] = useState<Date | undefined>();
 	const [range, setRange] = useState<DateRange | undefined>();
 	return (
@@ -531,6 +535,40 @@ function App() {
 				</div>
 			</Section>
 		</main>
+	);
+}
+
+function Mail() {
+	return (
+		<main className="mx-auto max-w-6xl px-6 pb-16">
+			<Section title="Navigation: sidebar, account switcher, search, shortcuts (press ?)">
+				<NavigationDemo />
+			</Section>
+			<Section title="Inbox: rows, hover actions, selection and drag-select, bulk bar, snooze">
+				<InboxDemo />
+			</Section>
+			<Section title="Reading: thread, mail frame, attachments">
+				<ReadingDemo />
+			</Section>
+			<Section title="Composer">
+				<ComposerDemo />
+			</Section>
+		</main>
+	);
+}
+
+function App() {
+	const [page, setPage] = useState("components");
+	return (
+		<>
+			<div className="mx-auto flex max-w-6xl px-6 pt-6">
+				<ToggleGroup value={[page]} onValueChange={(v) => v[0] && setPage(v[0])}>
+					<Toggle value="components">Components</Toggle>
+					<Toggle value="mail">Mail</Toggle>
+				</ToggleGroup>
+			</div>
+			{page === "mail" ? <Mail /> : <Components />}
+		</>
 	);
 }
 

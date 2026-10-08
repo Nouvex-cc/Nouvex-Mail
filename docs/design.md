@@ -33,6 +33,8 @@ Warm neutrals, never pure black or white. The accent is ink, same as the logo. C
 | `hold` | fill of a hold-to-confirm button |
 | `positive` | confirmed actions (button success state) |
 
+Mail labels get one of six muted hues (`--label-gray`, `red`, `orange`, `green`, `blue`, `purple`) as a small dot. That's the only color beyond the palette above, and it carries information.
+
 Raw Tailwind colors don't exist in this project (the default palette is removed), so `bg-blue-500` won't compile into anything.
 
 ## Type
@@ -80,6 +82,16 @@ When an action needs confirming, the button turns green for about 1.5 s and its 
 Actions that can be taken back right after (sending) give a short undo window on the button itself: the label morphs to "Undo" and the outline drains for the length of the window (`<Button countdown={5000}>`). Clicking again cancels. When the outline is empty the action happens and the button confirms as above.
 
 Destructive actions that can't be undone are held, not clicked (`<Button hold={1200}>`): the button fills from the left while held, runs back when let go early, and only acts when full. A plain tap shows a hint ("Hold to delete"). Space and Enter can be held too. Longer labels crossfade instead of morphing (`fade`). Toasts are for things that can be undone or happened elsewhere.
+
+## Mail
+
+- **Rows** show sender, subject and snippet on one line, the date on the right (time today, weekday this week, date before). Unread is a dot plus semibold, nothing louder. On hover the date crossfades into archive, snooze and delete; on touch a row swipes (left archive, right snooze).
+- **Selection** works with checkboxes, Shift for ranges and dragging across rows. A bar with bulk actions rises from the bottom; Escape clears.
+- **Snooze** offers a few times that make sense right now and a field that understands "tomorrow 3pm".
+- **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Quoted history hides behind "•••".
+- **HTML mail** renders sanitized in a sandboxed frame without scripts, on a light card in both themes. Remote images stay hidden behind a quiet notice until allowed, and then load through the image proxy.
+- **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and can schedule.
+- **Navigation:** one sliding highlight marks the current folder; label dots are the only extra color; search turns `from:` and friends into chips; `?` lists every shortcut.
 
 ## Icons
 
