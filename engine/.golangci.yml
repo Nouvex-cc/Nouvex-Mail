@@ -1,0 +1,6 @@
+version: "2"
+linters:
+  exclusions:
+    generated: strict
+formatters:
+  enable: [gofmt, goimports]

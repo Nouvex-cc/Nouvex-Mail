@@ -1,0 +1,11 @@
+node_modules
+dist
+.next
+.turbo
+bin
+.env
+*.tsbuildinfo
+.DS_Store
+apps/apple/*.xcodeproj
+apps/apple/build
+next-env.d.ts

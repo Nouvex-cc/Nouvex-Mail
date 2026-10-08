@@ -1,0 +1,28 @@
+{
+	"name": "nouvex-mail",
+	"private": true,
+	"packageManager": "bun@1.4.2",
+	"workspaces": [
+		"apps/*",
+		"packages/*",
+		"engine"
+	],
+	"scripts": {
+		"dev": "turbo dev",
+		"build": "turbo build",
+		"test": "turbo test",
+		"lint": "turbo lint",
+		"typecheck": "turbo typecheck",
+		"db:generate": "bun run --cwd apps/api db:generate",
+		"db:migrate": "bun run --cwd apps/api db:migrate",
+		"gen": "bun run --cwd packages/schema gen && bun run --cwd engine gen",
+		"openapi": "bun run --cwd apps/api openapi",
+		"e2e": "ta ci --platform web --group $TESTERARMY_GROUP"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.15",
+		"testerarmy": "^0.10.0",
+		"turbo": "^2.11.7",
+		"typescript": "^7.0.2"
+	}
+}

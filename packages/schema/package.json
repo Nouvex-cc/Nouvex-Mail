@@ -1,0 +1,14 @@
+{
+	"name": "@nouvex/schema",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./gen/index.ts"
+	},
+	"scripts": {
+		"gen": "json2ts -i 'nats/*.json' -o gen/ --no-additionalProperties && ls gen/*.d.ts | sed 's|gen/\\(.*\\)\\.d\\.ts|export type * from \"./\\1\";|' > gen/index.ts"
+	},
+	"devDependencies": {
+		"json-schema-to-typescript": "^16.0.0"
+	}
+}

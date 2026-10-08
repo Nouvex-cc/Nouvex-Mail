@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MailboxSynced",
+	"description": "Event: engine finished syncing an account.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"version": { "type": "integer" }
+	},
+	"required": ["accountId", "version"],
+	"additionalProperties": false
+}
