@@ -57,13 +57,23 @@ export function SenderCard({ name, email, avatarUrl, onWrite, onShowMessages, ch
 						{(onWrite || onShowMessages) && (
 							<div className="flex gap-2">
 								{onWrite && (
-									<Button size="sm" onClick={onWrite} className="h-8 flex-1 justify-center rounded-full">
+									<Button
+										size="sm"
+										variant="ghost"
+										onClick={onWrite}
+										className="h-8 flex-1 justify-center rounded-full bg-hover hover:bg-selected"
+									>
 										<PenLine strokeWidth={1.75} />
 										Write
 									</Button>
 								)}
 								{onShowMessages && (
-									<Button size="sm" onClick={onShowMessages} className="h-8 flex-1 justify-center rounded-full">
+									<Button
+										size="sm"
+										variant="ghost"
+										onClick={onShowMessages}
+										className="h-8 flex-1 justify-center rounded-full bg-hover hover:bg-selected"
+									>
 										<Inbox strokeWidth={1.75} />
 										All messages
 									</Button>
