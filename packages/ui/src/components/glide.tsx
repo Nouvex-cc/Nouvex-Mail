@@ -9,7 +9,9 @@ import { useEffect, useRef } from "react";
 export function useGlide<T extends HTMLElement>({
 	enter = false,
 	leave = false,
+	duration = 160,
 }: {
+	duration?: number;
 	enter?: boolean;
 	leave?: boolean;
 } = {}) {
@@ -69,7 +71,7 @@ export function useGlide<T extends HTMLElement>({
 				for (const a of c.getAnimations()) if (a.id === "glide") a.cancel();
 				c.animate(
 					{ transform: [`translate(${dx + running.e}px, ${dy + running.f}px)`, "none"] },
-					{ duration: 160, easing, id: "glide" },
+					{ duration, easing, id: "glide" },
 				);
 			}
 			snap();
@@ -82,6 +84,6 @@ export function useGlide<T extends HTMLElement>({
 			watch.disconnect();
 			resize.disconnect();
 		};
-	}, [enter, leave]);
+	}, [enter, leave, duration]);
 	return ref;
 }

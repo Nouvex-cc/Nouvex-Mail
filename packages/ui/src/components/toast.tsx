@@ -21,7 +21,8 @@ export function ToastProvider({ children, ...props }: BaseToast.Provider.Props &
 
 // Toasts make room for each other by gliding instead of jumping; their own enter and exit come from Base UI.
 function ToastViewport() {
-	const ref = useGlide<HTMLDivElement>();
+	// Same duration and curve as a toast entering, so the stack moves as one.
+	const ref = useGlide<HTMLDivElement>({ duration: 200 });
 	return (
 		<BaseToast.Viewport
 			ref={ref}
@@ -39,7 +40,7 @@ function ToastList() {
 		<BaseToast.Root
 			key={toast.id}
 			toast={toast}
-			className="flex translate-x-(--toast-swipe-movement-x) translate-y-(--toast-swipe-movement-y) select-none items-center gap-3 rounded-lg border border-line bg-raised py-2.5 pr-2 pl-3.5 text-ink shadow-pop transition duration-200 ease-out starting:translate-y-2 starting:opacity-0 ending:opacity-0 ending:duration-150 data-limited:hidden"
+			className="flex translate-x-(--toast-swipe-movement-x) translate-y-(--toast-swipe-movement-y) select-none items-center gap-3 rounded-lg border border-line bg-raised py-2.5 pr-2 pl-3.5 text-ink shadow-pop transition duration-200 ease-out starting:translate-y-[calc(100%+--spacing(2))] starting:opacity-0 ending:opacity-0 ending:duration-150 data-limited:hidden"
 		>
 			<BaseToast.Content className="grid min-w-0 flex-1 gap-0.5">
 				<BaseToast.Title className="font-medium" />
