@@ -27,7 +27,7 @@
 	--hover: light-dark(oklch(0.96 0.004 75), oklch(0.255 0.006 60));
 	--selected: light-dark(oklch(0.935 0.005 75), oklch(0.29 0.007 60));
 	--danger: light-dark(oklch(0.56 0.19 28), oklch(0.68 0.17 28));
-	--positive: light-dark(oklch(0.56 0.12 155), oklch(0.7 0.12 155));
+	--positive: light-dark(oklch(0.52 0.14 150), oklch(0.74 0.14 150));
 	--scrim: light-dark(oklch(0.2 0.01 60 / 0.2), oklch(0 0 0 / 0.5));
 	--shadow-color: light-dark(oklch(0.2 0.01 60), oklch(0 0 0));
 }
@@ -139,6 +139,26 @@
 		transition: opacity 300ms var(--ease-out);
 		@starting-style {
 			opacity: 0;
+		}
+	}
+}
+
+/* Success state of Button: a green layer with the confirmation label fades in over the button. */
+@utility button-success {
+	opacity: 0;
+	scale: 0.96;
+	transition:
+		opacity 300ms ease-in,
+		scale 300ms ease-in;
+	&[data-active] {
+		opacity: 1;
+		scale: 1;
+		transition:
+			opacity 180ms var(--ease-out),
+			scale 240ms var(--ease-out);
+		@starting-style {
+			opacity: 0;
+			scale: 0.96;
 		}
 	}
 }

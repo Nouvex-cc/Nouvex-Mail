@@ -30,7 +30,7 @@ Warm neutrals, never pure black or white. The accent is ink, same as the logo. C
 | `hover` / `selected` | row and item states |
 | `danger` | destructive actions, errors |
 | `scrim` | dimmed backdrop behind dialogs |
-| `positive` | success, used rarely |
+| `positive` | confirmed actions (button success state) |
 
 Raw Tailwind colors don't exist in this project (the default palette is removed), so `bg-blue-500` won't compile into anything.
 
@@ -59,6 +59,8 @@ Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Border
 120 to 200 ms, ease-out, enter slightly faster than exit. Popups fade and scale from 98%, dialogs from 96%. Nothing animates on page load. `prefers-reduced-motion` turns everything into instant changes.
 
 Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The segment grows in over about 450 ms and shrinks out in about 150 ms. The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
+
+When an action needs confirming, the button turns green for about 1.5 s with a check and a past-tense label (`<Button success="Saved">`). The button keeps its width. Toasts are for things that can be undone or happened elsewhere.
 
 ## Icons
 

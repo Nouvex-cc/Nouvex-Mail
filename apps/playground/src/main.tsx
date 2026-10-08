@@ -129,6 +129,23 @@ function CommandDemo() {
 	);
 }
 
+function SaveDraftDemo() {
+	const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+	return (
+		<Button
+			loading={state === "saving"}
+			success={state === "saved" && "Saved"}
+			onClick={() => {
+				setState("saving");
+				setTimeout(() => setState("saved"), 900);
+				setTimeout(() => setState("idle"), 2500);
+			}}
+		>
+			Save draft
+		</Button>
+	);
+}
+
 function LoadingDemo({
 	variant,
 	children,
@@ -162,7 +179,7 @@ function App() {
 
 			<Section title="Button">
 				<Button variant="primary">Send</Button>
-				<Button>Save draft</Button>
+				<SaveDraftDemo />
 				<Button variant="ghost">Cancel</Button>
 				<Button variant="danger">Delete forever</Button>
 				<Button size="sm">Small</Button>

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Button as BaseButton } from "@base-ui/react/button";
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn, type Styled } from "../lib";
 
@@ -21,53 +22,77 @@ export type ButtonProps = Styled<BaseButton.Props> & {
 	variant?: keyof typeof variants;
 	size?: keyof typeof sizes;
 	loading?: boolean;
+	/** Label shown on a green layer to confirm the action, e.g. "Saved". */
+	success?: string | false;
 };
+
+// Returns the last active value and keeps it around for `ms` after it goes away, so exit transitions can play.
+function usePresence<T>(value: T | false | undefined, ms: number) {
+	const [shown, setShown] = useState(value);
+	useEffect(() => {
+		if (value) {
+			setShown(value);
+			return;
+		}
+		const t = setTimeout(() => setShown(value), ms);
+		return () => clearTimeout(t);
+	}, [value, ms]);
+	return value || shown;
+}
 
 export function Button({
 	variant = "secondary",
 	size = "md",
 	loading = false,
+	success,
 	className,
 	children,
 	onClick,
 	...props
 }: ButtonProps) {
-	// Keep the ring mounted briefly after loading ends so it can shrink out.
-	const [ring, setRing] = useState(loading);
-	useEffect(() => {
-		if (loading) {
-			setRing(true);
-			return;
-		}
-		const t = setTimeout(() => setRing(false), 200);
-		return () => clearTimeout(t);
-	}, [loading]);
+	const ring = usePresence(loading, 200);
+	const done = usePresence(success, 300);
 
 	return (
-		<BaseButton
-			className={cn(
-				"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-100 disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
-				variants[variant],
-				sizes[size],
-				className,
-			)}
-			aria-busy={loading || undefined}
-			data-loading={loading || undefined}
-			// Stays focusable while loading, but a second click must not submit twice.
-			onClick={loading ? (e) => e.preventDefault() : onClick}
-			{...props}
-		>
-			{children}
-			{(loading || ring) && (
-				<>
-					<span data-active={loading || undefined} className="button-scrim absolute inset-0 rounded-md bg-scrim" />
-					<span aria-hidden className="pointer-events-none absolute -inset-1">
-						<svg aria-hidden data-active={loading || undefined} className="button-ring size-full overflow-visible">
-							<rect pathLength={100} />
-						</svg>
+		<>
+			<BaseButton
+				className={cn(
+					"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-100 disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
+					variants[variant],
+					sizes[size],
+					className,
+				)}
+				aria-busy={loading || undefined}
+				data-loading={loading || undefined}
+				// Stays focusable while busy, but a second click must not submit twice.
+				onClick={loading ? (e) => e.preventDefault() : onClick}
+				{...props}
+			>
+				{children}
+				{ring && (
+					<>
+						<span data-active={loading || undefined} className="button-scrim absolute inset-0 rounded-md bg-scrim" />
+						<span aria-hidden className="pointer-events-none absolute -inset-1">
+							<svg aria-hidden data-active={loading || undefined} className="button-ring size-full overflow-visible">
+								<rect pathLength={100} />
+							</svg>
+						</span>
+					</>
+				)}
+				{done && (
+					<span
+						aria-hidden
+						data-active={success ? "" : undefined}
+						className="button-success absolute -inset-px flex items-center justify-center gap-1.5 rounded-md bg-positive text-on-ink"
+					>
+						<Check strokeWidth={2.25} className="size-4 shrink-0" />
+						{done}
 					</span>
-				</>
-			)}
-		</BaseButton>
+				)}
+			</BaseButton>
+			<span role="status" className="sr-only">
+				{success || ""}
+			</span>
+		</>
 	);
 }
