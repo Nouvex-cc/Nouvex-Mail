@@ -4,7 +4,8 @@ import { cn } from "../../lib";
 
 /**
  * The frame of the app: logo, sidebar and header are one surface, and the content sits in it as a lighter panel
- * with a rounded corner where they meet. The logo takes the top left, the sidebar starts below it.
+ * with a rounded corner where they meet. The logo takes the top left, the header is centered in the window and
+ * the sidebar starts below the logo.
  */
 export function AppShell({
 	logo,
@@ -21,8 +22,11 @@ export function AppShell({
 }) {
 	return (
 		<div className={cn("grid grid-cols-[15rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] bg-sunken", className)}>
-			<div className="flex h-16 items-center px-4">{logo}</div>
-			<header className="flex h-16 items-center gap-3 pr-3">{header}</header>
+			{/* One top row across the whole window, so the header's content (search) sits centered in the window. */}
+			<div className="col-span-2 grid h-16 grid-cols-[minmax(0,1fr)_minmax(0,36rem)_minmax(0,1fr)] items-center gap-3 px-4">
+				{logo}
+				<header className="flex items-center">{header}</header>
+			</div>
 			<div className="min-h-0">{sidebar}</div>
 			<main className="min-h-0 overflow-auto rounded-tl-xl border-t border-l border-line bg-paper">{children}</main>
 		</div>

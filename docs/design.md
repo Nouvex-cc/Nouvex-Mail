@@ -93,7 +93,7 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 - **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Opening one grows it in a single motion while the body fades in from under the snippet it replaces; closing runs the same way back. Quoted history hides behind "•••".
 - **HTML mail** renders sanitized in a sandboxed frame without scripts, on a light card in both themes. Remote images stay hidden behind a quiet notice until allowed, and then load through the image proxy.
 - **The composer** reveals Cc and Bcc on demand, takes files dropped anywhere on it, sends with an undo window and can schedule.
-- **Frame** (`AppShell`): logo, sidebar and header are one sunken surface without a dividing line; the content sits in it as a paper panel with a rounded corner (`xl`) where they meet. The logo takes the top left, the sidebar (account picker first) starts below it, and search sits on the right of the header.
+- **Frame** (`AppShell`): logo, sidebar and header are one sunken surface without a dividing line; the content sits in it as a paper panel with a rounded corner (`xl`) where they meet. The logo takes the top left, the sidebar (account picker first) starts below it, and search sits centered in the window.
 - **Navigation:** one sliding highlight marks the current folder; label tags are the only extra color; the account picker is a select (see above) showing the current account; search reads like you'd say it ("lena", "from jonas", "since friday", "unread" offer filters that become readable chips; typed operators like `from:` still work), rests as a borderless pill and opens into a card with the suggestions; `?` lists every shortcut.
 
 ## Icons

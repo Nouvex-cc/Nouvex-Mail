@@ -94,7 +94,7 @@ export function NavigationDemo() {
 					}
 					header={
 						<SearchField
-							className="ml-auto w-full max-w-md"
+							className="w-full"
 							contacts={contacts}
 							onSearch={(q) =>
 								setQuery([q.text, ...q.filters.map((f) => `${f.key}:${f.value}`)].filter(Boolean).join(" "))
