@@ -129,6 +129,28 @@ function CommandDemo() {
 	);
 }
 
+function LoadingDemo({
+	variant,
+	children,
+}: {
+	variant: "primary" | "secondary" | "ghost" | "danger";
+	children: string;
+}) {
+	const [loading, setLoading] = useState(false);
+	return (
+		<Button
+			variant={variant}
+			loading={loading}
+			onClick={() => {
+				setLoading(true);
+				setTimeout(() => setLoading(false), 2500);
+			}}
+		>
+			{children}
+		</Button>
+	);
+}
+
 function App() {
 	const [date, setDate] = useState<Date | undefined>();
 	return (
@@ -150,6 +172,14 @@ function App() {
 					</Button>
 				</Tooltip>
 				<Button disabled>Disabled</Button>
+				<Separator orientation="vertical" />
+				<LoadingDemo variant="primary">Send</LoadingDemo>
+				<LoadingDemo variant="secondary">Test connection</LoadingDemo>
+				<LoadingDemo variant="ghost">Retry</LoadingDemo>
+				<LoadingDemo variant="danger">Delete account</LoadingDemo>
+				<Button variant="primary" loading>
+					Always loading
+				</Button>
 				<Spinner />
 			</Section>
 

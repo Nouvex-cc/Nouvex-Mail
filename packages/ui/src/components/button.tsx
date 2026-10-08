@@ -19,18 +19,43 @@ const sizes = {
 export type ButtonProps = Styled<BaseButton.Props> & {
 	variant?: keyof typeof variants;
 	size?: keyof typeof sizes;
+	loading?: boolean;
 };
 
-export function Button({ variant = "secondary", size = "md", className, ...props }: ButtonProps) {
+export function Button({
+	variant = "secondary",
+	size = "md",
+	loading = false,
+	className,
+	children,
+	onClick,
+	...props
+}: ButtonProps) {
 	return (
 		<BaseButton
 			className={cn(
-				"inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+				"relative inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md font-medium transition duration-100 disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
 				variants[variant],
 				sizes[size],
 				className,
 			)}
+			aria-busy={loading || undefined}
+			data-loading={loading || undefined}
+			// Stays focusable while loading, but a second click must not submit twice.
+			onClick={loading ? (e) => e.preventDefault() : onClick}
 			{...props}
-		/>
+		>
+			{children}
+			{loading && (
+				<>
+					<span className="absolute inset-0 rounded-md bg-scrim" />
+					<span aria-hidden className="pointer-events-none absolute -inset-1">
+						<svg className="button-ring size-full overflow-visible">
+							<rect pathLength={100} />
+						</svg>
+					</span>
+				</>
+			)}
+		</BaseButton>
 	);
 }
