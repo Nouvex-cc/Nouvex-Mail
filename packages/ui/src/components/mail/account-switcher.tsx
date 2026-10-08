@@ -10,25 +10,18 @@ export type Account = { id: string; name: string; email: string; avatarUrl?: str
 
 const add = "__add";
 
-function Identity({
-	picture,
-	name,
-	detail,
-	unread,
-}: {
-	picture: ReactNode;
-	name: string;
-	detail: string;
-	unread?: boolean;
-}) {
+// Unread dot and the chevron/check share one column at the right end, so the dots line up in every row.
+const End = ({ unread, children }: { unread?: boolean; children?: ReactNode }) => (
+	<span className="flex shrink-0 items-center gap-2 text-muted">
+		<span aria-hidden className={cn("size-1.5 rounded-full bg-ink", !unread && "invisible")} />
+		<span className="grid size-4 place-items-center">{children}</span>
+	</span>
+);
+
+function Identity({ picture, name, detail }: { picture: ReactNode; name: string; detail: string }) {
 	return (
 		<span className="flex min-w-0 items-center gap-2.5 text-left">
-			<span className="relative grid size-8 shrink-0 place-items-center">
-				{picture}
-				{unread && (
-					<span aria-hidden className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-ink ring-2 ring-raised" />
-				)}
-			</span>
+			<span className="grid size-8 shrink-0 place-items-center">{picture}</span>
 			<span className="grid min-w-0">
 				<span className="truncate text-sm font-medium">{name}</span>
 				<span className="truncate text-xs text-muted">{detail}</span>
@@ -102,16 +95,18 @@ export function AccountSwitcher({
 				className="flex h-12 w-full shrink-0 items-center justify-between gap-2 rounded-md px-2 outline-none transition-colors duration-100 hover:bg-hover open:bg-hover active:scale-99 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30"
 			>
 				<Select.Value className="min-w-0">{identity}</Select.Value>
-				<ChevronsUpDown strokeWidth={1.75} className="size-4 shrink-0 text-muted" />
+				<End unread={entries.find((e) => e.id === current)?.unread}>
+					<ChevronsUpDown strokeWidth={1.75} className="size-4" />
+				</End>
 			</Select.Trigger>
 			<Select.Portal>
 				<Select.Positioner alignItemWithTrigger={around} sideOffset={4} className="z-50 outline-none">
 					<Select.Popup
 						className={cn(
 							popup,
-							// Rows run edge to edge, so the current one lands exactly on the trigger: same width (plus the
-							// border), same corners, no zoom, and one pixel down for the border when it opens over the trigger.
-							"w-[calc(var(--anchor-width)+2px)] overflow-hidden rounded-md starting:scale-100 ending:scale-100 data-[side=none]:translate-y-px",
+							// Rows run edge to edge and there's no border, so the current one lands exactly on the trigger:
+							// same width, same corners, no zoom.
+							"w-(--anchor-width) overflow-hidden rounded-md border-0 starting:scale-100 ending:scale-100",
 						)}
 					>
 						<Select.List className="relative max-h-(--available-height) overflow-y-auto outline-none">
@@ -122,9 +117,11 @@ export function AccountSwitcher({
 										<Select.ItemText className="min-w-0">
 											<Identity {...e} />
 										</Select.ItemText>
-										<Select.ItemIndicator className="text-ink">
-											<Check strokeWidth={2} />
-										</Select.ItemIndicator>
+										<End unread={e.unread}>
+											<Select.ItemIndicator className="text-ink">
+												<Check strokeWidth={2} />
+											</Select.ItemIndicator>
+										</End>
 									</Select.Item>
 									{i === 0 && <Select.Separator className="h-px bg-line" />}
 								</Fragment>
