@@ -2,4 +2,5 @@
 export * from "./bulk-bar";
 export * from "./message-list";
 export * from "./message-row";
+export * from "./sender-card";
 export * from "./snooze-picker";

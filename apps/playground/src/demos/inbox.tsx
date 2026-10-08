@@ -17,6 +17,19 @@ type Message = {
 	labels?: MailLabel[];
 };
 
+const emails: Record<string, string> = {
+	"Lena Hartmann": "lena@hartmann.example",
+	"Deutsche Bahn": "tickets@bahn.example",
+	"Jonas Weber": "jonas@weber.example",
+	"Mira Okafor": "mira@okafor.example",
+	"Hetzner Online": "billing@hetzner.example",
+	"Paul Schneider": "paul@schneider.example",
+	GitHub: "notifications@github.example",
+	"Sofia Rossi": "sofia@rossi.example",
+	"Stadtwerke Karlsruhe": "service@stadtwerke.example",
+	Figma: "team@figma.example",
+};
+
 const initial: Message[] = [
 	{
 		id: 1,
@@ -141,6 +154,9 @@ export function InboxDemo() {
 						<MessageRow
 							key={m.id}
 							{...m}
+							email={emails[m.from]}
+							onWrite={() => toast.add({ title: `New message to ${m.from}` })}
+							onShowMessages={() => toast.add({ title: `Search: from:${emails[m.from]}` })}
 							selected={selected.has(m.id)}
 							selecting={selected.size > 0}
 							onOpen={() => setMessages((ms) => ms.map((x) => (x.id === m.id ? { ...x, unread: false } : x)))}

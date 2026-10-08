@@ -6,10 +6,13 @@ import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Checkbox } from "../checkbox";
 import { Tooltip } from "../tooltip";
 import { LabelChip, type MailLabel } from "./label";
+import { SenderCard } from "./sender-card";
 import { SnoozePicker } from "./snooze-picker";
 
 export type MessageRowProps = {
 	from: string;
+	/** The sender's address; with it, hovering the name shows a card about the sender. */
+	email?: string;
 	subject: string;
 	snippet?: string;
 	/** Shown as chips in front of the subject, at most two. */
@@ -24,6 +27,9 @@ export type MessageRowProps = {
 	onArchive?: () => void;
 	onSnooze?: (until: Date) => void;
 	onDelete?: () => void;
+	/** Shown on the sender card. */
+	onWrite?: () => void;
+	onShowMessages?: () => void;
 };
 
 const action =
@@ -36,6 +42,7 @@ const action =
  */
 export function MessageRow({
 	from,
+	email,
 	subject,
 	snippet,
 	labels = [],
@@ -48,6 +55,8 @@ export function MessageRow({
 	onArchive,
 	onSnooze,
 	onDelete,
+	onWrite,
+	onShowMessages,
 }: MessageRowProps) {
 	const [snoozing, setSnoozing] = useState(false);
 	const [dx, setDx] = useState(0);
@@ -161,7 +170,15 @@ export function MessageRow({
 					<Checkbox aria-hidden tabIndex={-1} checked={selected} className="pointer-events-none" />
 				</span>
 				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ink", !unread && "invisible")} />
-				<span className={cn("w-40 shrink-0 truncate", unread && "font-semibold")}>{from}</span>
+				<span className={cn("w-40 shrink-0 truncate", unread && "font-semibold")}>
+					{email ? (
+						<SenderCard name={from} email={email} onWrite={onWrite} onShowMessages={onShowMessages}>
+							{from}
+						</SenderCard>
+					) : (
+						from
+					)}
+				</span>
 				<span className="flex min-w-0 flex-1 items-center gap-1.5">
 					{labels.slice(0, 2).map((l) => (
 						<LabelChip key={l.name} {...l} />

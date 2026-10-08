@@ -87,7 +87,7 @@ Destructive actions that can't be undone are held, not clicked (`<Button hold={1
 
 ## Mail
 
-- **Rows** show sender, subject and snippet on one line, the date on the right (time today, weekday this week, date before). Unread is a dot plus semibold, nothing louder. On hover the date crossfades into archive, snooze and delete; on touch a row swipes (left archive, right snooze).
+- **Rows** show sender, subject and snippet on one line, the date on the right (time today, weekday this week, date before). Unread is a dot plus semibold, nothing louder. On hover the date crossfades into archive, snooze and delete; on touch a row swipes (left archive, right snooze). Resting on the sender's name brings up a card with their name and address (copy it) and, where the app has them, Write and All messages.
 - **Selection** works like a file list. A row's whole left edge (not just its checkbox) toggles it, and dragging from there gives every row passed the same state, so starting on a selected row deselects. Shift selects a range from the last row, ⌘/Ctrl-click toggles one, X the focused row, ⌘A all, Escape clears. Neighbouring selected rows share one background that grows and shrinks with the run. A bar with bulk actions rises from the bottom.
 - **Snooze** offers a few times that make sense right now and a field that understands "tomorrow 3pm".
 - **Threads** keep older messages collapsed and fold long middles into "3 earlier messages". Opening one grows it in a single motion while the body fades in from under the snippet it replaces; closing runs the same way back. Quoted history hides behind "•••".
