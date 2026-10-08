@@ -186,6 +186,18 @@
 	}
 }
 
+/* Checkbox mark strokes itself in when it appears. */
+@utility checkbox-mark {
+	& path {
+		stroke-dasharray: 1;
+		stroke-dashoffset: 0;
+		transition: stroke-dashoffset 180ms var(--ease-out) 40ms;
+		@starting-style {
+			stroke-dashoffset: 1;
+		}
+	}
+}
+
 @keyframes button-ring {
 	to {
 		stroke-dashoffset: -100;
