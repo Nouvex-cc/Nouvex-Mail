@@ -11,7 +11,7 @@
 		"dev": "turbo dev",
 		"build": "turbo build",
 		"test": "turbo test",
-		"lint": "turbo lint",
+		"lint": "turbo lint && oxlint",
 		"typecheck": "turbo typecheck",
 		"db:generate": "bun run --cwd apps/api db:generate",
 		"db:migrate": "bun run --cwd apps/api db:migrate",
@@ -22,7 +22,9 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
 		"@e2e-dev/web": "^0.13.0",
+		"@shadcn/lint": "^0.2.0",
 		"e2e": "^0.18.0",
+		"oxlint": "^1.87.0",
 		"turbo": "^2.11.7",
 		"typescript": "^7.0.2"
 	}

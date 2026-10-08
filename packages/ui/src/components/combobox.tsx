@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: Apache-2.0
+import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
+import { Check, X } from "../icons";
+import { cn, item, popup, type Styled } from "../lib";
+import { useGlide } from "./glide";
+import { Highlight } from "./highlight";
+
+function Chips({ className, ...props }: Styled<BaseCombobox.Chips.Props>) {
+	const ref = useGlide<HTMLDivElement>();
+	return (
+		<BaseCombobox.Chips
+			ref={ref}
+			className={cn(
+				"relative flex min-h-8 w-full cursor-text flex-wrap items-center gap-1 rounded-md border border-line-strong bg-paper px-1.5 py-1 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink/30 [&_input]:h-6 [&_input]:min-w-16 [&_input]:flex-1 [&_input]:bg-transparent [&_input]:px-1 [&_input]:outline-none [&_input]:placeholder:text-faint",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+// Multiple selection: wrap Chips around Chip items plus the ChipsInput, inside <Combobox.Value>{(v) => ...}</Combobox.Value>.
+export const Combobox = {
+	Root: BaseCombobox.Root,
+	Value: BaseCombobox.Value,
+	Chips,
+	// Unstyled input that sits inside Chips; Chips styles it.
+	ChipsInput: BaseCombobox.Input,
+	Chip: ({ className, children, ...props }: Styled<BaseCombobox.Chip.Props>) => (
+		<BaseCombobox.Chip
+			className={cn(
+				"flex h-6 cursor-default items-center gap-1 rounded-sm bg-selected pr-0.5 pl-2 text-sm outline-none highlighted:bg-ink highlighted:text-on-ink focus-within:bg-ink focus-within:text-on-ink",
+				className,
+			)}
+			{...props}
+		>
+			{children}
+			<BaseCombobox.ChipRemove className="grid size-5 place-items-center rounded-sm hover:bg-hover hover:text-ink">
+				<X className="size-3.5" strokeWidth={1.75} />
+			</BaseCombobox.ChipRemove>
+		</BaseCombobox.Chip>
+	),
+	Popup: ({ className, children, ...props }: Styled<BaseCombobox.Popup.Props>) => (
+		<BaseCombobox.Portal>
+			<BaseCombobox.Positioner sideOffset={4} className="outline-none">
+				<BaseCombobox.Popup
+					className={cn(
+						popup,
+						"relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1",
+						className,
+					)}
+					{...props}
+				>
+					<Highlight />
+					{children}
+				</BaseCombobox.Popup>
+			</BaseCombobox.Positioner>
+		</BaseCombobox.Portal>
+	),
+	List: ({ className, ...props }: Styled<BaseCombobox.List.Props>) => (
+		<BaseCombobox.List className={cn("outline-none data-empty:hidden", className)} {...props} />
+	),
+	Item: ({ className, children, ...props }: Styled<BaseCombobox.Item.Props>) => (
+		<BaseCombobox.Item className={cn(item, className)} {...props}>
+			{children}
+			<BaseCombobox.ItemIndicator className="ml-auto">
+				<Check strokeWidth={1.75} />
+			</BaseCombobox.ItemIndicator>
+		</BaseCombobox.Item>
+	),
+	Empty: ({ className, ...props }: Styled<BaseCombobox.Empty.Props>) => (
+		<BaseCombobox.Empty className={cn("px-2 py-1.5 text-sm text-muted empty:hidden", className)} {...props} />
+	),
+};

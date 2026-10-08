@@ -1,0 +1,457 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+@import "tailwindcss";
+@import "@fontsource-variable/schibsted-grotesk";
+
+@source "./";
+
+/* Base UI marks transitions with data attributes. */
+@custom-variant starting (&[data-starting-style]);
+@custom-variant ending (&[data-ending-style]);
+@custom-variant open (&[data-open], &[data-popup-open], &[data-panel-open]);
+@custom-variant checked (&[data-checked], &[data-pressed]);
+@custom-variant highlighted (&[data-highlighted]);
+@custom-variant invalid (&[data-invalid]);
+@custom-variant disabled (&[data-disabled], &:disabled);
+
+:root {
+	color-scheme: light dark;
+	--paper: light-dark(oklch(0.993 0.002 75), oklch(0.175 0.005 60));
+	--sunken: light-dark(oklch(0.972 0.004 75), oklch(0.155 0.005 60));
+	--raised: light-dark(oklch(0.999 0.001 75), oklch(0.215 0.006 60));
+	--ink: light-dark(oklch(0.2 0.006 60), oklch(0.94 0.004 75));
+	--on-ink: light-dark(oklch(0.99 0.002 75), oklch(0.17 0.005 60));
+	--muted: light-dark(oklch(0.52 0.008 65), oklch(0.68 0.006 70));
+	--faint: light-dark(oklch(0.7 0.006 70), oklch(0.48 0.006 65));
+	--line: light-dark(oklch(0.92 0.005 75), oklch(0.26 0.006 60));
+	--line-strong: light-dark(oklch(0.86 0.006 75), oklch(0.33 0.006 60));
+	--hover: light-dark(oklch(0.96 0.004 75), oklch(0.255 0.006 60));
+	--selected: light-dark(oklch(0.935 0.005 75), oklch(0.29 0.007 60));
+	--danger: light-dark(oklch(0.56 0.19 28), oklch(0.68 0.17 28));
+	--positive: light-dark(oklch(0.52 0.14 150), oklch(0.74 0.14 150));
+	--hold: light-dark(oklch(0.2 0.006 60 / 0.15), oklch(0.94 0.004 75 / 0.32));
+	--scrim: light-dark(oklch(0.2 0.01 60 / 0.2), oklch(0 0 0 / 0.5));
+	/* Label colors: the one place color is decoration-free information (which label a mail carries). */
+	--label-gray: light-dark(oklch(0.6 0.01 70), oklch(0.66 0.01 70));
+	--label-red: light-dark(oklch(0.6 0.13 25), oklch(0.68 0.12 25));
+	--label-orange: light-dark(oklch(0.68 0.12 60), oklch(0.74 0.11 60));
+	--label-green: light-dark(oklch(0.62 0.1 150), oklch(0.7 0.1 150));
+	--label-blue: light-dark(oklch(0.6 0.1 250), oklch(0.7 0.09 250));
+	--label-purple: light-dark(oklch(0.58 0.1 300), oklch(0.68 0.09 300));
+	--shadow-color: light-dark(oklch(0.2 0.01 60), oklch(0 0 0));
+}
+
+:root.light {
+	color-scheme: light;
+}
+
+:root.dark {
+	color-scheme: dark;
+}
+
+/* Only our tokens exist. Default palette, radii, shadows and type sizes are removed. */
+@theme inline {
+	--color-*: initial;
+	--color-paper: var(--paper);
+	--color-sunken: var(--sunken);
+	--color-raised: var(--raised);
+	--color-ink: var(--ink);
+	--color-on-ink: var(--on-ink);
+	--color-muted: var(--muted);
+	--color-faint: var(--faint);
+	--color-line: var(--line);
+	--color-line-strong: var(--line-strong);
+	--color-hover: var(--hover);
+	--color-selected: var(--selected);
+	--color-danger: var(--danger);
+	--color-positive: var(--positive);
+	--color-scrim: var(--scrim);
+	--color-hold: var(--hold);
+	--color-transparent: transparent;
+	--color-current: currentColor;
+
+	--font-*: initial;
+	--font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+
+	--text-*: initial;
+	--text-xs: 0.75rem;
+	--text-xs--line-height: 1rem;
+	--text-sm: 0.8125rem;
+	--text-sm--line-height: 1.25rem;
+	--text-base: 0.875rem;
+	--text-base--line-height: 1.375rem;
+	--text-lg: 1rem;
+	--text-lg--line-height: 1.6rem;
+	--text-xl: 1.125rem;
+	--text-xl--line-height: 1.6rem;
+	--text-2xl: 1.375rem;
+	--text-2xl--line-height: 1.8rem;
+	--text-3xl: 1.75rem;
+	--text-3xl--line-height: 2.2rem;
+
+	--radius-*: initial;
+	--radius-sm: 6px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
+	--radius-xl: 20px;
+	--radius-full: 9999px;
+
+	--shadow-*: initial;
+	--shadow-pop:
+		0 1px 2px color-mix(in oklch, var(--shadow-color) 6%, transparent),
+		0 8px 24px color-mix(in oklch, var(--shadow-color) 10%, transparent);
+	--shadow-dialog:
+		0 2px 4px color-mix(in oklch, var(--shadow-color) 6%, transparent),
+		0 24px 64px color-mix(in oklch, var(--shadow-color) 18%, transparent);
+
+	--ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+	--animate-spin: spin 700ms linear infinite;
+}
+
+/* Outline drawn 4px around a Button, used by the loading ring and the countdown. */
+@utility button-outline {
+	& rect {
+		x: 0.75px;
+		y: 0.75px;
+		width: calc(100% - 1.5px);
+		height: calc(100% - 1.5px);
+		rx: 11px;
+		fill: none;
+		stroke: var(--ink);
+		stroke-width: 1.5;
+		stroke-linecap: round;
+	}
+}
+
+/* Loading state of Button: a segment of the outline runs around the button.
+   It grows in when loading starts and shrinks out when it ends. */
+@utility button-ring {
+	& rect {
+		stroke-dasharray: 0 100;
+		opacity: 0;
+		animation: button-ring 1.1s linear infinite;
+		transition:
+			stroke-dasharray 160ms ease-in,
+			opacity 160ms ease-in;
+	}
+	&[data-active] rect {
+		stroke-dasharray: 20 80;
+		opacity: 1;
+		transition:
+			stroke-dasharray 450ms cubic-bezier(0.4, 0, 0.2, 1),
+			opacity 300ms ease-out;
+		@starting-style {
+			stroke-dasharray: 0 100;
+			opacity: 0;
+		}
+	}
+}
+
+/* Countdown of Button: the full outline drains (driven from JS for the exact duration). */
+@utility button-countdown {
+	/* biome-ignore lint/style/noDescendingSpecificity: never on the same element as button-ring */
+	& rect {
+		opacity: 0;
+		transition: opacity 160ms ease-in;
+	}
+	&[data-active] rect {
+		opacity: 1;
+		transition: opacity 200ms ease-out;
+		@starting-style {
+			opacity: 0;
+		}
+	}
+}
+
+@utility button-scrim {
+	opacity: 0;
+	transition: opacity 160ms ease-in;
+	&[data-active] {
+		opacity: 1;
+		transition: opacity 300ms var(--ease-out);
+		@starting-style {
+			opacity: 0;
+		}
+	}
+}
+
+/* Caret of text fields: glides to its new spot, blinks only once typing pauses. */
+@utility text-caret {
+	transition:
+		transform 90ms var(--ease-out),
+		height 90ms var(--ease-out);
+	&[data-jump] {
+		transition: none;
+	}
+	&[data-idle] {
+		animation: caret-blink 1.06s steps(1, end) infinite;
+	}
+}
+
+@keyframes caret-blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* Checkbox mark strokes itself in when it appears. */
+@utility checkbox-mark {
+	& path {
+		stroke-dasharray: 1;
+		stroke-dashoffset: 0;
+		transition: stroke-dashoffset 180ms var(--ease-out) 40ms;
+		@starting-style {
+			stroke-dashoffset: 1;
+		}
+	}
+}
+
+/* Calendar month change: the old month fades out almost in place, then the new one fades in from the paging
+   direction. Little travel keeps it calm; the new month waits until the old one is nearly gone so dates never
+   overlap. */
+@utility calendar-in-left {
+	animation: calendar-in-left 200ms var(--ease-out) 90ms both;
+}
+@utility calendar-in-right {
+	animation: calendar-in-right 200ms var(--ease-out) 90ms both;
+}
+/* The library ends the change when the leaving month's animation ends, so it runs for the whole 290 ms
+   and is simply invisible after the first third. */
+@utility calendar-out-left {
+	animation: calendar-out-left 290ms ease-in both;
+}
+@utility calendar-out-right {
+	animation: calendar-out-right 290ms ease-in both;
+}
+
+@keyframes calendar-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-12px);
+	}
+}
+@keyframes calendar-in-right {
+	from {
+		opacity: 0;
+		transform: translateX(12px);
+	}
+}
+@keyframes calendar-out-left {
+	35%,
+	to {
+		opacity: 0;
+		transform: translateX(-12px);
+	}
+}
+@keyframes calendar-out-right {
+	35%,
+	to {
+		opacity: 0;
+		transform: translateX(12px);
+	}
+}
+
+/* Sliding highlight behind list items. */
+@utility list-highlight {
+	opacity: 0;
+	transition:
+		transform 160ms var(--ease-out),
+		width 160ms var(--ease-out),
+		height 160ms var(--ease-out),
+		opacity 120ms ease-out;
+	&[data-jump] {
+		transition: opacity 120ms ease-out;
+	}
+}
+
+/* One shape behind a run of selected messages; it follows the run as it grows or shrinks. */
+@utility selection-run {
+	position: absolute;
+	pointer-events: none;
+	border-radius: var(--radius-md);
+	background: var(--selected);
+	transition:
+		top 160ms var(--ease-out),
+		height 160ms var(--ease-out);
+}
+
+/* Slider thumb and fill: a jump to a new value glides quickly; while dragging they follow the pointer directly. */
+@utility slider-glide {
+	transition:
+		inset-inline-start 120ms var(--ease-out),
+		width 120ms var(--ease-out),
+		scale 150ms var(--ease-out);
+	[data-moving] & {
+		transition:
+			inset-inline-start 0ms,
+			width 0ms,
+			scale 150ms var(--ease-out);
+	}
+}
+
+/* Toasts as a deck (Base UI's stacking recipe, quieter): the newest sits in front, older ones peek out as
+   slightly smaller cards behind it with their content hidden. Hovering or focusing the stack fans it out.
+   New toasts rise from below; leaving ones drop away or follow the swipe. */
+@utility toast-card {
+	--gap: 0.5rem;
+	--peek: 0.5rem;
+	--scale: calc(max(0, 1 - (var(--toast-index) * 0.05)));
+	--shrink: calc(1 - var(--scale));
+	--height: var(--toast-frontmost-height, var(--toast-height));
+	--offset-y: calc(var(--toast-offset-y) * -1 + (var(--toast-index) * var(--gap) * -1) + var(--toast-swipe-movement-y));
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: calc(1000 - var(--toast-index));
+	height: var(--height);
+	transform-origin: bottom center;
+	transform: translateX(var(--toast-swipe-movement-x))
+		translateY(
+			calc(var(--toast-swipe-movement-y) - (var(--toast-index) * var(--peek)) - (var(--shrink) * var(--height)))
+		)
+		scale(var(--scale));
+	transition:
+		transform 400ms cubic-bezier(0.22, 1, 0.36, 1),
+		opacity 400ms cubic-bezier(0.22, 1, 0.36, 1),
+		height 150ms var(--ease-out);
+	&[data-expanded] {
+		height: var(--toast-height);
+		transform: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y));
+	}
+	&[data-starting-style],
+	&[data-ending-style] {
+		transform: translateY(150%);
+	}
+	&[data-limited],
+	&[data-ending-style] {
+		opacity: 0;
+	}
+	&[data-ending-style][data-swipe-direction="down"] {
+		transform: translateY(calc(var(--toast-swipe-movement-y) + 150%));
+	}
+	&[data-ending-style][data-swipe-direction="right"] {
+		transform: translateX(calc(var(--toast-swipe-movement-x) + 120%)) translateY(var(--offset-y));
+	}
+	/* Bridges the gap between cards so the stack doesn't collapse while the pointer crosses it. */
+	&::after {
+		content: "";
+		position: absolute;
+		top: 100%;
+		left: 0;
+		width: 100%;
+		height: calc(var(--gap) + 1px);
+	}
+}
+
+@utility toast-content {
+	transition: opacity 250ms cubic-bezier(0.22, 1, 0.36, 1);
+	&[data-behind] {
+		opacity: 0;
+	}
+	&[data-expanded] {
+		opacity: 1;
+	}
+}
+
+/* Mail labels: data-label-color picks the hue; chips tint their background with it, icons fill with it. */
+@utility label-chip {
+	background: color-mix(in oklab, var(--label, var(--label-gray)) 18%, var(--paper));
+	color: color-mix(in oklab, var(--label, var(--label-gray)) 70%, var(--ink));
+}
+
+@utility label-icon {
+	color: var(--label, var(--label-gray));
+}
+
+/* Opens by growing a grid row, which follows the content as it loads, so there's no measured height to overshoot.
+   Thread messages and the search card use it. */
+@utility fold-panel {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 320ms var(--ease-out);
+	& > div {
+		min-height: 0;
+		overflow: hidden;
+	}
+	&[data-open] {
+		grid-template-rows: 1fr;
+	}
+}
+
+@utility thread-body {
+	opacity: 0;
+	translate: 0 -0.5rem;
+	transition:
+		opacity 150ms ease-in,
+		translate 150ms ease-in;
+	[data-open] > div > & {
+		opacity: 1;
+		translate: 0 0;
+		transition:
+			opacity 260ms var(--ease-out) 40ms,
+			translate 320ms var(--ease-out);
+	}
+}
+
+@keyframes button-ring {
+	to {
+		stroke-dashoffset: -100;
+	}
+}
+
+@layer base {
+	[data-label-color="gray"] {
+		--label: var(--label-gray);
+	}
+	[data-label-color="red"] {
+		--label: var(--label-red);
+	}
+	[data-label-color="orange"] {
+		--label: var(--label-orange);
+	}
+	[data-label-color="green"] {
+		--label: var(--label-green);
+	}
+	[data-label-color="blue"] {
+		--label: var(--label-blue);
+	}
+	[data-label-color="purple"] {
+		--label: var(--label-purple);
+	}
+	* {
+		border-color: var(--line);
+	}
+	html {
+		font-family: var(--font-sans);
+		font-size: 16px;
+		-webkit-font-smoothing: antialiased;
+	}
+	body {
+		background: var(--paper);
+		color: var(--ink);
+		font-size: var(--text-base);
+		line-height: var(--text-base--line-height);
+	}
+	:focus-visible {
+		outline: 2px solid var(--ink);
+		outline-offset: 2px;
+	}
+	::selection {
+		background: var(--selected);
+	}
+}
+
+/* biome-ignore-start lint/complexity/noImportantStyles: reduced motion has to win over every component */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		transition-duration: 0ms !important;
+		animation-duration: 0ms !important;
+	}
+	.button-ring[data-active] rect {
+		stroke-dasharray: none;
+		opacity: 0.4;
+	}
+}
+/* biome-ignore-end lint/complexity/noImportantStyles: see above */
