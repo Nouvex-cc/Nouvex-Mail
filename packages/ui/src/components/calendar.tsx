@@ -28,9 +28,7 @@ const shift = (date: Date, months: number) => new Date(date.getFullYear(), date.
 
 type Option = { value: number; label: string };
 
-// Month and year in the header: a list that opens around the current value, plus typing. While the list is open,
-// the middle row (over the header) becomes the field showing what you type, and the first match is highlighted; Enter takes it, or takes a typed value that
-// isn't in the list (a year like 1850, a month number like 3).
+// Month or year: a list around the current value that also takes typing, including values outside the list (1850).
 function Picker({
 	value,
 	options,

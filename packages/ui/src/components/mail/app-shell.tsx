@@ -2,11 +2,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../../lib";
 
-/**
- * The frame of the app: logo, sidebar and header are one surface, and the content sits in it as a lighter panel
- * with a rounded corner where they meet. The logo takes the top left, the header is centered in the window and
- * the sidebar starts below the logo.
- */
+/** Logo, header and sidebar as one surface; the content sits in it with a rounded corner. */
 export function AppShell({
 	logo,
 	sidebar,
@@ -22,7 +18,7 @@ export function AppShell({
 }) {
 	return (
 		<div className={cn("grid grid-cols-[15rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] bg-sunken", className)}>
-			{/* One top row across the whole window, so the header's content (search) sits centered in the window. */}
+			{/* Spans the whole width so the header is centered in the window. */}
 			<div className="col-span-2 grid h-16 grid-cols-[minmax(0,1fr)_minmax(0,36rem)_minmax(0,1fr)] items-center gap-3 px-4">
 				{logo}
 				<header className="flex items-center">{header}</header>

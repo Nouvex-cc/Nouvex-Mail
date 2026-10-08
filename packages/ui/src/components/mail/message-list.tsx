@@ -10,8 +10,7 @@ export type MessageListProps = {
 	className?: string;
 };
 
-// One shape behind each run of selected rows. A run that grows or shrinks keeps its shape, which follows, so a
-// selection reads as one block instead of rows lighting up one by one.
+// One shape per run of selected rows, reused while the run grows or shrinks so it glides along.
 function Selection() {
 	const ref = useRef<HTMLSpanElement>(null);
 
@@ -69,12 +68,7 @@ function Selection() {
 	return <span ref={ref} aria-hidden className="contents" />;
 }
 
-/**
- * Holds MessageRows: one highlight slides to the hovered or focused row, ↑/↓ or j/k move focus between rows.
- * Selecting works like a file list: press a row's left edge to toggle it and drag across others to give them the
- * same state (starting on a selected row deselects); shift extends from the last row, ⌘/Ctrl-click toggles one,
- * X toggles the focused row, ⌘A selects all and Esc clears.
- */
+/** Selection works like a file list: left edge toggles, drag, shift ranges, ⌘-click, X, ⌘A, Esc. */
 export function MessageList({ children, onSelectionChange, className }: MessageListProps) {
 	const list = useRef<HTMLDivElement>(null);
 	const anchor = useRef<number | null>(null);
@@ -86,7 +80,6 @@ export function MessageList({ children, onSelectionChange, className }: MessageL
 		for (const r of rows()) if (r !== row) r.removeAttribute("data-active");
 		row?.setAttribute("data-active", "");
 	};
-	// Every row from the anchor to `to` set to `on`, on top of `base`.
 	const range = (base: boolean[], from: number, to: number, on: boolean) =>
 		base.map((s, i) => (i >= Math.min(from, to) && i <= Math.max(from, to) ? on : s));
 	// The row under a height on screen; how far left or right the pointer is doesn't matter.
@@ -148,8 +141,7 @@ export function MessageList({ children, onSelectionChange, className }: MessageL
 			onPointerUp={() => {
 				drag.current = null;
 			}}
-			// A click on a row's left edge was a selection (handled on press), and shift- or ⌘/Ctrl-click anywhere on a
-			// row selects too; neither opens the message.
+			// Selection clicks must not open the message.
 			onClickCapture={(e) => {
 				if ((e.target as HTMLElement).closest("[data-select-handle]")) return e.stopPropagation();
 				if (!(e.shiftKey || e.metaKey || e.ctrlKey)) return;

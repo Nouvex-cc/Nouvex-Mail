@@ -57,11 +57,7 @@ function operatorChip(word: string): Chip | null {
 	return flags.find((f) => f.key === key && f.value === value.toLowerCase()) ?? null;
 }
 
-/**
- * Search that reads like you'd say it: "lena", "from lena", "since friday", "unread" offer filters, which become
- * chips. Typed operators (from:, after:, is:, has:) work too. Resting it's a pill; focused it opens into a card with
- * the suggestions, or quick filters while it's empty. "/" focuses it.
- */
+/** Search in plain words ("from lena", "since friday", "unread") that become filter chips. "/" focuses it. */
 export function SearchField({
 	onSearch,
 	contacts = [],
@@ -127,7 +123,6 @@ export function SearchField({
 
 	return (
 		<div className={cn("relative h-9", className)}>
-			{/* Resting it's a pill; focused, the same surface lifts and opens downward into the suggestions. */}
 			<search
 				data-focused={focused || undefined}
 				className="absolute inset-x-0 top-0 z-30 overflow-hidden rounded-xl bg-paper transition duration-200 data-focused:bg-raised data-focused:shadow-dialog"

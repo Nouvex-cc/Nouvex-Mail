@@ -10,8 +10,7 @@ export type Account = { id: string; name: string; email: string; avatarUrl?: str
 
 const add = "__add";
 
-// Unread dot and the chevron/check share one column at the right end, so the dots line up in every row. On the
-// trigger the dot waits for a folding row to land, like the label.
+// Dot and chevron/check share one column so the dots line up.
 const End = ({ unread, trigger, children }: { unread?: boolean; trigger?: boolean; children?: ReactNode }) => (
 	<span className="flex shrink-0 items-center gap-2 text-muted">
 		<span
@@ -35,10 +34,6 @@ function Identity({ picture, name, detail }: { picture: ReactNode; name: string;
 	);
 }
 
-/**
- * The current account (or all inboxes) with a list of the others. The list unfolds out of the current entry, so it
- * stays exactly where it was, and folds back into whichever entry is picked.
- */
 export function AccountSwitcher({
 	accounts,
 	current,
@@ -56,7 +51,6 @@ export function AccountSwitcher({
 			name: "All inboxes",
 			detail: `${accounts.length} accounts`,
 			unread: accounts.some((a) => a.unread),
-			// Same circle as an account's avatar, so every row lines up.
 			picture: (
 				<span className="grid size-8 place-items-center rounded-full bg-selected text-muted">
 					<Layers strokeWidth={1.75} className="size-4" />
@@ -109,7 +103,6 @@ export function AccountSwitcher({
 					<ChevronsUpDown strokeWidth={1.75} className="size-4" />
 				</End>
 			</Select.Trigger>
-			{/* No border: rows run edge to edge and the current one matches the trigger exactly. */}
 			<Select.Popup align={around} className="w-(--anchor-width) border-0 data-[side=none]:translate-y-0">
 				{entries.map((e, i) => (
 					<Fragment key={e.id}>

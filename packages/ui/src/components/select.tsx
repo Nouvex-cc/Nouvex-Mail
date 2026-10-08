@@ -5,10 +5,8 @@ import { Check, ChevronsUpDown } from "../icons";
 import { cn, item, label, popup, type Styled } from "../lib";
 import { Highlight } from "./highlight";
 
-// When the list opens over its trigger (Base UI marks that data-side="none"), it unfolds out of the trigger's tile
-// instead of fading in, and folds back into whichever row was picked, which glides onto the trigger. Mark trigger
-// content that must stay hidden until that row has landed with data-fold-hide, and row content that should fade
-// on the way (the check) with data-fold-fade.
+// Over its trigger (data-side="none") the list unfolds from the trigger and folds back into the picked row.
+// data-fold-hide: trigger content hidden until that row lands. data-fold-fade: row content that fades on the way.
 
 type Motion = {
 	popup: HTMLElement | null;
@@ -22,7 +20,6 @@ const MotionContext = createContext<RefObject<Motion> | null>(null);
 const ease = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// Everything in the list that moves (rows, separators, group labels), and the rows on their own.
 function parts(panel: HTMLElement) {
 	const list = panel.querySelector('[role="listbox"]');
 	const all = [
@@ -35,15 +32,13 @@ function parts(panel: HTMLElement) {
 
 const top = (el: Element) => el.getBoundingClientRect().top;
 
-// The panel cut down to one row, i.e. the trigger's tile.
 function tile(panel: HTMLElement, row: HTMLElement) {
 	const p = panel.getBoundingClientRect();
 	const r = row.getBoundingClientRect();
 	return `inset(${r.top - p.top}px 0 ${p.bottom - r.bottom}px round var(--radius-md))`;
 }
 
-// Opening: the panel opens up and down out of the trigger's tile, the other rows fade in from just beside the
-// current one. They don't travel the whole way, so they never pile up on top of each other.
+// Rows only move 12px, so they never pile up on each other.
 function unfold(m: Motion) {
 	const panel = m.popup;
 	if (panel?.dataset.side !== "none") return;
@@ -72,8 +67,6 @@ function unfoldWhenShown(m: Motion) {
 	watch.observe(panel);
 }
 
-// Closing: the other rows fade, the picked one glides onto the trigger while the panel closes around it and lets
-// go of its background as it lands.
 function fold(m: Motion) {
 	const { popup: panel, anchor } = m;
 	if (!panel || !anchor || still()) return;
@@ -197,9 +190,7 @@ function Popup({ className, children, align = true, ...props }: Styled<BaseSelec
 					ref={useMotionRef("popup")}
 					className={cn(
 						popup,
-						// Rows run edge to edge, so the one over the trigger matches it exactly; no zoom. Over the trigger it
-						// unfolds instead of fading, its border goes clear so the rows sit inside the trigger's, and the shadow moves
-						// to the positioner so it follows. Base UI lines it up one border width too high, hence the pixel down.
+						// Base UI places it one border width too high over the trigger, hence translate-y-px.
 						"min-w-(--anchor-width) overflow-hidden rounded-md border-line-strong starting:scale-100 ending:scale-100 data-[side=none]:translate-y-px data-[side=none]:border-transparent data-[side=none]:shadow-none data-[side=none]:starting:opacity-100 data-[side=none]:ending:opacity-100",
 						className,
 					)}

@@ -21,7 +21,7 @@ function quickOptions(now: Date) {
 	return options;
 }
 
-// "tomorrow 3pm", "fri 15:00", "15.10. at 9", "in 2 days" — a day parseDate understands plus an optional time.
+// "tomorrow 3pm", "fri 15:00", "15.10. at 9", "in 2 days": a day parseDate understands plus an optional time.
 // A time needs ":" , am/pm or "at" so it isn't mistaken for a date. Without a day it means today (tomorrow if
 // that time has passed); without a time it means 8:00.
 export function parseSnooze(text: string, now = new Date()): Date | null {

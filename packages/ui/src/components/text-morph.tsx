@@ -79,8 +79,7 @@ export function TextMorph({
 	const id = `${icon ? ICON : ""}${children}`;
 	const [state, setState] = useState(() => ({ id, glyphs: glyphs(id), exiting: [] as Glyph[] }));
 
-	// Where each letter is on screen right now (fractional, including any running glide), relative to the
-	// offset parent, which stays put while this element re-centers.
+	// Positions relative to the offset parent, which stays put while this element re-centers.
 	const positions = () => {
 		const root = ref.current;
 		const map = new Map<number, number>();
@@ -110,7 +109,6 @@ export function TextMorph({
 		const els = [...root.querySelectorAll<HTMLElement>("[data-key]")];
 		const key = (el: HTMLElement) => Number(el.dataset.key);
 
-		// Letters both texts share: where they were and where they are now.
 		const kept: { from: number; to: number }[] = [];
 		for (const el of els) {
 			const from = before.current.get(key(el));
