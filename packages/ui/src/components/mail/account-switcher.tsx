@@ -67,7 +67,7 @@ export function AccountSwitcher({
 							src={a.avatarUrl}
 							name={a.name.charAt(0)}
 							size="sm"
-							className={cn("absolute size-5.5 ring-2 ring-raised", i ? "right-0 bottom-0" : "top-0 left-0")}
+							className={cn("absolute size-6 ring-2 ring-raised", i ? "right-0 bottom-0" : "top-0 left-0")}
 						/>
 					))}
 				</span>
@@ -114,7 +114,13 @@ export function AccountSwitcher({
 			</Select.Trigger>
 			<Select.Portal>
 				<Select.Positioner alignItemWithTrigger={around} sideOffset={4} className="z-50 outline-none">
-					<Select.Popup className={cn(popup, "min-w-(--anchor-width) p-1")}>
+					<Select.Popup
+						className={cn(
+							popup,
+							// The current entry lands exactly on the trigger: same width (popup padding and border added), no zoom.
+							"w-[calc(var(--anchor-width)+--spacing(2.5))] p-1 starting:scale-100 ending:scale-100",
+						)}
+					>
 						<Select.List className="relative max-h-(--available-height) overflow-y-auto outline-none">
 							<Highlight />
 							{entries.map((e, i) => (
