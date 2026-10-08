@@ -14,7 +14,7 @@ export function OTPField({
 					// biome-ignore lint/suspicious/noArrayIndexKey: fixed number of slots
 					key={i}
 					aria-label={i === 0 ? undefined : `Character ${i + 1} of ${length}`}
-					className="size-10 rounded-md border border-line-strong bg-paper text-center text-xl font-medium tabular-nums outline-none focus-visible:border-ink focus-visible:outline-0 invalid:border-danger"
+					className="size-10 rounded-md border border-line-strong bg-paper text-center text-xl font-medium tabular-nums outline-none transition-colors duration-150 data-filled:border-faint focus-visible:border-ink focus-visible:outline-0 invalid:border-danger"
 				/>
 			))}
 		</BaseOTPField.Root>
