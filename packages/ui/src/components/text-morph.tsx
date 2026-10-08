@@ -146,8 +146,10 @@ export function TextMorph({
 
 	return (
 		<span ref={ref} className={cn("relative inline-flex items-center whitespace-pre", className)}>
+			{/* Screen readers get the whole word; the letters below are only for the eye. */}
+			<span className="sr-only">{children}</span>
 			{state.glyphs.map((g) => (
-				<span key={g.key} data-key={g.key} className="inline-block">
+				<span key={g.key} data-key={g.key} aria-hidden className="inline-block">
 					{render(g)}
 				</span>
 			))}

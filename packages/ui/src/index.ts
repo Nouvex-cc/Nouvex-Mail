@@ -3,6 +3,7 @@ export * from "./components/accordion";
 export * from "./components/avatar";
 export * from "./components/button";
 export * from "./components/calendar";
+export * from "./components/caret";
 export * from "./components/checkbox";
 export * from "./components/combobox";
 export * from "./components/command";

@@ -61,6 +61,8 @@ Radius `sm` 6, `md` 8, `lg` 12. Inputs and buttons use `md`, popups `lg`. Border
 
 Loading buttons darken and a short segment of their outline runs around them (`<Button loading>`). The segment grows in over about 450 ms and shrinks out in about 150 ms. The button stays where it is, keeps its label and ignores further clicks. With reduced motion the full outline shows instead. Spinners are for things that aren't buttons.
 
+Text fields draw their own caret: it glides to the next character (90 ms) instead of jumping, stays solid while typing and only blinks once you pause. Email and number fields keep the native caret because browsers don't report its position there.
+
 When an action needs confirming, the button turns green for about 1.5 s and its label morphs into the past tense with a check in front (`<Button success="Saved">`): letters both words share stay and glide, the rest fades. The button keeps its size, so nothing around it moves: pass every label it can show (`labels={["Undo", "Sent"]}`) and it sizes to the widest. Leaving letters travel with their neighbours and slide out through the button's edge. `TextMorph` does the same for any text that changes in place.
 
 Actions that can be taken back right after (sending) give a short undo window on the button itself: the label morphs to "Undo" and the outline drains for the length of the window (`<Button countdown={5000}>`). Clicking again cancels. When the outline is empty the action happens and the button confirms as above.

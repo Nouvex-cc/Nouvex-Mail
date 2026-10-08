@@ -167,6 +167,25 @@
 	}
 }
 
+/* Caret of text fields: glides to its new spot, blinks only once typing pauses. */
+@utility text-caret {
+	transition:
+		transform 90ms var(--ease-out),
+		height 90ms var(--ease-out);
+	&[data-jump] {
+		transition: none;
+	}
+	&[data-idle] {
+		animation: caret-blink 1.06s steps(1, end) infinite;
+	}
+}
+
+@keyframes caret-blink {
+	50% {
+		opacity: 0;
+	}
+}
+
 @keyframes button-ring {
 	to {
 		stroke-dashoffset: -100;

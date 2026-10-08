@@ -3,6 +3,15 @@ import { Field as BaseField } from "@base-ui/react/field";
 import { Fieldset as BaseFieldset } from "@base-ui/react/fieldset";
 import { Form as BaseForm } from "@base-ui/react/form";
 import { cn, field, type Styled } from "../lib";
+import { useCaret } from "./caret";
+
+function FieldControl({ className, ref, ...props }: Styled<BaseField.Control.Props>) {
+	const caret = useCaret<HTMLInputElement>(ref);
+	return caret.wrap(
+		<BaseField.Control ref={caret.ref} className={cn(field, caret.caretClass)} {...props} />,
+		className,
+	);
+}
 
 export const Field = {
 	Root: ({ className, ...props }: Styled<BaseField.Root.Props>) => (
@@ -11,9 +20,7 @@ export const Field = {
 	Label: ({ className, ...props }: Styled<BaseField.Label.Props>) => (
 		<BaseField.Label className={cn("text-sm font-medium", className)} {...props} />
 	),
-	Control: ({ className, ...props }: Styled<BaseField.Control.Props>) => (
-		<BaseField.Control className={cn(field, className)} {...props} />
-	),
+	Control: FieldControl,
 	Description: ({ className, ...props }: Styled<BaseField.Description.Props>) => (
 		<BaseField.Description className={cn("text-sm text-muted", className)} {...props} />
 	),
