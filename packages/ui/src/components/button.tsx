@@ -185,7 +185,10 @@ export function Button({
 						<span
 							className={cn("absolute inset-y-0 flex items-center justify-center overflow-hidden", labelArea[size])}
 						>
-							<TextMorph fade={fade} icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}>
+							<TextMorph
+								by={fade ? "text" : "letter"}
+								icon={success ? <Check strokeWidth={2.25} className="size-4" /> : undefined}
+							>
 								{success || (hinting && holdHint) || children}
 							</TextMorph>
 						</span>

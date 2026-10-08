@@ -200,7 +200,7 @@
 
 /* Calendar month change: the old month fades out almost in place, then the new one fades in from the paging
    direction. Little travel keeps it calm; the new month waits until the old one is nearly gone so dates never
-   overlap. The caption crossfades. */
+   overlap. */
 @utility calendar-in-left {
 	animation: calendar-in-left 200ms var(--ease-out) 90ms both;
 }
@@ -214,12 +214,6 @@
 }
 @utility calendar-out-right {
 	animation: calendar-out-right 290ms ease-in both;
-}
-@utility calendar-fade-in {
-	animation: calendar-fade 200ms ease-out 90ms both;
-}
-@utility calendar-fade-out {
-	animation: calendar-out-fade 290ms ease-in both;
 }
 
 @keyframes calendar-in-left {
@@ -246,17 +240,6 @@
 	to {
 		opacity: 0;
 		transform: translateX(12px);
-	}
-}
-@keyframes calendar-out-fade {
-	35%,
-	to {
-		opacity: 0;
-	}
-}
-@keyframes calendar-fade {
-	from {
-		opacity: 0;
 	}
 }
 

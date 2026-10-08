@@ -14,15 +14,28 @@ const ICON = "\u0000";
 let nextKey = 0;
 const glyphs = (text: string) => [...text].map((char) => ({ key: nextKey++, char }));
 
-// Letters both texts share (longest common subsequence) keep their key so they can glide instead of being replaced.
-function diff(prev: Glyph[], text: string) {
-	const b = [...text];
+type By = "letter" | "word" | "text";
+const split = (text: string, by: By) =>
+	by === "text" ? [text] : by === "word" ? text.split(/(\s+)/).filter(Boolean) : [...text];
+
+// Units (letters or words) both texts share, by longest common subsequence, keep their glyphs so they can glide;
+// the rest leaves or enters. "text" makes the whole text one unit, so it simply crossfades.
+function diff(prev: Glyph[], prevText: string, text: string, by: By) {
+	const a = split(prevText, by);
+	const b = split(text, by);
+	const groups: Glyph[][] = [];
+	let k = 0;
+	for (const unit of a) {
+		const n = [...unit].length;
+		groups.push(prev.slice(k, k + n));
+		k += n;
+	}
 	const w = b.length + 1;
-	const lcs = new Uint16Array((prev.length + 1) * w);
-	for (let i = prev.length - 1; i >= 0; i--)
+	const lcs = new Uint16Array((a.length + 1) * w);
+	for (let i = a.length - 1; i >= 0; i--)
 		for (let j = b.length - 1; j >= 0; j--)
 			lcs[i * w + j] =
-				prev[i]?.char === b[j]
+				a[i] === b[j]
 					? (lcs[(i + 1) * w + j + 1] ?? 0) + 1
 					: Math.max(lcs[(i + 1) * w + j] ?? 0, lcs[i * w + j + 1] ?? 0);
 
@@ -30,17 +43,16 @@ function diff(prev: Glyph[], text: string) {
 	const removed: Glyph[] = [];
 	let i = 0;
 	let j = 0;
-	while (i < prev.length || j < b.length) {
-		const g = prev[i];
-		if (g && g.char === b[j]) {
-			next.push(g);
+	while (i < a.length || j < b.length) {
+		if (i < a.length && a[i] === b[j]) {
+			next.push(...(groups[i] ?? []));
 			i++;
 			j++;
-		} else if (g && (j >= b.length || (lcs[(i + 1) * w + j] ?? 0) >= (lcs[i * w + j + 1] ?? 0))) {
-			removed.push(g);
+		} else if (i < a.length && (j >= b.length || (lcs[(i + 1) * w + j] ?? 0) >= (lcs[i * w + j + 1] ?? 0))) {
+			removed.push(...(groups[i] ?? []));
 			i++;
 		} else {
-			next.push({ key: nextKey++, char: b[j] ?? "" });
+			next.push(...glyphs(b[j] ?? ""));
 			j++;
 		}
 	}
@@ -50,13 +62,13 @@ function diff(prev: Glyph[], text: string) {
 export function TextMorph({
 	children,
 	icon,
-	fade = false,
+	by = "letter",
 	className,
 }: {
 	children: string;
 	icon?: ReactNode;
-	/** Crossfade whole texts instead of morphing letters; calmer for longer labels. */
-	fade?: boolean;
+	/** What glides when the text changes: shared letters, shared words, or nothing ("text" crossfades). */
+	by?: By;
 	className?: string;
 }) {
 	const ref = useRef<HTMLSpanElement>(null);
@@ -82,7 +94,7 @@ export function TextMorph({
 	if (id !== state.id) {
 		// The DOM still shows the old text here, so this is the last chance to see where letters are.
 		before.current = positions();
-		const { next, removed } = fade ? { next: glyphs(id), removed: state.glyphs } : diff(state.glyphs, id);
+		const { next, removed } = diff(state.glyphs, state.id, id, by);
 		setState({ id, glyphs: next, exiting: [...state.exiting, ...removed] });
 	}
 
@@ -130,17 +142,24 @@ export function TextMorph({
 					{ transform: `translateX(${shift(old ?? 0, "from")}px) scale(0.95)`, offset: 1 },
 					{ duration, easing, fill: "both" },
 				);
-				el.animate({ opacity: 0, offset: 1 }, { duration: duration * 0.25, fill: "both" }).onfinish = done;
+				el.animate(
+					{ opacity: 0, offset: 1 },
+					{ duration: duration * (by === "letter" ? 0.25 : 0.4), fill: "both" },
+				).onfinish = done;
 			} else if (old === undefined && animate) {
 				const to = el.getBoundingClientRect().left - x;
 				el.animate(
 					{ transform: [`translateX(${-shift(to, "to")}px) scale(0.95)`, "none"] },
 					{ duration, easing, fill: "both" },
 				);
-				el.animate({ opacity: [0, 1] }, { duration: duration * 0.5, delay: duration * 0.25, fill: "both" });
+				// Whole words crossfade: the new one starts right away so there is no empty moment between them.
+				el.animate(
+					{ opacity: [0, 1] },
+					{ duration: duration * 0.5, delay: by === "letter" ? duration * 0.25 : 0, fill: "both" },
+				);
 			}
 		}
-	}, [state]);
+	}, [state, by]);
 
 	const render = (g: Glyph) => (g.char === ICON ? <span className="flex pr-1.5">{lastIcon.current}</span> : g.char);
 
