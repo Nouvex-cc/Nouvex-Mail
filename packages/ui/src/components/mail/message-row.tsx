@@ -200,7 +200,7 @@ export function MessageRow({
 				<span className="relative grid w-24 shrink-0 justify-items-end">
 					<span
 						className={cn(
-							"col-start-1 row-start-1 self-center text-sm text-muted tabular-nums transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0",
+							"col-start-1 row-start-1 self-center text-sm text-muted transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0",
 							snoozing && "opacity-0",
 							unread && "text-ink",
 						)}

@@ -52,6 +52,7 @@ import { ComposerDemo } from "./demos/composer";
 import { InboxDemo } from "./demos/inbox";
 import { NavigationDemo } from "./demos/navigation";
 import { ReadingDemo } from "./demos/reading";
+import { Hero } from "./hero";
 import "./index.css";
 
 const contacts = ["Lena Hartmann", "Jonas Weber", "Mira Okafor", "Paul Schneider", "Sofia Rossi"];
@@ -576,9 +577,7 @@ function App() {
 createRoot(document.getElementById("root")!).render(
 	<StrictMode>
 		<TooltipProvider>
-			<ToastProvider>
-				<App />
-			</ToastProvider>
+			<ToastProvider>{location.hash === "#hero" ? <Hero /> : <App />}</ToastProvider>
 		</TooltipProvider>
 	</StrictMode>,
 );

@@ -130,7 +130,7 @@ export function SnoozePicker({ onSnooze, trigger, open, onOpenChange, now: fixed
 											}
 										>
 											{o.label}
-											<span className="text-sm text-muted tabular-nums">{formatWhen(o.date, now)}</span>
+											<span className="text-sm text-muted">{formatWhen(o.date, now)}</span>
 										</button>
 									))}
 								</div>
@@ -159,7 +159,7 @@ export function SnoozePicker({ onSnooze, trigger, open, onOpenChange, now: fixed
 										}}
 									/>
 									<div className="flex h-5 items-center justify-between text-xs text-muted">
-										<span className="tabular-nums">{typed ? formatWhen(typed, now) : ""}</span>
+										<span>{typed ? formatWhen(typed, now) : ""}</span>
 										<button
 											type="button"
 											className="inline-flex items-center gap-1 rounded-sm px-1 outline-none hover:text-ink focus-visible:outline-2"

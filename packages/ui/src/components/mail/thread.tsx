@@ -83,7 +83,7 @@ export function ThreadMessage({
 					</span>
 				</span>
 				<Tooltip content={formatMailDateLong(date)}>
-					<span className="shrink-0 self-start pt-0.5 text-xs text-muted tabular-nums">{formatMailDate(date)}</span>
+					<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{formatMailDate(date)}</span>
 				</Tooltip>
 			</button>
 			<Panel open={open} id={panelId}>

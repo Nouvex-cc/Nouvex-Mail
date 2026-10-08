@@ -367,7 +367,7 @@ export function Composer({
 								}}
 							>
 								{label}
-								<span className="text-sm text-muted tabular-nums">{formatWhen(when)}</span>
+								<span className="text-sm text-muted">{formatWhen(when)}</span>
 							</button>
 						))}
 						<div className="p-1">
