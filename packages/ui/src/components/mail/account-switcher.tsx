@@ -109,12 +109,13 @@ export function AccountSwitcher({
 					<Select.Popup
 						className={cn(
 							popup,
-							// The current entry lands exactly on the trigger: same width (popup padding and border added), no zoom.
-							"w-[calc(var(--anchor-width)+--spacing(2.5))] p-1 starting:scale-100 ending:scale-100",
+							// The current entry lands exactly on the trigger: same width (popup padding and border added), no zoom,
+							// and one pixel down for the border when it opens over the trigger.
+							"w-[calc(var(--anchor-width)+--spacing(2.5))] p-1 starting:scale-100 ending:scale-100 data-[side=none]:translate-y-px",
 						)}
 					>
 						<Select.List className="relative max-h-(--available-height) overflow-y-auto outline-none">
-							<Highlight />
+							<Highlight className="rounded-md" />
 							{entries.map((e, i) => (
 								<Fragment key={e.id}>
 									<Select.Item value={e.id} className={cn(itemClass, "h-12 justify-between")}>
