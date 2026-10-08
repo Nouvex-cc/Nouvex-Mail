@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Popover } from "@base-ui/react/popover";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { DayPicker, type DayPickerProps } from "react-day-picker";
 import { cn, popup } from "../lib";
 import { Button } from "./button";
@@ -23,6 +23,70 @@ function weekStart(): DayPickerProps["weekStartsOn"] {
 
 const shift = (date: Date, months: number) => new Date(date.getFullYear(), date.getMonth() + months, 1);
 
+// The year is a button that turns into a field: type a year, Enter or click away to jump, Escape to cancel,
+// arrow keys to step.
+function Year({ year, onChange }: { year: number; onChange: (year: number) => void }) {
+	const [editing, setEditing] = useState(false);
+	const button = useRef<HTMLButtonElement>(null);
+	const input = useRef<HTMLInputElement>(null);
+	const width = useRef(0);
+
+	useLayoutEffect(() => {
+		if (!editing || !input.current) return;
+		input.current.style.width = `${width.current}px`;
+		input.current.select();
+	}, [editing]);
+
+	const commit = () => {
+		const next = Number(input.current?.value);
+		setEditing(false);
+		if (Number.isInteger(next) && next >= 1000 && next <= 9999 && next !== year) onChange(next);
+	};
+
+	const box = "-mx-1 rounded-sm px-1 font-semibold tabular-nums outline-none";
+	if (editing)
+		return (
+			<input
+				ref={input}
+				defaultValue={year}
+				inputMode="numeric"
+				maxLength={4}
+				aria-label="Year"
+				className={cn(box, "bg-paper text-ink ring-1 ring-line-strong")}
+				onBlur={commit}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						commit();
+					} else if (e.key === "Escape") {
+						e.preventDefault();
+						e.stopPropagation();
+						setEditing(false);
+					} else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+						e.preventDefault();
+						const next = year + (e.key === "ArrowUp" ? 1 : -1);
+						e.currentTarget.value = String(next);
+						onChange(next);
+					}
+				}}
+			/>
+		);
+	return (
+		<button
+			ref={button}
+			type="button"
+			aria-label={`${year}, change year`}
+			className={cn(box, "hover:bg-hover focus-visible:outline-2")}
+			onClick={() => {
+				width.current = button.current?.offsetWidth ?? 0;
+				setEditing(true);
+			}}
+		>
+			<TextMorph>{String(year)}</TextMorph>
+		</button>
+	);
+}
+
 // The header is ours, not the library's: its caption is rebuilt on every month change and couldn't animate across
 // it. Here the month name crossfades while the year stays and glides.
 export function Calendar({ className, classNames, month, defaultMonth, onMonthChange, ...props }: DayPickerProps) {
@@ -32,13 +96,36 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 		setShown(date);
 		onMonthChange?.(date);
 	};
-	const caption = current.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+	const monthName = current.toLocaleDateString(undefined, { month: "long" });
+
+	// Month and year are separate elements now, so the year glides by hand when the month name changes width.
+	const yearBox = useRef<HTMLSpanElement>(null);
+	const yearLeft = useRef<number | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: re-measure whenever the month name changes
+	useLayoutEffect(() => {
+		const el = yearBox.current;
+		if (!el) return;
+		const left = el.offsetLeft;
+		if (
+			yearLeft.current !== null &&
+			yearLeft.current !== left &&
+			!matchMedia("(prefers-reduced-motion: reduce)").matches
+		)
+			el.animate(
+				{ transform: [`translateX(${yearLeft.current - left}px)`, "none"] },
+				{ duration: 400, easing: "cubic-bezier(0.19, 1, 0.22, 1)" },
+			);
+		yearLeft.current = left;
+	}, [monthName]);
 
 	return (
 		<div className={cn("grid gap-2 p-3 select-none", className)}>
 			<div className="flex h-7 items-center justify-between pl-1">
-				<span aria-live="polite" className="font-semibold">
-					<TextMorph by="word">{caption}</TextMorph>
+				<span aria-live="polite" className="relative flex items-baseline gap-1 font-semibold">
+					<TextMorph by="text">{monthName}</TextMorph>
+					<span ref={yearBox} className="inline-flex">
+						<Year year={current.getFullYear()} onChange={(year) => go(new Date(year, current.getMonth(), 1))} />
+					</span>
 				</span>
 				<span className="flex gap-0.5">
 					<button type="button" aria-label="Previous month" className={nav} onClick={() => go(shift(current, -1))}>
