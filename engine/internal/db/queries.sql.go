@@ -7,15 +7,171 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const latestVersion = `-- name: LatestVersion :one
-SELECT COALESCE(MAX(version), 0)::bigint FROM change_log WHERE account_id = $1
+const clearMailbox = `-- name: ClearMailbox :exec
+DELETE FROM message WHERE mailbox_id = $1
 `
 
-func (q *Queries) LatestVersion(ctx context.Context, accountID string) (int64, error) {
-	row := q.db.QueryRow(ctx, latestVersion, accountID)
+func (q *Queries) ClearMailbox(ctx context.Context, mailboxID string) error {
+	_, err := q.db.Exec(ctx, clearMailbox, mailboxID)
+	return err
+}
+
+const createMailbox = `-- name: CreateMailbox :exec
+INSERT INTO mailbox (id, account_id, name, uid_validity) VALUES ($1, $2, $3, $4)
+`
+
+type CreateMailboxParams struct {
+	ID          string
+	AccountID   string
+	Name        string
+	UidValidity int64
+}
+
+func (q *Queries) CreateMailbox(ctx context.Context, arg CreateMailboxParams) error {
+	_, err := q.db.Exec(ctx, createMailbox,
+		arg.ID,
+		arg.AccountID,
+		arg.Name,
+		arg.UidValidity,
+	)
+	return err
+}
+
+const getAccount = `-- name: GetAccount :one
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at FROM mail_account WHERE id = $1
+`
+
+func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
+	row := q.db.QueryRow(ctx, getAccount, id)
+	var i MailAccount
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Email,
+		&i.ImapHost,
+		&i.ImapPort,
+		&i.SmtpHost,
+		&i.SmtpPort,
+		&i.Username,
+		&i.Secret,
+		&i.Version,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMailbox = `-- name: GetMailbox :one
+SELECT id, account_id, name, uid_validity FROM mailbox WHERE account_id = $1 AND name = $2
+`
+
+type GetMailboxParams struct {
+	AccountID string
+	Name      string
+}
+
+func (q *Queries) GetMailbox(ctx context.Context, arg GetMailboxParams) (Mailbox, error) {
+	row := q.db.QueryRow(ctx, getMailbox, arg.AccountID, arg.Name)
+	var i Mailbox
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Name,
+		&i.UidValidity,
+	)
+	return i, err
+}
+
+const insertMessage = `-- name: InsertMessage :execrows
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, from_name, from_addr, sent_at, flags, size)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (mailbox_id, uid) DO NOTHING
+`
+
+type InsertMessageParams struct {
+	ID        string
+	AccountID string
+	MailboxID string
+	Uid       int64
+	MessageID string
+	Subject   string
+	FromName  string
+	FromAddr  string
+	SentAt    pgtype.Timestamptz
+	Flags     []string
+	Size      int32
+}
+
+func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertMessage,
+		arg.ID,
+		arg.AccountID,
+		arg.MailboxID,
+		arg.Uid,
+		arg.MessageID,
+		arg.Subject,
+		arg.FromName,
+		arg.FromAddr,
+		arg.SentAt,
+		arg.Flags,
+		arg.Size,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const logChange = `-- name: LogChange :one
+WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING version)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT $1, v.version, $2, $3, $4 FROM v
+RETURNING version
+`
+
+type LogChangeParams struct {
+	AccountID string
+	Entity    string
+	EntityID  string
+	Op        string
+}
+
+func (q *Queries) LogChange(ctx context.Context, arg LogChangeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, logChange,
+		arg.AccountID,
+		arg.Entity,
+		arg.EntityID,
+		arg.Op,
+	)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const maxUID = `-- name: MaxUID :one
+SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1
+`
+
+func (q *Queries) MaxUID(ctx context.Context, mailboxID string) (int64, error) {
+	row := q.db.QueryRow(ctx, maxUID, mailboxID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const setUIDValidity = `-- name: SetUIDValidity :exec
+UPDATE mailbox SET uid_validity = $2 WHERE id = $1
+`
+
+type SetUIDValidityParams struct {
+	ID          string
+	UidValidity int64
+}
+
+func (q *Queries) SetUIDValidity(ctx context.Context, arg SetUIDValidityParams) error {
+	_, err := q.db.Exec(ctx, setUIDValidity, arg.ID, arg.UidValidity)
+	return err
 }

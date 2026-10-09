@@ -6,3 +6,8 @@ test("health", async () => {
 	const res = await app.request("/health");
 	expect(await res.json()).toEqual({ ok: true });
 });
+
+test("accounts need a session", async () => {
+	const res = await app.request("/accounts", { method: "POST" });
+	expect(res.status).toBe(401);
+});

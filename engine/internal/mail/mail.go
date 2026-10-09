@@ -5,7 +5,11 @@ package mail
 
 import (
 	"bytes"
+	"crypto/tls"
 	"io"
+	"net"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -50,8 +54,16 @@ func DKIMValid(raw []byte) bool {
 	return true
 }
 
-func DialIMAP(addr, user, pass string) (*imapclient.Client, error) {
-	c, err := imapclient.DialTLS(addr, nil)
+// DialIMAP uses implicit TLS on 993 and STARTTLS elsewhere, never plain text. IMAP_INSECURE_TLS=1 accepts
+// self-signed certificates, for local test servers only.
+func DialIMAP(host string, port int, user, pass string) (*imapclient.Client, error) {
+	opts := &imapclient.Options{TLSConfig: &tls.Config{ServerName: host, InsecureSkipVerify: os.Getenv("IMAP_INSECURE_TLS") == "1"}} //nolint:gosec // opt-in for local servers
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	dial := imapclient.DialStartTLS
+	if port == 993 {
+		dial = imapclient.DialTLS
+	}
+	c, err := dial(addr, opts)
 	if err != nil {
 		return nil, err
 	}
