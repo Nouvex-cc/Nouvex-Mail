@@ -33,6 +33,41 @@ type ChangeLog struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type MailAccount struct {
+	ID        string
+	UserID    string
+	Email     string
+	ImapHost  string
+	ImapPort  int32
+	SmtpHost  string
+	SmtpPort  int32
+	Username  string
+	Secret    []byte
+	Version   int64
+	CreatedAt pgtype.Timestamptz
+}
+
+type Mailbox struct {
+	ID          string
+	AccountID   string
+	Name        string
+	UidValidity int64
+}
+
+type Message struct {
+	ID        string
+	AccountID string
+	MailboxID string
+	Uid       int64
+	MessageID string
+	Subject   string
+	FromName  string
+	FromAddr  string
+	SentAt    pgtype.Timestamptz
+	Flags     []string
+	Size      int32
+}
+
 type Passkey struct {
 	ID           string
 	Name         pgtype.Text

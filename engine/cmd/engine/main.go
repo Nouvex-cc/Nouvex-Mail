@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,8 +20,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/mail"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
 func main() {
@@ -50,12 +52,15 @@ func run() error {
 		otel.SetTracerProvider(tp)
 	}
 
+	master, err := secret.Key()
+	if err != nil {
+		return err
+	}
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	q := db.New(pool)
 
 	nc, err := nats.Connect(cmp.Or(os.Getenv("NATS_URL"), nats.DefaultURL))
 	if err != nil {
@@ -74,6 +79,8 @@ func run() error {
 		Durable:       "engine",
 		FilterSubject: "cmd.mailbox.sync",
 		AckPolicy:     jetstream.AckExplicitPolicy,
+		// A server that is down or a wrong password shouldn't be retried forever.
+		MaxDeliver: 5,
 	})
 	if err != nil {
 		return err
@@ -86,10 +93,10 @@ func run() error {
 			_ = m.Term()
 			return
 		}
-		v, err := q.LatestVersion(ctx, cmd.AccountId)
+		v, err := mail.Sync(ctx, pool, master, cmd.AccountId)
 		if err != nil {
 			slog.Error("sync failed", "account", cmd.AccountId, "err", err)
-			_ = m.Nak()
+			_ = m.NakWithDelay(time.Minute)
 			return
 		}
 		ev, _ := json.Marshal(msg.MailboxSynced{AccountId: cmd.AccountId, Version: int(v)})
