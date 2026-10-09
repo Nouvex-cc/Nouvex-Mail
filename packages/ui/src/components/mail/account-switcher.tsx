@@ -49,7 +49,7 @@ export function AccountSwitcher({
 		{
 			id: "all",
 			name: "All inboxes",
-			detail: `${accounts.length} accounts`,
+			detail: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`,
 			unread: accounts.some((a) => a.unread),
 			picture: (
 				<span className="grid size-8 place-items-center rounded-full bg-selected text-muted">

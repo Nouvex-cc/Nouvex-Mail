@@ -7,5 +7,11 @@ import { defineConfig } from "vite";
 export default defineConfig({
 	plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), tailwindcss()],
 	resolve: { tsconfigPaths: true },
-	server: { proxy: { "/api": "http://localhost:3000", "/health": "http://localhost:3000" } },
+	server: {
+		proxy: {
+			"/api": "http://localhost:3000",
+			"/accounts": "http://localhost:3000",
+			"/ws": { target: "ws://localhost:3000", ws: true },
+		},
+	},
 });

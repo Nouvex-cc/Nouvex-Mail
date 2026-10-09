@@ -60,6 +60,29 @@ app.openapi(
 
 app.openapi(
 	createRoute({
+		method: "get",
+		path: "/accounts",
+		operationId: "listAccounts",
+		responses: {
+			200: {
+				description: "The user's mail accounts",
+				content: { "application/json": { schema: z.array(z.object({ id: z.string(), email: z.string() })) } },
+			},
+		},
+	}),
+	async (c) =>
+		c.json(
+			await db
+				.select({ id: mailAccount.id, email: mailAccount.email })
+				.from(mailAccount)
+				.where(eq(mailAccount.userId, c.get("userId")))
+				.orderBy(mailAccount.createdAt),
+			200,
+		),
+);
+
+app.openapi(
+	createRoute({
 		method: "post",
 		path: "/accounts",
 		operationId: "createAccount",
