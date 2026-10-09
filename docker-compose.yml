@@ -19,9 +19,9 @@ services:
 
   s3:
     image: chrislusf/seaweedfs
-    command: server -s3 -dir=/data
+    command: server -s3 -s3.config=/etc/s3.json -dir=/data
     ports: ["8333:8333"]
-    volumes: [s3:/data]
+    volumes: [s3:/data, ./docker/s3.json:/etc/s3.json:ro]
 
   stalwart:
     image: stalwartlabs/stalwart:latest

@@ -86,8 +86,8 @@ func (q *Queries) GetMailbox(ctx context.Context, arg GetMailboxParams) (Mailbox
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, from_name, from_addr, sent_at, flags, size)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
@@ -98,6 +98,7 @@ type InsertMessageParams struct {
 	Uid       int64
 	MessageID string
 	Subject   string
+	Snippet   string
 	FromName  string
 	FromAddr  string
 	SentAt    pgtype.Timestamptz
@@ -113,6 +114,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Uid,
 		arg.MessageID,
 		arg.Subject,
+		arg.Snippet,
 		arg.FromName,
 		arg.FromAddr,
 		arg.SentAt,

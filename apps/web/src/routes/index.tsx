@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db } from "../db";
+import { Reader } from "../reader";
 import { listen, pull } from "../sync";
 
 export const Route = createFileRoute("/")({
@@ -23,6 +24,7 @@ function Inbox() {
 	const { user } = Route.useRouteContext();
 	const [current, setCurrent] = useState("all");
 	const [adding, setAdding] = useState(false);
+	const [open, setOpen] = useState<string>();
 	const accounts = useQuery({
 		queryKey: ["accounts"],
 		queryFn: async () => (await fetch("/accounts")).json() as Promise<{ id: string; email: string }[]>,
@@ -44,6 +46,8 @@ function Inbox() {
 				: db.messages.where("[accountId+sentAt]").between([current, ""], [current, "￿"]).reverse().toArray(),
 		[current],
 	);
+
+	const reading = messages?.find((m) => m.id === open);
 
 	return (
 		<AppShell
@@ -67,7 +71,9 @@ function Inbox() {
 			}
 			header={null}
 		>
-			{accounts.data?.length === 0 ? (
+			{reading ? (
+				<Reader message={reading} onClose={() => setOpen(undefined)} />
+			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">
 					<Button variant="primary" onClick={() => setAdding(true)}>
 						Add your first account
@@ -81,8 +87,10 @@ function Inbox() {
 							from={m.fromName || m.fromAddr}
 							email={m.fromAddr}
 							subject={m.subject}
+							snippet={m.snippet}
 							date={new Date(m.sentAt)}
 							unread={!m.flags.includes("\\Seen")}
+							onOpen={() => setOpen(m.id)}
 						/>
 					))}
 				</MessageList>

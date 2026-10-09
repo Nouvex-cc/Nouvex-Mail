@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "nouvex",
+      "credentials": [{ "accessKey": "nouvex", "secretKey": "nouvex" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

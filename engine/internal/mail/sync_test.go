@@ -82,21 +82,29 @@ func TestSync(t *testing.T) {
 	}
 
 	master := bytes.Repeat([]byte{7}, 32)
+	stored := map[string][]byte{}
+	put := func(_ context.Context, key string, data []byte, _ string) error {
+		stored[key] = data
+		return nil
+	}
 	for _, want := range []int64{2, 2} {
-		if v, err := Sync(ctx, pool, master, id); err != nil || v != want {
+		if v, err := Sync(ctx, pool, put, master, id); err != nil || v != want {
 			t.Fatalf("version %d, %v; want %d", v, err, want)
 		}
 	}
 	add("Invoice")
-	if v, err := Sync(ctx, pool, master, id); err != nil || v != 3 {
+	if v, err := Sync(ctx, pool, put, master, id); err != nil || v != 3 {
 		t.Fatalf("version %d, %v; want 3", v, err)
 	}
-	var from, subject string
-	if err := pool.QueryRow(ctx, `SELECT from_addr, subject FROM message WHERE account_id = $1 ORDER BY uid LIMIT 1`, id).Scan(&from, &subject); err != nil {
+	var msgID, from, subject, snippet string
+	if err := pool.QueryRow(ctx, `SELECT id, from_addr, subject, snippet FROM message WHERE account_id = $1 ORDER BY uid LIMIT 1`, id).Scan(&msgID, &from, &subject, &snippet); err != nil {
 		t.Fatal(err)
 	}
-	if from != "lena@example.com" || subject != "Keys for the new flat" {
-		t.Fatalf("got %q %q", from, subject)
+	if from != "lena@example.com" || subject != "Keys for the new flat" || snippet != "Hi" {
+		t.Fatalf("got %q %q %q", from, subject, snippet)
+	}
+	if len(stored) != 6 || !bytes.Contains(stored["raw/"+msgID+".eml"], []byte("Subject: Keys for the new flat")) || !bytes.Contains(stored["body/"+msgID+".html"], []byte(">Hi</div>")) {
+		t.Fatalf("stored %d objects", len(stored))
 	}
 }
 

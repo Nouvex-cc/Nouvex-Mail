@@ -66,6 +66,7 @@ type Message struct {
 	SentAt    pgtype.Timestamptz
 	Flags     []string
 	Size      int32
+	Snippet   string
 }
 
 type Passkey struct {
