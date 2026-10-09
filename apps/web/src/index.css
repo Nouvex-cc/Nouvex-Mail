@@ -1,1 +1,10 @@
 @import "@nouvex/ui/styles.css";
+
+/* The wordmark as a mask, so it takes the text color in light and dark. */
+.logo {
+	display: block;
+	height: 18px;
+	aspect-ratio: 1648 / 278;
+	background: var(--ink);
+	mask: url("./assets/logo.png") center / contain no-repeat;
+}
