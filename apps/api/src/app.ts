@@ -3,12 +3,12 @@ import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
 import type { MailboxSync } from "@nouvex/schema";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
-import { mailAccount } from "./db/schema";
+import { changeLog, mailAccount, message } from "./db/schema";
 import { nats } from "./nats";
 import { seal } from "./secret";
 
@@ -24,6 +24,16 @@ app.use("/accounts/*", async (c, next) => {
 	const session = await auth.api.getSession({ headers: c.req.raw.headers });
 	if (!session) return c.body(null, 401);
 	c.set("userId", session.user.id);
+	await next();
+});
+
+// Someone else's account answers like a missing one.
+app.use("/accounts/:accountId/*", async (c, next) => {
+	const [own] = await db
+		.select({ id: mailAccount.id })
+		.from(mailAccount)
+		.where(and(eq(mailAccount.id, c.req.param("accountId")), eq(mailAccount.userId, c.get("userId"))));
+	if (!own) return c.body(null, 404);
 	await next();
 });
 
@@ -95,14 +105,78 @@ app.openapi(
 		responses: { 202: { description: "Sync queued" }, 404: { description: "No such account" } },
 	}),
 	async (c) => {
-		const { accountId } = c.req.valid("param");
-		const [own] = await db
-			.select({ id: mailAccount.id })
-			.from(mailAccount)
-			.where(and(eq(mailAccount.id, accountId), eq(mailAccount.userId, c.get("userId"))));
-		if (!own) return c.body(null, 404);
-		await sync(accountId);
+		await sync(c.req.valid("param").accountId);
 		return c.body(null, 202);
+	},
+);
+
+const Message = z.object({
+	id: z.string(),
+	mailboxId: z.string(),
+	messageId: z.string(),
+	subject: z.string(),
+	fromName: z.string(),
+	fromAddr: z.string(),
+	sentAt: z.iso.datetime({ offset: true }),
+	flags: z.array(z.string()),
+	size: z.int(),
+});
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/changes",
+		operationId: "getChanges",
+		description:
+			"Everything that changed after `since`. Start with 0, then pass the returned version. While `more` is true, ask again right away.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			query: z.object({
+				since: z.coerce.number().int().min(0),
+				limit: z.coerce.number().int().min(1).max(1000).default(500),
+			}),
+		},
+		responses: {
+			200: {
+				description: "Changes after `since`",
+				content: {
+					"application/json": {
+						schema: z.object({
+							version: z.int(),
+							more: z.boolean(),
+							messages: z.object({ upserted: z.array(Message), deleted: z.array(z.string()) }),
+						}),
+					},
+				},
+			},
+			404: { description: "No such account" },
+		},
+	}),
+	async (c) => {
+		const { accountId } = c.req.valid("param");
+		const { since, limit } = c.req.valid("query");
+		const rows = await db
+			.select()
+			.from(changeLog)
+			.where(and(eq(changeLog.accountId, accountId), gt(changeLog.version, since)))
+			.orderBy(asc(changeLog.version))
+			.limit(limit + 1);
+		const page = rows.slice(0, limit);
+		// Later entries win, so an entity changed several times in this page shows up once.
+		const last = new Map(page.filter((r) => r.entity === "message").map((r) => [r.entityId, r.op]));
+		const ids = [...last].filter(([, op]) => op === "upsert").map(([id]) => id);
+		const upserted = ids.length ? await db.select().from(message).where(inArray(message.id, ids)) : [];
+		return c.json(
+			{
+				version: page.at(-1)?.version ?? since,
+				more: rows.length > limit,
+				messages: {
+					upserted: upserted.map(({ accountId: _, uid: __, sentAt, ...m }) => ({ ...m, sentAt: sentAt.toISOString() })),
+					deleted: [...last].filter(([, op]) => op === "delete").map(([id]) => id),
+				},
+			},
+			200,
+		);
 	},
 );
 
