@@ -324,6 +324,7 @@ app.openapi(
 							bcc: z.array(z.email()).default([]),
 							subject: z.string(),
 							text: z.string(),
+							inReplyTo: z.string().optional(),
 						}),
 					},
 				},

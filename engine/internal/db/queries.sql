@@ -47,3 +47,6 @@ UPDATE message SET flags = $2 WHERE id = $1;
 
 -- name: DeleteMessage :exec
 DELETE FROM message WHERE id = $1;
+
+-- name: GetMessageID :one
+SELECT message_id FROM message WHERE id = $1 AND account_id = $2;

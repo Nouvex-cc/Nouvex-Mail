@@ -9,7 +9,8 @@
 		"cc": { "type": "array", "items": { "type": "string" } },
 		"bcc": { "type": "array", "items": { "type": "string" } },
 		"subject": { "type": "string" },
-		"text": { "type": "string" }
+		"text": { "type": "string" },
+		"inReplyTo": { "type": "string", "description": "Id of the message this answers, for the thread headers." }
 	},
 	"required": ["accountId", "to", "cc", "bcc", "subject", "text"],
 	"additionalProperties": false

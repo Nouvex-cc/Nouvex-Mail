@@ -54,7 +54,7 @@ func TestCompose(t *testing.T) {
 	raw, err := Compose("mateo@nouvex.cc", msg.MessageSend{
 		To: []string{"lena@hartmann.example"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},
 		Subject: "Schlüssel für Freitag", Text: "Bis Freitag!",
-	}, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
+	}, "parent@x.example", time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestCompose(t *testing.T) {
 	if err != nil || h.Subject != "Schlüssel für Freitag" || h.From != "<mateo@nouvex.cc>" {
 		t.Fatalf("%+v %v", h, err)
 	}
-	for _, want := range []string{"To: <lena@hartmann.example>", "Cc: <jonas@weber.example>", "Message-Id: <", "@nouvex.cc>", "Bis Freitag!"} {
+	for _, want := range []string{"To: <lena@hartmann.example>", "Cc: <jonas@weber.example>", "Message-Id: <", "@nouvex.cc>", "In-Reply-To: <parent@x.example>", "References: <parent@x.example>", "Bis Freitag!"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in\n%s", want, s)
 		}

@@ -15,4 +15,8 @@ export interface MessageSend {
   bcc: string[];
   subject: string;
   text: string;
+  /**
+   * Id of the message this answers, for the thread headers.
+   */
+  inReplyTo?: string;
 }

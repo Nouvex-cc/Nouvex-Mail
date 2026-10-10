@@ -10,7 +10,7 @@ import { auth } from "../auth";
 import { db } from "../db";
 import { Reader } from "../reader";
 import { listen, pull, update } from "../sync";
-import { Write } from "../write";
+import { type Draft, Write } from "../write";
 
 const standard = [
 	{ role: "inbox", label: "Inbox", Icon: InboxIcon },
@@ -36,7 +36,7 @@ function Inbox() {
 	// A role shows that folder of every account in view; the user's own folders are picked by id.
 	const [folder, setFolder] = useState("inbox");
 	const [adding, setAdding] = useState(false);
-	const [writing, setWriting] = useState(false);
+	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
 	const [open, setOpen] = useState<string>();
 	const accounts = useQuery({
@@ -87,7 +87,7 @@ function Inbox() {
 						onAddAccount={() => setAdding(true)}
 					/>
 					<Sidebar.Section>
-						<Sidebar.Item label="Write" icon={<PenLine strokeWidth={1.75} />} onSelect={() => setWriting(true)} />
+						<Sidebar.Item label="Write" icon={<PenLine strokeWidth={1.75} />} onSelect={() => setDraft({})} />
 						{standard
 							.filter((f) => f.role === "inbox" || boxes.some((b) => b.role === f.role))
 							.map(({ role, label, Icon }) => (
@@ -124,6 +124,7 @@ function Inbox() {
 				<Reader
 					message={reading}
 					onClose={() => setOpen(undefined)}
+					onWrite={setDraft}
 					onTrash={() => {
 						setOpen(undefined);
 						void update(reading, { trash: true });
@@ -166,14 +167,14 @@ function Inbox() {
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
 			<Write
-				from={accounts.data?.find((a) => a.id === current) ?? accounts.data?.[0]}
+				from={accounts.data?.find((a) => a.id === (draft?.accountId ?? current)) ?? accounts.data?.[0]}
 				contacts={[
 					...new Map(
 						(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
 					).values(),
 				]}
-				open={writing}
-				onOpenChange={setWriting}
+				draft={draft}
+				onClose={() => setDraft(undefined)}
 			/>
 		</AppShell>
 	);

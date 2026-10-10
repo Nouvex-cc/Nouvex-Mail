@@ -28,6 +28,8 @@ export type ComposerProps = {
 	contacts: Contact[];
 	defaultTo?: string[];
 	defaultSubject?: string;
+	/** e.g. the quoted message when replying. */
+	defaultBody?: string;
 	onSend(message: OutgoingMessage): void;
 };
 
@@ -130,14 +132,14 @@ function Recipients({
  * Writing a message. Send waits five seconds with an undo on the button itself; with a time chosen under
  * "Send later" it schedules instead. Files can be attached with the button or dropped anywhere on it.
  */
-export function Composer({ contacts, defaultTo = [], defaultSubject = "", onSend }: ComposerProps) {
+export function Composer({ contacts, defaultTo = [], defaultSubject = "", defaultBody = "", onSend }: ComposerProps) {
 	const [to, setTo] = useState(defaultTo);
 	const [cc, setCc] = useState<string[]>([]);
 	const [bcc, setBcc] = useState<string[]>([]);
 	const [showCc, setShowCc] = useState(false);
 	const [showBcc, setShowBcc] = useState(false);
 	const [subject, setSubject] = useState(defaultSubject);
-	const [body, setBody] = useState("");
+	const [body, setBody] = useState(defaultBody);
 	const [files, setFiles] = useState<{ id: number; file: File; url?: string }[]>([]);
 	const [sendAt, setSendAt] = useState<Date>();
 	const [phase, setPhase] = useState<"idle" | "undo" | "done">("idle");
@@ -190,7 +192,7 @@ export function Composer({ contacts, defaultTo = [], defaultSubject = "", onSend
 		setShowCc(false);
 		setShowBcc(false);
 		setSubject(defaultSubject);
-		setBody("");
+		setBody(defaultBody);
 		for (const f of files) if (f.url) URL.revokeObjectURL(f.url);
 		setFiles([]);
 		setSendAt(undefined);
