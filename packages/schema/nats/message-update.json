@@ -1,0 +1,14 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MessageUpdate",
+	"description": "Command: API asks the engine to change one message on the mail server.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"messageId": { "type": "string" },
+		"seen": { "type": "boolean" },
+		"trash": { "type": "boolean", "description": "Move the message to the trash folder." }
+	},
+	"required": ["accountId", "messageId"],
+	"additionalProperties": false
+}

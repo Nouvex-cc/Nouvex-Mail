@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 )
 
 // "hunter2" sealed with a master key of 32 bytes of 7, same vector as in the secret package.
@@ -52,8 +54,10 @@ func setup(t *testing.T) fixture {
 	mem := imapmemserver.New()
 	u := imapmemserver.NewUser("lena", "hunter2")
 	mem.AddUser(u)
-	if err := u.Create("INBOX", nil); err != nil {
-		t.Fatal(err)
+	for _, box := range []string{"INBOX", "Trash"} {
+		if err := u.Create(box, nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	add := func(subject string) {
 		raw := fmt.Sprintf("From: Lena Hartmann <lena@example.com>\r\nSubject: %s\r\nDate: Thu, 8 Oct 2026 09:12:00 +0200\r\nMessage-ID: <%s@example.com>\r\n\r\nHi", subject, rand.Text())
@@ -159,6 +163,46 @@ func TestUIDValidityChange(t *testing.T) {
 	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message WHERE account_id = $1`, f.id).Scan(&rows)
 	if deletes != 2 || rows != 2 {
 		t.Fatalf("%d deletes, %d rows", deletes, rows)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	q := db.New(f.pool)
+	put := func(context.Context, string, []byte, string) error { return nil }
+	master := bytes.Repeat([]byte{7}, 32)
+	f.add("Read me")
+	f.add("Throw me away")
+	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	rows, _ := f.pool.Query(ctx, `SELECT subject, id FROM message WHERE account_id = $1`, f.id)
+	for rows.Next() {
+		var subject, id string
+		_ = rows.Scan(&subject, &id)
+		ids[subject] = id
+	}
+	yes := true
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Read me"], Seen: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Throw me away"], Trash: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	// One flag change and one message gone from the INBOX.
+	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 4 {
+		t.Fatalf("version %d, %v; want 4", v, err)
+	}
+	var flags []string
+	if err := f.pool.QueryRow(ctx, `SELECT flags FROM message WHERE id = $1`, ids["Read me"]).Scan(&flags); err != nil || !slices.Equal(flags, []string{`\Seen`}) {
+		t.Fatalf("flags %v, %v", flags, err)
+	}
+	var left int
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message WHERE id = $1`, ids["Throw me away"]).Scan(&left)
+	if left != 0 {
+		t.Fatal("trashed message still in the INBOX")
 	}
 }
 

@@ -40,3 +40,19 @@ export function listen(accountIds: string[]) {
 	};
 	return () => ws.close();
 }
+
+// Applies the change locally right away; the server's version arrives through pull. A failed request puts the
+// message back as it was.
+export async function update(m: Message, change: { seen?: boolean; trash?: boolean }) {
+	if (change.trash) await db.messages.delete(m.id);
+	else if (change.seen !== undefined) {
+		const flags = m.flags.filter((f) => f !== "\\Seen");
+		await db.messages.update(m.id, { flags: change.seen ? [...flags, "\\Seen"] : flags });
+	}
+	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/update`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(change),
+	});
+	if (!res.ok) await db.messages.put(m);
+}

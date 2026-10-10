@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, MailFrame, Spinner, Thread, ThreadMessage, useShortcut } from "@nouvex/ui";
-import { ChevronLeft } from "@nouvex/ui/icons";
+import { Button, MailFrame, Spinner, Thread, ThreadMessage, Tooltip, useShortcut } from "@nouvex/ui";
+import { ChevronLeft, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 
-export function Reader({ message: m, onClose }: { message: Message; onClose: () => void }) {
+export function Reader({
+	message: m,
+	onClose,
+	onTrash,
+}: {
+	message: Message;
+	onClose: () => void;
+	onTrash: () => void;
+}) {
 	useShortcut("Escape", onClose);
 	const body = useQuery({
 		queryKey: ["body", m.id],
@@ -18,10 +26,17 @@ export function Reader({ message: m, onClose }: { message: Message; onClose: () 
 
 	return (
 		<div className="grid content-start gap-3 p-4">
-			<Button variant="ghost" size="sm" className="justify-self-start" onClick={onClose}>
-				<ChevronLeft strokeWidth={1.75} />
-				Inbox
-			</Button>
+			<div className="flex items-center justify-between">
+				<Button variant="ghost" size="sm" onClick={onClose}>
+					<ChevronLeft strokeWidth={1.75} />
+					Inbox
+				</Button>
+				<Tooltip content="Delete">
+					<Button variant="ghost" size="icon" aria-label="Delete" onClick={onTrash}>
+						<Trash2 strokeWidth={1.75} />
+					</Button>
+				</Tooltip>
+			</div>
 			<Thread subject={m.subject}>
 				<ThreadMessage from={m.fromName || m.fromAddr} email={m.fromAddr} date={new Date(m.sentAt)} snippet={m.snippet}>
 					{body.data !== undefined ? (

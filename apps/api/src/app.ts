@@ -2,7 +2,7 @@
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
-import type { MailboxSync } from "@nouvex/schema";
+import type { MailboxSync, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
@@ -244,6 +244,36 @@ app.openapi(
 		if (!found) return c.body(null, 404);
 		// JSON instead of text/html, so opening this URL directly can't run the mail's markup on our origin.
 		return c.json({ html: await s3.file(`body/${found.id}.html`).text() }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/messages/{messageId}/update",
+		operationId: "updateMessage",
+		description: "Mark a message read or unread, or move it to the trash. Shows up in /changes once the server has it.",
+		request: {
+			params: z.object({ accountId: z.string(), messageId: z.string() }),
+			body: {
+				content: {
+					"application/json": { schema: z.object({ seen: z.boolean().optional(), trash: z.boolean().optional() }) },
+				},
+			},
+		},
+		responses: { 202: { description: "Change queued" }, 404: { description: "No such message" } },
+	}),
+	async (c) => {
+		const { accountId, messageId } = c.req.valid("param");
+		const [found] = await db
+			.select({ id: message.id })
+			.from(message)
+			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
+		if (!found) return c.body(null, 404);
+		const cmd: MessageUpdate = { accountId, messageId, ...c.req.valid("json") };
+		const { js } = await nats();
+		await js.publish("cmd.message.update", JSON.stringify(cmd));
+		return c.body(null, 202);
 	},
 );
 

@@ -56,6 +56,15 @@ func (q *Queries) CreateMailbox(ctx context.Context, arg CreateMailboxParams) er
 	return err
 }
 
+const deleteMessage = `-- name: DeleteMessage :exec
+DELETE FROM message WHERE id = $1
+`
+
+func (q *Queries) DeleteMessage(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteMessage, id)
+	return err
+}
+
 const getAccount = `-- name: GetAccount :one
 SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at FROM mail_account WHERE id = $1
 `
@@ -97,6 +106,27 @@ func (q *Queries) GetMailbox(ctx context.Context, arg GetMailboxParams) (Mailbox
 		&i.Name,
 		&i.UidValidity,
 	)
+	return i, err
+}
+
+const getMessagePlace = `-- name: GetMessagePlace :one
+SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2
+`
+
+type GetMessagePlaceParams struct {
+	ID        string
+	AccountID string
+}
+
+type GetMessagePlaceRow struct {
+	Uid  int64
+	Name string
+}
+
+func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams) (GetMessagePlaceRow, error) {
+	row := q.db.QueryRow(ctx, getMessagePlace, arg.ID, arg.AccountID)
+	var i GetMessagePlaceRow
+	err := row.Scan(&i.Uid, &i.Name)
 	return i, err
 }
 
@@ -166,6 +196,36 @@ func (q *Queries) ListAccountIDs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listFlags = `-- name: ListFlags :many
+SELECT id, uid, flags FROM message WHERE mailbox_id = $1
+`
+
+type ListFlagsRow struct {
+	ID    string
+	Uid   int64
+	Flags []string
+}
+
+func (q *Queries) ListFlags(ctx context.Context, mailboxID string) ([]ListFlagsRow, error) {
+	rows, err := q.db.Query(ctx, listFlags, mailboxID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFlagsRow
+	for rows.Next() {
+		var i ListFlagsRow
+		if err := rows.Scan(&i.ID, &i.Uid, &i.Flags); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const logChange = `-- name: LogChange :one
 WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING version)
 INSERT INTO change_log (account_id, version, entity, entity_id, op)
@@ -201,6 +261,20 @@ func (q *Queries) MaxUID(ctx context.Context, mailboxID string) (int64, error) {
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const setFlags = `-- name: SetFlags :exec
+UPDATE message SET flags = $2 WHERE id = $1
+`
+
+type SetFlagsParams struct {
+	ID    string
+	Flags []string
+}
+
+func (q *Queries) SetFlags(ctx context.Context, arg SetFlagsParams) error {
+	_, err := q.db.Exec(ctx, setFlags, arg.ID, arg.Flags)
+	return err
 }
 
 const setUIDValidity = `-- name: SetUIDValidity :exec

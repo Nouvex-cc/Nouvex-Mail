@@ -15,7 +15,8 @@ import (
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
-// Watch keeps an IDLE connection on the account's INBOX and calls changed when the server reports new mail, and
+// Watch keeps an IDLE connection on the account's INBOX and calls changed when the server reports new, deleted or
+// changed mail, and
 // once after every (re)connect to catch up on what came in meanwhile. It returns when ctx ends or the account is
 // deleted.
 // ponytail: one connection per account and IDLE only; servers without IDLE need polling, many accounts a pool.
@@ -44,14 +45,23 @@ func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 		return err
 	}
 	news := make(chan struct{}, 1)
+	notify := func() {
+		select {
+		case news <- struct{}{}:
+		default:
+		}
+	}
 	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, &imapclient.UnilateralDataHandler{
 		Mailbox: func(d *imapclient.UnilateralDataMailbox) {
 			if d.NumMessages != nil {
-				select {
-				case news <- struct{}{}:
-				default:
-				}
+				notify()
 			}
+		},
+		Expunge: func(uint32) { notify() },
+		// The data has to be read, or the connection stalls.
+		Fetch: func(m *imapclient.FetchMessageData) {
+			_, _ = m.Collect()
+			notify()
 		},
 	})
 	if err != nil {

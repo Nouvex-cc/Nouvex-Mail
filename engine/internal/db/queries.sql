@@ -29,3 +29,15 @@ RETURNING version;
 
 -- name: ListAccountIDs :many
 SELECT id FROM mail_account;
+
+-- name: GetMessagePlace :one
+SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2;
+
+-- name: ListFlags :many
+SELECT id, uid, flags FROM message WHERE mailbox_id = $1;
+
+-- name: SetFlags :exec
+UPDATE message SET flags = $2 WHERE id = $1;
+
+-- name: DeleteMessage :exec
+DELETE FROM message WHERE id = $1;

@@ -58,3 +58,39 @@ func (j *MailboxSynced) UnmarshalJSON(value []byte) error {
 	*j = MailboxSynced(plain)
 	return nil
 }
+
+// Command: API asks the engine to change one message on the mail server.
+type MessageUpdate struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// MessageId corresponds to the JSON schema field "messageId".
+	MessageId string `json:"messageId"`
+
+	// Seen corresponds to the JSON schema field "seen".
+	Seen *bool `json:"seen,omitempty,omitzero"`
+
+	// Move the message to the trash folder.
+	Trash *bool `json:"trash,omitempty,omitzero"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageUpdate) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MessageUpdate: required")
+	}
+	if _, ok := raw["messageId"]; raw != nil && !ok {
+		return fmt.Errorf("field messageId in MessageUpdate: required")
+	}
+	type Plain MessageUpdate
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageUpdate(plain)
+	return nil
+}

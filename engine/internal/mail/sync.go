@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"slices"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/jackc/pgx/v5"
@@ -104,14 +105,11 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 				MessageID: m.Envelope.MessageID,
 				Subject:   m.Envelope.Subject,
 				SentAt:    pgtype.Timestamptz{Time: sent, Valid: true},
-				Flags:     make([]string, len(m.Flags)),
+				Flags:     flagStrings(m.Flags),
 				Size:      int32(m.RFC822Size),
 			}
 			if len(m.Envelope.From) > 0 {
 				row.FromName, row.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
-			}
-			for i, f := range m.Flags {
-				row.Flags[i] = string(f)
 			}
 			raw := m.FindBodySection(whole)
 			// An unparsable message still shows up, just without a body to read.
@@ -133,5 +131,53 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 			}
 		}
 	}
+
+	// Flags and deletions of messages we already have: compare every UID's flags with what we stored.
+	// ponytail: fetches the flags of the whole folder each time; CONDSTORE/QRESYNC once folders get big.
+	server := map[int64][]string{}
+	if sel.NumMessages > 0 {
+		var all imap.UIDSet
+		all.AddRange(1, 0)
+		msgs, err := c.Fetch(all, &imap.FetchOptions{UID: true, Flags: true}).Collect()
+		if err != nil {
+			return 0, err
+		}
+		for _, m := range msgs {
+			server[int64(m.UID)] = flagStrings(m.Flags)
+		}
+	}
+	stored, err := q.ListFlags(ctx, box.ID)
+	if err != nil {
+		return 0, err
+	}
+	for _, r := range stored {
+		flags, ok := server[r.Uid]
+		op := "upsert"
+		switch {
+		case !ok:
+			op = "delete"
+			err = q.DeleteMessage(ctx, r.ID)
+		case !slices.Equal(flags, r.Flags):
+			err = q.SetFlags(ctx, db.SetFlagsParams{ID: r.ID, Flags: flags})
+		default:
+			continue
+		}
+		if err == nil {
+			version, err = q.LogChange(ctx, db.LogChangeParams{AccountID: acc.ID, Entity: "message", EntityID: r.ID, Op: op})
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
 	return version, tx.Commit(ctx)
+}
+
+// flagStrings returns the flags sorted, so stored and fetched lists compare equal.
+func flagStrings(flags []imap.Flag) []string {
+	s := make([]string, len(flags))
+	for i, f := range flags {
+		s[i] = string(f)
+	}
+	slices.Sort(s)
+	return s
 }
