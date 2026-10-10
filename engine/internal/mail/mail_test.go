@@ -5,6 +5,9 @@ package mail
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 )
 
 const sample = "From: Ann <ann@example.com>\r\nSubject: hi\r\nDate: Wed, 7 Oct 2026 10:00:00 +0200\r\n\r\nbody\r\n"
@@ -44,5 +47,28 @@ func TestBody(t *testing.T) {
 	onlyHTML := "From: a@x\r\nContent-Type: text/html\r\n\r\n<style>p{}</style><p>Hi&nbsp;there</p>"
 	if _, snippet, _ = Body([]byte(onlyHTML)); snippet != "Hi there" {
 		t.Fatalf("%q", snippet)
+	}
+}
+
+func TestCompose(t *testing.T) {
+	raw, err := Compose("mateo@nouvex.cc", msg.MessageSend{
+		To: []string{"lena@hartmann.example"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},
+		Subject: "Schlüssel für Freitag", Text: "Bis Freitag!",
+	}, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	if strings.Contains(s, "secret@x.example") {
+		t.Fatal("bcc leaked into the headers")
+	}
+	h, err := Parse(strings.NewReader(s))
+	if err != nil || h.Subject != "Schlüssel für Freitag" || h.From != "<mateo@nouvex.cc>" {
+		t.Fatalf("%+v %v", h, err)
+	}
+	for _, want := range []string{"To: <lena@hartmann.example>", "Cc: <jonas@weber.example>", "Message-Id: <", "@nouvex.cc>", "Bis Freitag!"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in\n%s", want, s)
+		}
 	}
 }

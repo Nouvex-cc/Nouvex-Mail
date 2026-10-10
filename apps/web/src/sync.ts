@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { MailboxSynced, MessageSent } from "@nouvex/schema";
 import { db, type Message } from "./db";
 
 type Changes = {
@@ -31,12 +32,18 @@ export function pull(accountId: string) {
 	return run;
 }
 
-// The engine announces finished syncs over the socket; pull for the accounts we know.
-export function listen(accountIds: string[]) {
+type Event =
+	| { subject: "evt.mailbox.synced"; data: MailboxSynced }
+	| { subject: "evt.message.sent"; data: MessageSent };
+
+// The engine announces finished syncs and sends over the socket; only events for our accounts count.
+export function listen(accountIds: string[], onSent: (e: MessageSent) => void) {
 	const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws`);
 	ws.onmessage = (e) => {
-		const { accountId } = JSON.parse(e.data) as { accountId?: string };
-		if (accountId && accountIds.includes(accountId)) void pull(accountId);
+		const ev = JSON.parse(e.data) as Event;
+		if (!accountIds.includes(ev.data.accountId)) return;
+		if (ev.subject === "evt.mailbox.synced") void pull(ev.data.accountId);
+		if (ev.subject === "evt.message.sent") onSent(ev.data);
 	};
 	return () => ws.close();
 }

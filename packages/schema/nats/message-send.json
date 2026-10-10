@@ -1,0 +1,16 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MessageSend",
+	"description": "Command: API asks the engine to send a message from one account.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"to": { "type": "array", "items": { "type": "string" } },
+		"cc": { "type": "array", "items": { "type": "string" } },
+		"bcc": { "type": "array", "items": { "type": "string" } },
+		"subject": { "type": "string" },
+		"text": { "type": "string" }
+	},
+	"required": ["accountId", "to", "cc", "bcc", "subject", "text"],
+	"additionalProperties": false
+}

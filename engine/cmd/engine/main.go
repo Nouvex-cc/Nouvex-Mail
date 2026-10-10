@@ -89,7 +89,7 @@ func run() error {
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:        "engine",
-		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update"},
+		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send"},
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
@@ -129,6 +129,10 @@ func run() error {
 	}
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
+		if m.Subject() == "cmd.message.send" {
+			send(ctx, m, nc, db.New(pool), master)
+			return
+		}
 		var cmd msg.MailboxSync
 		var update msg.MessageUpdate
 		var err error
@@ -204,4 +208,26 @@ func bucket(ctx context.Context) (mail.Put, error) {
 		_, err := c.PutObject(ctx, name, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{ContentType: contentType})
 		return err
 	}, nil
+}
+
+// send runs once and reports the outcome as evt.message.sent: the server may have taken a message even when we saw
+// an error, and sending it twice is worse than asking the user to try again.
+func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, q *db.Queries, master []byte) {
+	defer func() { _ = m.Ack() }()
+	var cmd msg.MessageSend
+	if err := json.Unmarshal(m.Data(), &cmd); err != nil {
+		slog.Warn("bad command", "subject", m.Subject(), "err", err)
+		return
+	}
+	ev := msg.MessageSent{AccountId: cmd.AccountId, Subject: cmd.Subject}
+	raw, err := mail.Send(ctx, q, master, cmd)
+	if err != nil {
+		slog.Error("send failed", "account", cmd.AccountId, "err", err)
+		e := err.Error()
+		ev.Error = &e
+	} else if err := mail.SaveSent(ctx, q, master, cmd.AccountId, raw); err != nil {
+		slog.Warn("saving to Sent failed", "account", cmd.AccountId, "err", err)
+	}
+	b, _ := json.Marshal(ev)
+	_ = nc.Publish("evt.message.sent", b)
 }

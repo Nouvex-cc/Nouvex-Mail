@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { AccountSwitcher, AppShell, Button, MessageList, MessageRow, Sidebar } from "@nouvex/ui";
-import { Inbox as InboxIcon } from "@nouvex/ui/icons";
+import { AccountSwitcher, AppShell, Button, MessageList, MessageRow, Sidebar, useToast } from "@nouvex/ui";
+import { Inbox as InboxIcon, PenLine } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -10,6 +10,7 @@ import { auth } from "../auth";
 import { db } from "../db";
 import { Reader } from "../reader";
 import { listen, pull, update } from "../sync";
+import { Write } from "../write";
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
@@ -24,6 +25,8 @@ function Inbox() {
 	const { user } = Route.useRouteContext();
 	const [current, setCurrent] = useState("all");
 	const [adding, setAdding] = useState(false);
+	const [writing, setWriting] = useState(false);
+	const toast = useToast();
 	const [open, setOpen] = useState<string>();
 	const accounts = useQuery({
 		queryKey: ["accounts"],
@@ -35,8 +38,12 @@ function Inbox() {
 		if (!ids) return;
 		const list = ids.split(",");
 		for (const id of list) void pull(id);
-		return listen(list);
-	}, [ids]);
+		return listen(list, (e) =>
+			toast.add(
+				e.error ? { title: `Couldn't send “${e.subject}”`, description: e.error } : { title: `Sent “${e.subject}”` },
+			),
+		);
+	}, [ids, toast]);
 
 	// ponytail: renders every message; switch to VirtualList once inboxes get big.
 	const messages = useLiveQuery(
@@ -62,6 +69,7 @@ function Inbox() {
 						onAddAccount={() => setAdding(true)}
 					/>
 					<Sidebar.Section>
+						<Sidebar.Item label="Write" icon={<PenLine strokeWidth={1.75} />} onSelect={() => setWriting(true)} />
 						<Sidebar.Item label="Inbox" icon={<InboxIcon strokeWidth={1.75} />} active onSelect={() => {}} />
 					</Sidebar.Section>
 					<Sidebar.Section title={user.email}>
@@ -107,6 +115,16 @@ function Inbox() {
 				</MessageList>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
+			<Write
+				from={accounts.data?.find((a) => a.id === current) ?? accounts.data?.[0]}
+				contacts={[
+					...new Map(
+						(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
+					).values(),
+				]}
+				open={writing}
+				onOpenChange={setWriting}
+			/>
 		</AppShell>
 	);
 }

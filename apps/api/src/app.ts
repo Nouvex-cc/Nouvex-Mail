@@ -2,7 +2,7 @@
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
-import type { MailboxSync, MessageUpdate } from "@nouvex/schema";
+import type { MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
@@ -213,7 +213,9 @@ app.get(
 		return {
 			async onOpen(_, ws) {
 				const { nc } = await nats();
-				sub = nc.subscribe("evt.>", { callback: (_, m) => ws.send(m.string()) });
+				sub = nc.subscribe("evt.>", {
+					callback: (_, m) => ws.send(JSON.stringify({ subject: m.subject, data: m.json() })),
+				});
 			},
 			onClose: () => sub?.unsubscribe(),
 		};
@@ -273,6 +275,38 @@ app.openapi(
 		const cmd: MessageUpdate = { accountId, messageId, ...c.req.valid("json") };
 		const { js } = await nats();
 		await js.publish("cmd.message.update", JSON.stringify(cmd));
+		return c.body(null, 202);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/send",
+		operationId: "sendMessage",
+		description: "Sends a plain text message. The outcome arrives as an evt.message.sent event on /ws.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							to: z.array(z.email()).min(1),
+							cc: z.array(z.email()).default([]),
+							bcc: z.array(z.email()).default([]),
+							subject: z.string(),
+							text: z.string(),
+						}),
+					},
+				},
+			},
+		},
+		responses: { 202: { description: "Queued for sending" }, 404: { description: "No such account" } },
+	}),
+	async (c) => {
+		const cmd: MessageSend = { accountId: c.req.valid("param").accountId, ...c.req.valid("json") };
+		const { js } = await nats();
+		await js.publish("cmd.message.send", JSON.stringify(cmd));
 		return c.body(null, 202);
 	},
 );
