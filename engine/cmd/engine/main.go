@@ -3,10 +3,12 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel"
@@ -56,6 +60,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	put, err := bucket(ctx)
+	if err != nil {
+		return err
+	}
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
@@ -93,7 +101,7 @@ func run() error {
 			_ = m.Term()
 			return
 		}
-		v, err := mail.Sync(ctx, pool, master, cmd.AccountId)
+		v, err := mail.Sync(ctx, pool, put, master, cmd.AccountId)
 		if err != nil {
 			slog.Error("sync failed", "account", cmd.AccountId, "err", err)
 			_ = m.NakWithDelay(time.Minute)
@@ -115,4 +123,31 @@ func run() error {
 	slog.Info("engine running")
 	<-ctx.Done()
 	return nil
+}
+
+// bucket connects to S3 with the same variables Bun's S3 client reads, and creates the bucket if needed.
+func bucket(ctx context.Context) (mail.Put, error) {
+	u, err := url.Parse(os.Getenv("S3_ENDPOINT"))
+	if err != nil {
+		return nil, err
+	}
+	c, err := minio.New(u.Host, &minio.Options{
+		Creds:  credentials.NewStaticV4(os.Getenv("S3_ACCESS_KEY_ID"), os.Getenv("S3_SECRET_ACCESS_KEY"), ""),
+		Secure: u.Scheme == "https",
+	})
+	if err != nil {
+		return nil, err
+	}
+	name := os.Getenv("S3_BUCKET")
+	if ok, err := c.BucketExists(ctx, name); err != nil {
+		return nil, err
+	} else if !ok {
+		if err := c.MakeBucket(ctx, name, minio.MakeBucketOptions{}); err != nil {
+			return nil, err
+		}
+	}
+	return func(ctx context.Context, key string, data []byte, contentType string) error {
+		_, err := c.PutObject(ctx, name, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{ContentType: contentType})
+		return err
+	}, nil
 }

@@ -15,6 +15,13 @@
       "when": 1791555940220,
       "tag": "0001_mail",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791557211892,
+      "tag": "0002_snippet",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ export interface Message {
 	mailboxId: string;
 	messageId: string;
 	subject: string;
+	snippet: string;
 	fromName: string;
 	fromAddr: string;
 	sentAt: string;

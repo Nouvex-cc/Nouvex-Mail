@@ -16,9 +16,13 @@ import (
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
-// Sync fetches new messages in the account's INBOX and returns the account's version afterwards.
+// Put stores an object, e.g. in S3.
+type Put func(ctx context.Context, key string, data []byte, contentType string) error
+
+// Sync fetches new messages in the account's INBOX and returns the account's version afterwards. Each message is
+// stored whole as raw/<id>.eml and the part to show as body/<id>.html.
 // ponytail: INBOX only, new messages only. Flag changes and deletions need CONDSTORE/QRESYNC, other folders LIST.
-func Sync(ctx context.Context, pool *pgxpool.Pool, master []byte, accountID string) (int64, error) {
+func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accountID string) (int64, error) {
 	acc, err := db.New(pool).GetAccount(ctx, accountID)
 	if err != nil {
 		return 0, err
@@ -69,7 +73,11 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, master []byte, accountID stri
 		var uids imap.UIDSet
 		uids.AddRange(imap.UID(last+1), 0)
 		// ponytail: collects the whole batch in memory, stream it once first syncs of big mailboxes matter.
-		msgs, err := c.Fetch(uids, &imap.FetchOptions{UID: true, Envelope: true, Flags: true, RFC822Size: true, InternalDate: true}).Collect()
+		whole := &imap.FetchItemBodySection{Peek: true}
+		msgs, err := c.Fetch(uids, &imap.FetchOptions{
+			UID: true, Envelope: true, Flags: true, RFC822Size: true, InternalDate: true,
+			BodySection: []*imap.FetchItemBodySection{whole},
+		}).Collect()
 		if err != nil {
 			return 0, err
 		}
@@ -97,6 +105,16 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, master []byte, accountID stri
 			}
 			for i, f := range m.Flags {
 				row.Flags[i] = string(f)
+			}
+			raw := m.FindBodySection(whole)
+			// An unparsable message still shows up, just without a body to read.
+			body, snippet, _ := Body(raw)
+			row.Snippet = snippet
+			if err := put(ctx, "raw/"+row.ID+".eml", raw, "message/rfc822"); err != nil {
+				return 0, err
+			}
+			if err := put(ctx, "body/"+row.ID+".html", []byte(body), "text/html; charset=utf-8"); err != nil {
+				return 0, err
 			}
 			if n, err := q.InsertMessage(ctx, row); err != nil {
 				return 0, err

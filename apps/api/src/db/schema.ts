@@ -50,6 +50,7 @@ export const message = pgTable(
 		uid: bigint("uid", { mode: "number" }).notNull(),
 		messageId: text("message_id").notNull(),
 		subject: text("subject").notNull(),
+		snippet: text("snippet").notNull().default(""),
 		fromName: text("from_name").notNull(),
 		fromAddr: text("from_addr").notNull(),
 		sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),

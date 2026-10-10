@@ -72,6 +72,13 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 
 		const other = await app.request(`/accounts/${crypto.randomUUID()}/changes?since=0`, { headers });
 		expect(other.status).toBe(404);
+
+		const { s3 } = await import("bun");
+		await s3.file(`body/${id}-2.html`).write("<p>Hi</p>");
+		const body = await app.request(`/accounts/${id}/messages/${id}-2/body`, { headers });
+		expect(await body.json()).toEqual({ html: "<p>Hi</p>" });
+		expect((await app.request(`/accounts/${id}/messages/nope/body`, { headers })).status).toBe(404);
+		await s3.file(`body/${id}-2.html`).delete();
 	} finally {
 		await db.delete(changeLog).where(eq(changeLog.accountId, id));
 		await db.delete(user).where(eq(user.id, me.id));

@@ -3,6 +3,7 @@ import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
 import type { MailboxSync } from "@nouvex/schema";
+import { s3 } from "bun";
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
@@ -138,6 +139,7 @@ const Message = z.object({
 	mailboxId: z.string(),
 	messageId: z.string(),
 	subject: z.string(),
+	snippet: z.string(),
 	fromName: z.string(),
 	fromAddr: z.string(),
 	sentAt: z.iso.datetime({ offset: true }),
@@ -216,6 +218,33 @@ app.get(
 			onClose: () => sub?.unsubscribe(),
 		};
 	}),
+);
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/messages/{messageId}/body",
+		operationId: "getMessageBody",
+		description: "The HTML to show for a message, unsanitized. Render it only in a sandboxed frame after sanitizing.",
+		request: { params: z.object({ accountId: z.string(), messageId: z.string() }) },
+		responses: {
+			200: {
+				description: "Message body",
+				content: { "application/json": { schema: z.object({ html: z.string() }) } },
+			},
+			404: { description: "No such message" },
+		},
+	}),
+	async (c) => {
+		const { accountId, messageId } = c.req.valid("param");
+		const [found] = await db
+			.select({ id: message.id })
+			.from(message)
+			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
+		if (!found) return c.body(null, 404);
+		// JSON instead of text/html, so opening this URL directly can't run the mail's markup on our origin.
+		return c.json({ html: await s3.file(`body/${found.id}.html`).text() }, 200);
+	},
 );
 
 app.doc31("/openapi.json", { openapi: "3.1.0", info: { title: "Nouvex Mail API", version: "0.0.0" } });
