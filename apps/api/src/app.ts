@@ -383,14 +383,22 @@ app.openapi(
 		description: "Stores a file to attach to a message sent later; pass the returned id in sendMessage.",
 		request: {
 			params: z.object({ accountId: z.string() }),
-			body: { content: { "multipart/form-data": { schema: z.object({ file: z.file().max(25 * 1024 * 1024) }) } } },
+			body: {
+				content: {
+					"multipart/form-data": {
+						schema: z.object({ file: z.instanceof(File).openapi({ type: "string", format: "binary" }) }),
+					},
+				},
+			},
 		},
 		responses: {
 			201: { description: "Stored", content: { "application/json": { schema: z.object({ id: z.uuid() }) } } },
+			413: { description: "Larger than 25 MB" },
 		},
 	}),
 	async (c) => {
 		const { file } = c.req.valid("form");
+		if (file.size > 25 * 1024 * 1024) return c.body(null, 413);
 		const id = crypto.randomUUID();
 		// ponytail: uploads that never get sent stay in S3; a lifecycle rule on upload/ can expire them.
 		await s3.file(`upload/${c.req.valid("param").accountId}/${id}`).write(file);
