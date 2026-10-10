@@ -16,21 +16,42 @@ jobs:
     env:
       DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci
+      S3_ENDPOINT: http://localhost:8333
+      S3_BUCKET: nouvex
+      S3_ACCESS_KEY_ID: nouvex
+      S3_SECRET_ACCESS_KEY: nouvex
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: touch .env && bun run db:migrate
+      # Not a service: it needs docker/s3.json from the checkout.
+      - name: S3
+        run: |
+          docker run -d --name s3 -p 8333:8333 -v "$PWD/docker/s3.json:/etc/s3.json:ro" chrislusf/seaweedfs server -s3 -s3.config=/etc/s3.json -dir=/data
+          until echo "s3.bucket.create -name nouvex" | docker exec -i s3 weed shell 2>/dev/null | grep -q "created bucket"; do sleep 2; done
+          until bun -e 'await Bun.s3.write("ping", "1")' 2>/dev/null; do sleep 1; done
       - run: bunx oxlint
       - run: bunx turbo lint typecheck test build --filter='!@nouvex/engine'
 
   go:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env: { POSTGRES_USER: nouvex, POSTGRES_PASSWORD: nouvex, POSTGRES_DB: nouvex }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U nouvex" --health-interval 2s
+    env:
+      DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
     defaults:
       run:
         working-directory: engine
     steps:
       - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile && touch ../.env && bun run db:migrate
+        working-directory: .
       - uses: actions/setup-go@v7
         with: { go-version-file: engine/go.mod, cache-dependency-path: engine/go.sum }
       - uses: golangci/golangci-lint-action@v9
