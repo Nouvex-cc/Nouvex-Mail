@@ -9,7 +9,7 @@ import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
-import { changeLog, mailAccount, message } from "./db/schema";
+import { changeLog, mailAccount, mailbox, message } from "./db/schema";
 import { nats } from "./nats";
 import { seal } from "./secret";
 
@@ -134,6 +134,12 @@ app.openapi(
 	},
 );
 
+const Mailbox = z.object({
+	id: z.string(),
+	name: z.string(),
+	role: z.enum(["inbox", "sent", "drafts", "trash", "junk", "archive", ""]),
+});
+
 const Message = z.object({
 	id: z.string(),
 	mailboxId: z.string(),
@@ -169,6 +175,7 @@ app.openapi(
 						schema: z.object({
 							version: z.int(),
 							more: z.boolean(),
+							mailboxes: z.object({ upserted: z.array(Mailbox), deleted: z.array(z.string()) }),
 							messages: z.object({ upserted: z.array(Message), deleted: z.array(z.string()) }),
 						}),
 					},
@@ -188,16 +195,30 @@ app.openapi(
 			.limit(limit + 1);
 		const page = rows.slice(0, limit);
 		// Later entries win, so an entity changed several times in this page shows up once.
-		const last = new Map(page.filter((r) => r.entity === "message").map((r) => [r.entityId, r.op]));
-		const ids = [...last].filter(([, op]) => op === "upsert").map(([id]) => id);
-		const upserted = ids.length ? await db.select().from(message).where(inArray(message.id, ids)) : [];
+		const last = (entity: string) => {
+			const ops = new Map(page.filter((r) => r.entity === entity).map((r) => [r.entityId, r.op]));
+			const pick = (op: string) => [...ops].filter(([, o]) => o === op).map(([id]) => id);
+			return { upserted: pick("upsert"), deleted: pick("delete") };
+		};
+		const boxes = last("mailbox");
+		const msgs = last("message");
+		const [mailboxes, messages] = await Promise.all([
+			boxes.upserted.length
+				? db
+						.select({ id: mailbox.id, name: mailbox.name, role: mailbox.role })
+						.from(mailbox)
+						.where(inArray(mailbox.id, boxes.upserted))
+				: [],
+			msgs.upserted.length ? db.select().from(message).where(inArray(message.id, msgs.upserted)) : [],
+		]);
 		return c.json(
 			{
 				version: page.at(-1)?.version ?? since,
 				more: rows.length > limit,
+				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
-					upserted: upserted.map(({ accountId: _, uid: __, sentAt, ...m }) => ({ ...m, sentAt: sentAt.toISOString() })),
-					deleted: [...last].filter(([, op]) => op === "delete").map(([id]) => id),
+					upserted: messages.map(({ accountId: _, uid: __, sentAt, ...m }) => ({ ...m, sentAt: sentAt.toISOString() })),
+					deleted: msgs.deleted,
 				},
 			},
 			200,
@@ -254,12 +275,19 @@ app.openapi(
 		method: "post",
 		path: "/accounts/{accountId}/messages/{messageId}/update",
 		operationId: "updateMessage",
-		description: "Mark a message read or unread, or move it to the trash. Shows up in /changes once the server has it.",
+		description:
+			"Mark a message read or unread, or move it to the trash or the archive. Shows up in /changes once the server has it.",
 		request: {
 			params: z.object({ accountId: z.string(), messageId: z.string() }),
 			body: {
 				content: {
-					"application/json": { schema: z.object({ seen: z.boolean().optional(), trash: z.boolean().optional() }) },
+					"application/json": {
+						schema: z.object({
+							seen: z.boolean().optional(),
+							trash: z.boolean().optional(),
+							archive: z.boolean().optional(),
+						}),
+					},
 				},
 			},
 		},

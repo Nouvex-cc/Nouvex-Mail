@@ -52,6 +52,7 @@ type Mailbox struct {
 	AccountID   string
 	Name        string
 	UidValidity int64
+	Role        string
 }
 
 type Message struct {

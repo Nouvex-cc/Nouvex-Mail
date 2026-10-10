@@ -110,14 +110,20 @@ func TestSync(t *testing.T) {
 		stored[key] = data
 		return nil
 	}
-	for _, want := range []int64{2, 2} {
+	// INBOX and Trash, then the two messages.
+	for _, want := range []int64{4, 4} {
 		if v, err := Sync(ctx, pool, put, master, id); err != nil || v != want {
 			t.Fatalf("version %d, %v; want %d", v, err, want)
 		}
 	}
 	add("Invoice")
-	if v, err := Sync(ctx, pool, put, master, id); err != nil || v != 3 {
-		t.Fatalf("version %d, %v; want 3", v, err)
+	if v, err := Sync(ctx, pool, put, master, id); err != nil || v != 5 {
+		t.Fatalf("version %d, %v; want 5", v, err)
+	}
+	var roles []string
+	_ = pool.QueryRow(ctx, `SELECT array_agg(name || ':' || role ORDER BY name) FROM mailbox WHERE account_id = $1`, id).Scan(&roles)
+	if !slices.Equal(roles, []string{"INBOX:inbox", "Trash:trash"}) {
+		t.Fatalf("roles %v", roles)
 	}
 	var msgID, from, subject, snippet string
 	if err := pool.QueryRow(ctx, `SELECT id, from_addr, subject, snippet FROM message WHERE account_id = $1 ORDER BY uid LIMIT 1`, id).Scan(&msgID, &from, &subject, &snippet); err != nil {
@@ -154,9 +160,10 @@ func TestUIDValidityChange(t *testing.T) {
 	if _, err := f.pool.Exec(ctx, `UPDATE mailbox SET uid_validity = uid_validity + 1 WHERE account_id = $1`, f.id); err != nil {
 		t.Fatal(err)
 	}
-	// Both old rows are deleted and both messages come back as new rows.
-	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 6 {
-		t.Fatalf("version %d, %v; want 6", v, err)
+	// Both folders were renumbered: both old rows are deleted, both messages come back as new rows, and both
+	// folders are logged as changed.
+	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 10 {
+		t.Fatalf("version %d, %v; want 10", v, err)
 	}
 	var deletes, rows int
 	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM change_log WHERE account_id = $1 AND op = 'delete'`, f.id).Scan(&deletes)
@@ -191,9 +198,32 @@ func TestUpdate(t *testing.T) {
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Throw me away"], Trash: &yes}); err != nil {
 		t.Fatal(err)
 	}
-	// One flag change and one message gone from the INBOX.
-	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 4 {
-		t.Fatalf("version %d, %v; want 4", v, err)
+	// One flag change, one message gone from the INBOX and the same one new in Trash.
+	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 7 {
+		t.Fatalf("version %d, %v; want 7", v, err)
+	}
+	f.add("Keep me")
+	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+		t.Fatal(err)
+	}
+	var keep string
+	_ = f.pool.QueryRow(ctx, `SELECT id FROM message WHERE account_id = $1 AND subject = 'Keep me'`, f.id).Scan(&keep)
+	// No archive folder on the test server: it gets created.
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: keep, Archive: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+		t.Fatal(err)
+	}
+	var archived int
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 AND b.role = 'archive' AND m.subject = 'Keep me'`, f.id).Scan(&archived)
+	if archived != 1 {
+		t.Fatal("archived message not in Archive")
+	}
+	var inTrash int
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 AND b.role = 'trash' AND m.subject = 'Throw me away'`, f.id).Scan(&inTrash)
+	if inTrash != 1 {
+		t.Fatal("trashed message not in Trash")
 	}
 	var flags []string
 	if err := f.pool.QueryRow(ctx, `SELECT flags FROM message WHERE id = $1`, ids["Read me"]).Scan(&flags); err != nil || !slices.Equal(flags, []string{`\Seen`}) {

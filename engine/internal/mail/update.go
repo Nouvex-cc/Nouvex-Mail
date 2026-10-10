@@ -48,6 +48,22 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 			return err
 		}
 	}
+	if cmd.Archive != nil && *cmd.Archive {
+		archive, err := specialFolder(c, imap.MailboxAttrArchive, "Archive")
+		if err != nil {
+			return err
+		}
+		if archive == "" {
+			archive = "Archive"
+			if err := c.Create(archive, nil).Wait(); err != nil {
+				return err
+			}
+		}
+		if archive != place.Name {
+			_, err = c.Move(uid, archive).Wait()
+		}
+		return err
+	}
 	if cmd.Trash != nil && *cmd.Trash {
 		trash, err := specialFolder(c, imap.MailboxAttrTrash, "Trash")
 		if err != nil {

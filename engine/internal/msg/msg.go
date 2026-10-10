@@ -151,6 +151,9 @@ type MessageUpdate struct {
 	// AccountId corresponds to the JSON schema field "accountId".
 	AccountId string `json:"accountId"`
 
+	// Move the message to the archive folder.
+	Archive *bool `json:"archive,omitempty,omitzero"`
+
 	// MessageId corresponds to the JSON schema field "messageId".
 	MessageId string `json:"messageId"`
 

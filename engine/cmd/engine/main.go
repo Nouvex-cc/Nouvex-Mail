@@ -130,7 +130,7 @@ func run() error {
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		if m.Subject() == "cmd.message.send" {
-			send(ctx, m, nc, db.New(pool), master)
+			send(ctx, m, nc, js, db.New(pool), master)
 			return
 		}
 		var cmd msg.MailboxSync
@@ -212,7 +212,7 @@ func bucket(ctx context.Context) (mail.Put, error) {
 
 // send runs once and reports the outcome as evt.message.sent: the server may have taken a message even when we saw
 // an error, and sending it twice is worse than asking the user to try again.
-func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, q *db.Queries, master []byte) {
+func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetStream, q *db.Queries, master []byte) {
 	defer func() { _ = m.Ack() }()
 	var cmd msg.MessageSend
 	if err := json.Unmarshal(m.Data(), &cmd); err != nil {
@@ -227,6 +227,10 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, q *db.Queries, ma
 		ev.Error = &e
 	} else if err := mail.SaveSent(ctx, q, master, cmd.AccountId, raw); err != nil {
 		slog.Warn("saving to Sent failed", "account", cmd.AccountId, "err", err)
+	} else {
+		// So the copy shows up in Sent.
+		sync, _ := json.Marshal(msg.MailboxSync{AccountId: cmd.AccountId})
+		_, _ = js.Publish(ctx, "cmd.mailbox.sync", sync)
 	}
 	b, _ := json.Marshal(ev)
 	_ = nc.Publish("evt.message.sent", b)

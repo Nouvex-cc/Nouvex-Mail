@@ -16,9 +16,17 @@ export interface Message {
 	size: number;
 }
 
+export interface Mailbox {
+	id: string;
+	accountId: string;
+	name: string;
+	role: "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "";
+}
+
 // Local copy of what the delta sync has delivered so far; `cursor` stores the last change_log version per account.
 export const db = new Dexie("nouvex") as Dexie & {
 	messages: EntityTable<Message, "id">;
+	mailboxes: EntityTable<Mailbox, "id">;
 	cursor: EntityTable<{ accountId: string; version: number }, "accountId">;
 };
 
@@ -26,3 +34,7 @@ db.version(1).stores({
 	messages: "id, [accountId+sentAt], sentAt",
 	cursor: "accountId",
 });
+// Folders came later; start over so they arrive with the next pull.
+db.version(2)
+	.stores({ messages: "id, mailboxId, sentAt", mailboxes: "id, accountId" })
+	.upgrade((tx) => Promise.all([tx.table("messages").clear(), tx.table("cursor").clear()]));
