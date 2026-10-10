@@ -41,6 +41,8 @@ export function Reader({
 		staleTime: Number.POSITIVE_INFINITY,
 	});
 
+	const quoted = body.data === undefined ? undefined : text(body.data);
+
 	return (
 		<div className="grid content-start gap-3 p-4">
 			<div className="flex items-center justify-between">
@@ -74,8 +76,8 @@ export function Reader({
 					email={m.fromAddr}
 					date={new Date(m.sentAt)}
 					snippet={m.snippet}
-					onReply={body.data === undefined ? undefined : () => onWrite(reply(m, text(body.data)))}
-					onForward={body.data === undefined ? undefined : () => onWrite(forward(m, text(body.data)))}
+					onReply={quoted === undefined ? undefined : () => onWrite(reply(m, quoted))}
+					onForward={quoted === undefined ? undefined : () => onWrite(forward(m, quoted))}
 				>
 					{body.data !== undefined ? (
 						<>

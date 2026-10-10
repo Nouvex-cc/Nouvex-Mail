@@ -93,6 +93,11 @@ function Inbox() {
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
 	const reading = messages?.find((m) => m.id === open);
+	const contacts = [
+		...new Map(
+			(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
+		).values(),
+	];
 
 	return (
 		<AppShell
@@ -145,11 +150,7 @@ function Inbox() {
 			header={
 				<SearchField
 					className="w-full max-w-xl"
-					contacts={[
-						...new Map(
-							(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
-						).values(),
-					]}
+					contacts={contacts}
 					onSearch={(q) => {
 						setQuery(q);
 						setOpen(undefined);
@@ -210,11 +211,7 @@ function Inbox() {
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
 			<Write
 				from={accounts.data?.find((a) => a.id === (draft?.accountId ?? current)) ?? accounts.data?.[0]}
-				contacts={[
-					...new Map(
-						(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
-					).values(),
-				]}
+				contacts={contacts}
 				draft={draft}
 				onClose={() => setDraft(undefined)}
 			/>
