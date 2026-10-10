@@ -16,18 +16,28 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 )
 
 // "hunter2" sealed with a master key of 32 bytes of 7, same vector as in the secret package.
 const sealed = "AeVCfofwDm5ahJCtI82tdCIIVvFGf4BwyDIroAsv8BzQ4CPCXPqq675SlWplhAG7PyMZWGLwU3IYPM2t518oWtrlmqUm0PUvih+KsT87w8xD94X40wD1NabVp54hDhIi"
 
+// fixture is an IMAP server with one user and a mail_account row pointing at it.
+type fixture struct {
+	pool *pgxpool.Pool
+	id   string
+	add  func(subject string)
+}
+
 // Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
-func TestSync(t *testing.T) {
+func setup(t *testing.T) fixture {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set")
@@ -37,7 +47,7 @@ func TestSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	mem := imapmemserver.New()
 	u := imapmemserver.NewUser("lena", "hunter2")
@@ -48,11 +58,9 @@ func TestSync(t *testing.T) {
 	add := func(subject string) {
 		raw := fmt.Sprintf("From: Lena Hartmann <lena@example.com>\r\nSubject: %s\r\nDate: Thu, 8 Oct 2026 09:12:00 +0200\r\nMessage-ID: <%s@example.com>\r\n\r\nHi", subject, rand.Text())
 		if _, err := u.Append("INBOX", bytes.NewReader([]byte(raw)), &imap.AppendOptions{}); err != nil {
-			t.Fatal(err)
+			t.Error(err)
 		}
 	}
-	add("Keys for the new flat")
-	add("Saturday")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -62,11 +70,11 @@ func TestSync(t *testing.T) {
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			return mem.NewSession(), nil, nil
 		},
-		Caps:      imap.CapSet{imap.CapIMAP4rev1: {}},
+		Caps:      imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIdle: {}},
 		TLSConfig: selfSigned(t),
 	})
 	go func() { _ = srv.Serve(ln) }()
-	defer func() { _ = srv.Close() }()
+	t.Cleanup(func() { _ = srv.Close() })
 	t.Setenv("IMAP_INSECURE_TLS", "1")
 
 	id := rand.Text()
@@ -75,11 +83,22 @@ func TestSync(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO "user" (id, name, email, created_at, updated_at) VALUES ($1, 'Lena', $1 || '@test', now(), now())`, id); err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _, _ = pool.Exec(ctx, `DELETE FROM "user" WHERE id = $1`, id) }()
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM change_log WHERE account_id = $1`, id)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM "user" WHERE id = $1`, id)
+	})
 	if _, err := pool.Exec(ctx, `INSERT INTO mail_account (id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret)
 		VALUES ($1, $1, 'lena@example.com', '127.0.0.1', $2, '127.0.0.1', 25, 'lena', $3)`, id, port, secret); err != nil {
 		t.Fatal(err)
 	}
+	return fixture{pool, id, add}
+}
+
+func TestSync(t *testing.T) {
+	f := setup(t)
+	ctx, pool, id, add := context.Background(), f.pool, f.id, f.add
+	add("Keys for the new flat")
+	add("Saturday")
 
 	master := bytes.Repeat([]byte{7}, 32)
 	stored := map[string][]byte{}
@@ -116,4 +135,56 @@ func selfSigned(t *testing.T) *tls.Config {
 		t.Fatal(err)
 	}
 	return &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
+}
+
+func TestUIDValidityChange(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	put := func(context.Context, string, []byte, string) error { return nil }
+	master := bytes.Repeat([]byte{7}, 32)
+	f.add("One")
+	f.add("Two")
+	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE mailbox SET uid_validity = uid_validity + 1 WHERE account_id = $1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	// Both old rows are deleted and both messages come back as new rows.
+	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 6 {
+		t.Fatalf("version %d, %v; want 6", v, err)
+	}
+	var deletes, rows int
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM change_log WHERE account_id = $1 AND op = 'delete'`, f.id).Scan(&deletes)
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message WHERE account_id = $1`, f.id).Scan(&rows)
+	if deletes != 2 || rows != 2 {
+		t.Fatalf("%d deletes, %d rows", deletes, rows)
+	}
+}
+
+func TestWatch(t *testing.T) {
+	f := setup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	calls := make(chan struct{}, 10)
+	done := make(chan struct{})
+	go func() {
+		Watch(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { calls <- struct{}{} })
+		close(done)
+	}()
+	wait := func(what string) {
+		select {
+		case <-calls:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no call " + what)
+		}
+	}
+	wait("after connecting")
+	f.add("Invoice")
+	wait("for new mail")
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Watch didn't return after cancel")
+	}
 }

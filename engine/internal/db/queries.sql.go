@@ -11,13 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const clearMailbox = `-- name: ClearMailbox :exec
-DELETE FROM message WHERE mailbox_id = $1
+const clearMailbox = `-- name: ClearMailbox :many
+DELETE FROM message WHERE mailbox_id = $1 RETURNING id
 `
 
-func (q *Queries) ClearMailbox(ctx context.Context, mailboxID string) error {
-	_, err := q.db.Exec(ctx, clearMailbox, mailboxID)
-	return err
+func (q *Queries) ClearMailbox(ctx context.Context, mailboxID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, clearMailbox, mailboxID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const createMailbox = `-- name: CreateMailbox :exec
@@ -125,6 +140,30 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const listAccountIDs = `-- name: ListAccountIDs :many
+SELECT id FROM mail_account
+`
+
+func (q *Queries) ListAccountIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAccountIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const logChange = `-- name: LogChange :one

@@ -31,7 +31,7 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 	if err != nil {
 		return 0, err
 	}
-	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass)
+	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -55,9 +55,16 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 		box = db.Mailbox{ID: rand.Text(), AccountID: acc.ID, Name: "INBOX", UidValidity: int64(sel.UIDValidity)}
 		err = q.CreateMailbox(ctx, db.CreateMailboxParams(box))
 	case err == nil && box.UidValidity != int64(sel.UIDValidity):
-		// The server renumbered the folder, so every UID we stored is meaningless now.
-		if err = q.ClearMailbox(ctx, box.ID); err == nil {
+		// The server renumbered the folder, so every UID we stored is meaningless now. Clients drop the old rows
+		// and get everything again with new ids.
+		var gone []string
+		if gone, err = q.ClearMailbox(ctx, box.ID); err == nil {
 			err = q.SetUIDValidity(ctx, db.SetUIDValidityParams{ID: box.ID, UidValidity: int64(sel.UIDValidity)})
+		}
+		for _, id := range gone {
+			if err == nil {
+				acc.Version, err = q.LogChange(ctx, db.LogChangeParams{AccountID: acc.ID, Entity: "message", EntityID: id, Op: "delete"})
+			}
 		}
 	}
 	if err != nil {

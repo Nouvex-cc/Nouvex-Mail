@@ -7,8 +7,8 @@ SELECT * FROM mailbox WHERE account_id = $1 AND name = $2;
 -- name: CreateMailbox :exec
 INSERT INTO mailbox (id, account_id, name, uid_validity) VALUES ($1, $2, $3, $4);
 
--- name: ClearMailbox :exec
-DELETE FROM message WHERE mailbox_id = $1;
+-- name: ClearMailbox :many
+DELETE FROM message WHERE mailbox_id = $1 RETURNING id;
 
 -- name: SetUIDValidity :exec
 UPDATE mailbox SET uid_validity = $2 WHERE id = $1;
@@ -26,3 +26,6 @@ WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING
 INSERT INTO change_log (account_id, version, entity, entity_id, op)
 SELECT $1, v.version, $2, $3, $4 FROM v
 RETURNING version;
+
+-- name: ListAccountIDs :many
+SELECT id FROM mail_account;
