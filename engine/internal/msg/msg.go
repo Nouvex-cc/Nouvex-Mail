@@ -70,6 +70,9 @@ type MessageSend struct {
 	// Cc corresponds to the JSON schema field "cc".
 	Cc []string `json:"cc"`
 
+	// Id of the message this answers, for the thread headers.
+	InReplyTo *string `json:"inReplyTo,omitempty,omitzero"`
+
 	// Subject corresponds to the JSON schema field "subject".
 	Subject string `json:"subject"`
 

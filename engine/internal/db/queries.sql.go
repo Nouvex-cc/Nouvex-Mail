@@ -121,6 +121,22 @@ func (q *Queries) GetMailbox(ctx context.Context, arg GetMailboxParams) (Mailbox
 	return i, err
 }
 
+const getMessageID = `-- name: GetMessageID :one
+SELECT message_id FROM message WHERE id = $1 AND account_id = $2
+`
+
+type GetMessageIDParams struct {
+	ID        string
+	AccountID string
+}
+
+func (q *Queries) GetMessageID(ctx context.Context, arg GetMessageIDParams) (string, error) {
+	row := q.db.QueryRow(ctx, getMessageID, arg.ID, arg.AccountID)
+	var message_id string
+	err := row.Scan(&message_id)
+	return message_id, err
+}
+
 const getMessagePlace = `-- name: GetMessagePlace :one
 SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2
 `

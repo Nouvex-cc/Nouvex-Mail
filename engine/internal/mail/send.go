@@ -18,8 +18,10 @@ import (
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
-// Compose builds a plain text message. Bcc recipients get it through the envelope only.
-func Compose(from string, cmd msg.MessageSend, now time.Time) ([]byte, error) {
+// Compose builds a plain text message. Bcc recipients get it through the envelope only. parent is the Message-ID of
+// the message this answers, or empty.
+// ponytail: References holds only the parent; the parent's own References would need its raw headers.
+func Compose(from string, cmd msg.MessageSend, parent string, now time.Time) ([]byte, error) {
 	var h mail.Header
 	h.SetDate(now)
 	h.SetSubject(cmd.Subject)
@@ -33,6 +35,10 @@ func Compose(from string, cmd msg.MessageSend, now time.Time) ([]byte, error) {
 			addrs[i] = &mail.Address{Address: a}
 		}
 		h.SetAddressList(field, addrs)
+	}
+	if parent != "" {
+		h.SetMsgIDList("In-Reply-To", []string{parent})
+		h.SetMsgIDList("References", []string{parent})
 	}
 	if err := h.GenerateMessageIDWithHostname(from[strings.LastIndex(from, "@")+1:]); err != nil {
 		return nil, err
@@ -62,7 +68,12 @@ func Send(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageSend
 	if err != nil {
 		return nil, err
 	}
-	raw, err := Compose(acc.Email, cmd, time.Now())
+	var parent string
+	if cmd.InReplyTo != nil {
+		// A parent that is gone by now just means no thread headers.
+		parent, _ = q.GetMessageID(ctx, db.GetMessageIDParams{ID: *cmd.InReplyTo, AccountID: cmd.AccountId})
+	}
+	raw, err := Compose(acc.Email, cmd, parent, time.Now())
 	if err != nil {
 		return nil, err
 	}

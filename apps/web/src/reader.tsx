@@ -3,17 +3,20 @@ import { Button, MailFrame, Spinner, Thread, ThreadMessage, Tooltip, useShortcut
 import { Archive, ChevronLeft, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
+import type { Draft } from "./write";
 
 export function Reader({
 	message: m,
 	onClose,
 	onTrash,
 	onArchive,
+	onWrite,
 }: {
 	message: Message;
 	onClose: () => void;
 	onTrash: () => void;
 	onArchive?: () => void;
+	onWrite: (draft: Draft) => void;
 }) {
 	useShortcut("Escape", onClose);
 	const body = useQuery({
@@ -49,7 +52,14 @@ export function Reader({
 				</div>
 			</div>
 			<Thread subject={m.subject}>
-				<ThreadMessage from={m.fromName || m.fromAddr} email={m.fromAddr} date={new Date(m.sentAt)} snippet={m.snippet}>
+				<ThreadMessage
+					from={m.fromName || m.fromAddr}
+					email={m.fromAddr}
+					date={new Date(m.sentAt)}
+					snippet={m.snippet}
+					onReply={body.data === undefined ? undefined : () => onWrite(reply(m, text(body.data)))}
+					onForward={body.data === undefined ? undefined : () => onWrite(forward(m, text(body.data)))}
+				>
 					{body.data !== undefined ? (
 						<MailFrame html={body.data} />
 					) : body.isError ? (
@@ -62,3 +72,25 @@ export function Reader({
 		</div>
 	);
 }
+
+// The mail as plain text for quoting. Block breaks of HTML mails get lost; plain text mails keep their lines.
+const text = (html: string) => new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ?? "";
+
+const prefixed = (prefix: string, subject: string) =>
+	subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;
+
+const sender = (m: Message) => (m.fromName ? `${m.fromName} <${m.fromAddr}>` : m.fromAddr);
+
+const reply = (m: Message, body: string): Draft => ({
+	accountId: m.accountId,
+	to: [m.fromAddr],
+	subject: prefixed("Re:", m.subject),
+	body: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
+	inReplyTo: m.id,
+});
+
+const forward = (m: Message, body: string): Draft => ({
+	accountId: m.accountId,
+	subject: prefixed("Fwd:", m.subject),
+	body: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m)}\nDate: ${new Date(m.sentAt).toLocaleString()}\nSubject: ${m.subject}\n\n${body}`,
+});
