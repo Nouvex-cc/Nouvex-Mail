@@ -55,9 +55,12 @@ func DKIMValid(raw []byte) bool {
 }
 
 // DialIMAP uses implicit TLS on 993 and STARTTLS elsewhere, never plain text. IMAP_INSECURE_TLS=1 accepts
-// self-signed certificates, for local test servers only.
-func DialIMAP(host string, port int, user, pass string) (*imapclient.Client, error) {
-	opts := &imapclient.Options{TLSConfig: &tls.Config{ServerName: host, InsecureSkipVerify: os.Getenv("IMAP_INSECURE_TLS") == "1"}} //nolint:gosec // opt-in for local servers
+// self-signed certificates, for local test servers only. on may be nil.
+func DialIMAP(host string, port int, user, pass string, on *imapclient.UnilateralDataHandler) (*imapclient.Client, error) {
+	opts := &imapclient.Options{
+		TLSConfig:             &tls.Config{ServerName: host, InsecureSkipVerify: os.Getenv("IMAP_INSECURE_TLS") == "1"}, //nolint:gosec // opt-in for local servers
+		UnilateralDataHandler: on,
+	}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dial := imapclient.DialStartTLS
 	if port == 993 {

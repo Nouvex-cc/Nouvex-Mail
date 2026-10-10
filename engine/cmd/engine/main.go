@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/mail"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
@@ -94,6 +96,36 @@ func run() error {
 		return err
 	}
 
+	// Every account gets an IDLE watcher that queues a sync when new mail arrives.
+	var mu sync.Mutex
+	watched := map[string]bool{}
+	watch := func(id string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if watched[id] {
+			return
+		}
+		watched[id] = true
+		cmd, _ := json.Marshal(msg.MailboxSync{AccountId: id})
+		go func() {
+			mail.Watch(ctx, db.New(pool), master, id, func() {
+				if _, err := js.Publish(ctx, "cmd.mailbox.sync", cmd); err != nil {
+					slog.Error("queue sync", "account", id, "err", err)
+				}
+			})
+			mu.Lock()
+			delete(watched, id)
+			mu.Unlock()
+		}()
+	}
+	ids, err := db.New(pool).ListAccountIDs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		watch(id)
+	}
+
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		var cmd msg.MailboxSync
 		if err := json.Unmarshal(m.Data(), &cmd); err != nil {
@@ -114,6 +146,7 @@ func run() error {
 		}
 		slog.Info("synced", "account", cmd.AccountId, "version", v)
 		_ = m.Ack()
+		watch(cmd.AccountId)
 	})
 	if err != nil {
 		return err
