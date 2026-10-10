@@ -54,13 +54,14 @@ func DKIMValid(raw []byte) bool {
 	return true
 }
 
-// DialIMAP uses implicit TLS on 993 and STARTTLS elsewhere, never plain text. IMAP_INSECURE_TLS=1 accepts
-// self-signed certificates, for local test servers only. on may be nil.
+// MAIL_INSECURE_TLS=1 accepts self-signed certificates, for local test servers only.
+func tlsConfig(host string) *tls.Config {
+	return &tls.Config{ServerName: host, InsecureSkipVerify: os.Getenv("MAIL_INSECURE_TLS") == "1"} //nolint:gosec // opt-in for local servers
+}
+
+// DialIMAP uses implicit TLS on 993 and STARTTLS elsewhere, never plain text. on may be nil.
 func DialIMAP(host string, port int, user, pass string, on *imapclient.UnilateralDataHandler) (*imapclient.Client, error) {
-	opts := &imapclient.Options{
-		TLSConfig:             &tls.Config{ServerName: host, InsecureSkipVerify: os.Getenv("IMAP_INSECURE_TLS") == "1"}, //nolint:gosec // opt-in for local servers
-		UnilateralDataHandler: on,
-	}
+	opts := &imapclient.Options{TLSConfig: tlsConfig(host), UnilateralDataHandler: on}
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dial := imapclient.DialStartTLS
 	if port == 993 {
@@ -77,6 +78,22 @@ func DialIMAP(host string, port int, user, pass string, on *imapclient.Unilatera
 	return c, nil
 }
 
-func Send(addr, user, pass, from string, to []string, msg io.Reader) error {
-	return smtp.SendMail(addr, sasl.NewPlainClient("", user, pass), from, to, msg)
+// DialSMTP uses implicit TLS on 465 and STARTTLS elsewhere, never plain text, and logs in if the server asks for it.
+func DialSMTP(host string, port int, user, pass string) (*smtp.Client, error) {
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	dial := smtp.DialStartTLS
+	if port == 465 {
+		dial = smtp.DialTLS
+	}
+	c, err := dial(addr, tlsConfig(host))
+	if err != nil {
+		return nil, err
+	}
+	if ok, _ := c.Extension("AUTH"); ok {
+		if err := c.Auth(sasl.NewPlainClient("", user, pass)); err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
 }

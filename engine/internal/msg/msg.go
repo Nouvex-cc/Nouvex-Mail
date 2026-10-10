@@ -59,6 +59,93 @@ func (j *MailboxSynced) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Command: API asks the engine to send a message from one account.
+type MessageSend struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// Bcc corresponds to the JSON schema field "bcc".
+	Bcc []string `json:"bcc"`
+
+	// Cc corresponds to the JSON schema field "cc".
+	Cc []string `json:"cc"`
+
+	// Subject corresponds to the JSON schema field "subject".
+	Subject string `json:"subject"`
+
+	// Text corresponds to the JSON schema field "text".
+	Text string `json:"text"`
+
+	// To corresponds to the JSON schema field "to".
+	To []string `json:"to"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageSend) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MessageSend: required")
+	}
+	if _, ok := raw["bcc"]; raw != nil && !ok {
+		return fmt.Errorf("field bcc in MessageSend: required")
+	}
+	if _, ok := raw["cc"]; raw != nil && !ok {
+		return fmt.Errorf("field cc in MessageSend: required")
+	}
+	if _, ok := raw["subject"]; raw != nil && !ok {
+		return fmt.Errorf("field subject in MessageSend: required")
+	}
+	if _, ok := raw["text"]; raw != nil && !ok {
+		return fmt.Errorf("field text in MessageSend: required")
+	}
+	if _, ok := raw["to"]; raw != nil && !ok {
+		return fmt.Errorf("field to in MessageSend: required")
+	}
+	type Plain MessageSend
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageSend(plain)
+	return nil
+}
+
+// Event: engine sent a message, or gave up with an error.
+type MessageSent struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// Error corresponds to the JSON schema field "error".
+	Error *string `json:"error,omitempty,omitzero"`
+
+	// Subject corresponds to the JSON schema field "subject".
+	Subject string `json:"subject"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageSent) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MessageSent: required")
+	}
+	if _, ok := raw["subject"]; raw != nil && !ok {
+		return fmt.Errorf("field subject in MessageSent: required")
+	}
+	type Plain MessageSent
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageSent(plain)
+	return nil
+}
+
 // Command: API asks the engine to change one message on the mail server.
 type MessageUpdate struct {
 	// AccountId corresponds to the JSON schema field "accountId".

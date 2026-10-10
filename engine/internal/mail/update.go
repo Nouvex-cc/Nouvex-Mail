@@ -49,7 +49,7 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		}
 	}
 	if cmd.Trash != nil && *cmd.Trash {
-		trash, err := trashFolder(c)
+		trash, err := specialFolder(c, imap.MailboxAttrTrash, "Trash")
 		if err != nil {
 			return err
 		}
@@ -69,20 +69,20 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 	return nil
 }
 
-// trashFolder finds the folder marked \Trash, or one named Trash on servers without SPECIAL-USE.
-func trashFolder(c *imapclient.Client) (string, error) {
+// specialFolder finds the folder marked with attr, or one called name on servers without SPECIAL-USE.
+func specialFolder(c *imapclient.Client, attr imap.MailboxAttr, name string) (string, error) {
 	opts := &imap.ListOptions{ReturnSpecialUse: c.Caps().Has(imap.CapSpecialUse)}
 	boxes, err := c.List("", "*", opts).Collect()
 	if err != nil {
 		return "", err
 	}
 	for _, b := range boxes {
-		if slices.Contains(b.Attrs, imap.MailboxAttrTrash) {
+		if slices.Contains(b.Attrs, attr) {
 			return b.Mailbox, nil
 		}
 	}
 	for _, b := range boxes {
-		if strings.EqualFold(b.Mailbox, "Trash") {
+		if strings.EqualFold(b.Mailbox, name) {
 			return b.Mailbox, nil
 		}
 	}

@@ -79,7 +79,7 @@ func setup(t *testing.T) fixture {
 	})
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
-	t.Setenv("IMAP_INSECURE_TLS", "1")
+	t.Setenv("MAIL_INSECURE_TLS", "1")
 
 	id := rand.Text()
 	secret, _ := base64.StdEncoding.DecodeString(sealed)
@@ -230,5 +230,24 @@ func TestWatch(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Watch didn't return after cancel")
+	}
+}
+
+func TestSaveSent(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	raw, _ := Compose("lena@example.com", msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, time.Now())
+	// The test server has no Sent folder, so it gets created.
+	if err := SaveSent(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, raw); err != nil {
+		t.Fatal(err)
+	}
+	acc, _ := db.New(f.pool).GetAccount(ctx, f.id)
+	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), "lena", "hunter2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Logout().Wait() }()
+	if sel, err := c.Select("Sent", nil).Wait(); err != nil || sel.NumMessages != 1 {
+		t.Fatalf("%+v %v", sel, err)
 	}
 }

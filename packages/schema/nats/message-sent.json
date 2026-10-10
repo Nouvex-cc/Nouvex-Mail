@@ -1,0 +1,13 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MessageSent",
+	"description": "Event: engine sent a message, or gave up with an error.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"subject": { "type": "string" },
+		"error": { "type": "string" }
+	},
+	"required": ["accountId", "subject"],
+	"additionalProperties": false
+}
