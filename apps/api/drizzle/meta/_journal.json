@@ -29,6 +29,13 @@
       "when": 1791662808446,
       "tag": "0003_mailbox_role",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791663323330,
+      "tag": "0004_attachments",
+      "breakpoints": true
     }
   ]
 }

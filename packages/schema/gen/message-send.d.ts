@@ -19,4 +19,12 @@ export interface MessageSend {
    * Id of the message this answers, for the thread headers.
    */
   inReplyTo?: string;
+  /**
+   * Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.
+   */
+  attachments?: {
+    id: string;
+    name: string;
+    type: string;
+  }[];
 }

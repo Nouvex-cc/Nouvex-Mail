@@ -17,11 +17,18 @@ export function Write({
 }) {
 	const toast = useToast();
 	const send = async (m: OutgoingMessage) => {
-		// ponytail: attachments and scheduling need uploads and delayed delivery; the composer offers both already.
-		if (m.files.length || m.sendAt) {
-			toast.add({ title: "Attachments and send later aren't supported yet" });
-			return;
-		}
+		// ponytail: scheduling needs delayed delivery; the composer offers it already.
+		if (m.sendAt) return toast.add({ title: "Send later isn't supported yet" });
+		const uploads = await Promise.all(
+			m.files.map(async (file) => {
+				const form = new FormData();
+				form.set("file", file);
+				const res = await fetch(`/accounts/${from?.id}/uploads`, { method: "POST", body: form });
+				return res.ok ? { id: ((await res.json()) as { id: string }).id, name: file.name, type: file.type } : undefined;
+			}),
+		);
+		if (uploads.includes(undefined))
+			return toast.add({ title: "Couldn't upload the files", description: "Up to 25 MB each." });
 		const res = await fetch(`/accounts/${from?.id}/send`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -32,6 +39,7 @@ export function Write({
 				subject: m.subject,
 				text: m.body,
 				inReplyTo: draft?.inReplyTo,
+				attachments: uploads,
 			}),
 		});
 		if (!res.ok) return toast.add({ title: "Couldn't send", description: "Check the recipients and try again." });

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
@@ -64,7 +65,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	put, err := bucket(ctx)
+	put, get, err := bucket(ctx)
 	if err != nil {
 		return err
 	}
@@ -130,7 +131,7 @@ func run() error {
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		if m.Subject() == "cmd.message.send" {
-			send(ctx, m, nc, js, db.New(pool), master)
+			send(ctx, m, nc, js, db.New(pool), get, master)
 			return
 		}
 		var cmd msg.MailboxSync
@@ -184,35 +185,44 @@ func run() error {
 }
 
 // bucket connects to S3 with the same variables Bun's S3 client reads, and creates the bucket if needed.
-func bucket(ctx context.Context) (mail.Put, error) {
+func bucket(ctx context.Context) (mail.Put, mail.Get, error) {
 	u, err := url.Parse(os.Getenv("S3_ENDPOINT"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	c, err := minio.New(u.Host, &minio.Options{
 		Creds:  credentials.NewStaticV4(os.Getenv("S3_ACCESS_KEY_ID"), os.Getenv("S3_SECRET_ACCESS_KEY"), ""),
 		Secure: u.Scheme == "https",
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	name := os.Getenv("S3_BUCKET")
 	if ok, err := c.BucketExists(ctx, name); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if !ok {
 		if err := c.MakeBucket(ctx, name, minio.MakeBucketOptions{}); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return func(ctx context.Context, key string, data []byte, contentType string) error {
+	put := func(ctx context.Context, key string, data []byte, contentType string) error {
 		_, err := c.PutObject(ctx, name, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{ContentType: contentType})
 		return err
-	}, nil
+	}
+	get := func(ctx context.Context, key string) ([]byte, error) {
+		o, err := c.GetObject(ctx, name, key, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = o.Close() }()
+		return io.ReadAll(o)
+	}
+	return put, get, nil
 }
 
 // send runs once and reports the outcome as evt.message.sent: the server may have taken a message even when we saw
 // an error, and sending it twice is worse than asking the user to try again.
-func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetStream, q *db.Queries, master []byte) {
+func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetStream, q *db.Queries, get mail.Get, master []byte) {
 	defer func() { _ = m.Ack() }()
 	var cmd msg.MessageSend
 	if err := json.Unmarshal(m.Data(), &cmd); err != nil {
@@ -220,7 +230,7 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 		return
 	}
 	ev := msg.MessageSent{AccountId: cmd.AccountId, Subject: cmd.Subject}
-	raw, err := mail.Send(ctx, q, master, cmd)
+	raw, err := mail.Send(ctx, q, get, master, cmd)
 	if err != nil {
 		slog.Error("send failed", "account", cmd.AccountId, "err", err)
 		e := err.Error()

@@ -153,6 +153,7 @@ function Inbox() {
 							email={m.fromAddr}
 							subject={m.subject}
 							snippet={m.snippet}
+							attachments={m.attachments.length}
 							date={new Date(m.sentAt)}
 							unread={!m.flags.includes("\\Seen")}
 							onOpen={() => {

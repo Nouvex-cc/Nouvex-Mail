@@ -10,7 +10,17 @@
 		"bcc": { "type": "array", "items": { "type": "string" } },
 		"subject": { "type": "string" },
 		"text": { "type": "string" },
-		"inReplyTo": { "type": "string", "description": "Id of the message this answers, for the thread headers." }
+		"inReplyTo": { "type": "string", "description": "Id of the message this answers, for the thread headers." },
+		"attachments": {
+			"type": "array",
+			"description": "Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.",
+			"items": {
+				"type": "object",
+				"properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string" } },
+				"required": ["id", "name", "type"],
+				"additionalProperties": false
+			}
+		}
 	},
 	"required": ["accountId", "to", "cc", "bcc", "subject", "text"],
 	"additionalProperties": false

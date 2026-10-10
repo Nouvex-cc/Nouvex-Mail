@@ -151,6 +151,7 @@ const Message = z.object({
 	sentAt: z.iso.datetime({ offset: true }),
 	flags: z.array(z.string()),
 	size: z.int(),
+	attachments: z.array(z.object({ name: z.string(), type: z.string(), size: z.int() })),
 });
 
 app.openapi(
@@ -325,6 +326,7 @@ app.openapi(
 							subject: z.string(),
 							text: z.string(),
 							inReplyTo: z.string().optional(),
+							attachments: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string() })).optional(),
 						}),
 					},
 				},
@@ -337,6 +339,62 @@ app.openapi(
 		const { js } = await nats();
 		await js.publish("cmd.message.send", JSON.stringify(cmd));
 		return c.body(null, 202);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/messages/{messageId}/attachments/{index}",
+		operationId: "getAttachment",
+		request: {
+			params: z.object({ accountId: z.string(), messageId: z.string(), index: z.coerce.number().int().min(0) }),
+		},
+		responses: {
+			200: { description: "The file, as a download", content: { "application/octet-stream": { schema: z.any() } } },
+			404: { description: "No such attachment" },
+		},
+	}),
+	async (c) => {
+		const { accountId, messageId, index } = c.req.valid("param");
+		const [found] = await db
+			.select({ attachments: message.attachments })
+			.from(message)
+			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
+		const file = found?.attachments[index];
+		if (!file) return c.body(null, 404);
+		// Always a download, never rendered on our origin.
+		return new Response(s3.file(`att/${messageId}/${index}`).stream(), {
+			headers: {
+				"content-type": file.type || "application/octet-stream",
+				"content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+				"x-content-type-options": "nosniff",
+				"content-security-policy": "sandbox",
+			},
+		});
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/uploads",
+		operationId: "uploadFile",
+		description: "Stores a file to attach to a message sent later; pass the returned id in sendMessage.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: { content: { "multipart/form-data": { schema: z.object({ file: z.file().max(25 * 1024 * 1024) }) } } },
+		},
+		responses: {
+			201: { description: "Stored", content: { "application/json": { schema: z.object({ id: z.uuid() }) } } },
+		},
+	}),
+	async (c) => {
+		const { file } = c.req.valid("form");
+		const id = crypto.randomUUID();
+		// ponytail: uploads that never get sent stay in S3; a lifecycle rule on upload/ can expire them.
+		await s3.file(`upload/${c.req.valid("param").accountId}/${id}`).write(file);
+		return c.json({ id }, 201);
 	},
 );
 

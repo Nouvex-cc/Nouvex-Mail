@@ -56,18 +56,19 @@ type Mailbox struct {
 }
 
 type Message struct {
-	ID        string
-	AccountID string
-	MailboxID string
-	Uid       int64
-	MessageID string
-	Subject   string
-	FromName  string
-	FromAddr  string
-	SentAt    pgtype.Timestamptz
-	Flags     []string
-	Size      int32
-	Snippet   string
+	ID          string
+	AccountID   string
+	MailboxID   string
+	Uid         int64
+	MessageID   string
+	Subject     string
+	FromName    string
+	FromAddr    string
+	SentAt      pgtype.Timestamptz
+	Flags       []string
+	Size        int32
+	Snippet     string
+	Attachments []byte
 }
 
 type Passkey struct {

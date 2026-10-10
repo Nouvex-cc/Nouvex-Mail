@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { bigint, customType, index, integer, pgTable, primaryKey, text, timestamp, unique } from "drizzle-orm/pg-core";
+import {
+	bigint,
+	customType,
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	text,
+	timestamp,
+	unique,
+} from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
 export * from "./auth-schema";
@@ -58,6 +69,8 @@ export const message = pgTable(
 		sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
 		flags: text("flags").array().notNull(),
 		size: integer("size").notNull(),
+		// Stored in S3 as att/<message id>/<index>.
+		attachments: jsonb("attachments").$type<{ name: string; type: string; size: number }[]>().notNull().default([]),
 	},
 	(t) => [unique().on(t.mailboxId, t.uid), index().on(t.accountId, t.sentAt)],
 );

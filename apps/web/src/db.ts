@@ -14,6 +14,7 @@ export interface Message {
 	sentAt: string;
 	flags: string[];
 	size: number;
+	attachments: { name: string; type: string; size: number }[];
 }
 
 export interface Mailbox {
@@ -38,3 +39,7 @@ db.version(1).stores({
 db.version(2)
 	.stores({ messages: "id, mailboxId, sentAt", mailboxes: "id, accountId" })
 	.upgrade((tx) => Promise.all([tx.table("messages").clear(), tx.table("cursor").clear()]));
+// Same for attachments.
+db.version(3).upgrade((tx) =>
+	Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
+);
