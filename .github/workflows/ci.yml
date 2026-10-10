@@ -33,6 +33,8 @@ jobs:
           until bun -e 'await Bun.s3.write("ping", "1")' 2>/dev/null; do sleep 1; done
       - run: bunx oxlint
       - run: bunx turbo lint typecheck test build --filter='!@nouvex/engine'
+      - name: OpenAPI document is current
+        run: bun run openapi && git diff --exit-code apps/apple/Nouvex/openapi.json
 
   go:
     runs-on: ubuntu-latest
