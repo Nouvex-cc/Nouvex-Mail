@@ -10,7 +10,7 @@ import {
 	Tooltip,
 	useShortcut,
 } from "@nouvex/ui";
-import { Archive, ChevronLeft, Trash2 } from "@nouvex/ui/icons";
+import { Archive, ChevronLeft, Mail, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 import type { Draft } from "./write";
@@ -21,12 +21,14 @@ export function Reader({
 	onTrash,
 	onArchive,
 	onWrite,
+	onMarkUnread,
 }: {
 	message: Message;
 	onClose: () => void;
 	onTrash: () => void;
 	onArchive?: () => void;
 	onWrite: (draft: Draft) => void;
+	onMarkUnread: () => void;
 }) {
 	useShortcut("Escape", onClose);
 	const body = useQuery({
@@ -47,6 +49,11 @@ export function Reader({
 					Inbox
 				</Button>
 				<div className="flex gap-1">
+					<Tooltip content="Mark unread">
+						<Button variant="ghost" size="icon" aria-label="Mark unread" onClick={onMarkUnread}>
+							<Mail strokeWidth={1.75} />
+						</Button>
+					</Tooltip>
 					{onArchive && (
 						<Tooltip content="Archive">
 							<Button variant="ghost" size="icon" aria-label="Archive" onClick={onArchive}>

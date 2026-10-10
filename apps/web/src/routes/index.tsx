@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { AccountSwitcher, AppShell, Button, MessageList, MessageRow, Sidebar, useToast } from "@nouvex/ui";
+import {
+	AccountSwitcher,
+	AppShell,
+	Button,
+	MessageList,
+	MessageRow,
+	SearchField,
+	type SearchQuery,
+	Sidebar,
+	useToast,
+} from "@nouvex/ui";
 import { Archive, File, Folder, Inbox as InboxIcon, PenLine, Send, ShieldAlert, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
@@ -9,6 +19,7 @@ import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db } from "../db";
 import { Reader } from "../reader";
+import { matches } from "../search";
 import { listen, pull, update } from "../sync";
 import { type Draft, Write } from "../write";
 
@@ -35,6 +46,9 @@ function Inbox() {
 	const [current, setCurrent] = useState("all");
 	// A role shows that folder of every account in view; the user's own folders are picked by id.
 	const [folder, setFolder] = useState("inbox");
+	// While searching, every folder in view counts.
+	const [query, setQuery] = useState<SearchQuery>({ text: "", filters: [] });
+	const searching = query.text !== "" || query.filters.length > 0;
 	const [adding, setAdding] = useState(false);
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
@@ -61,11 +75,20 @@ function Inbox() {
 			() => (current === "all" ? db.mailboxes.toArray() : db.mailboxes.where("accountId").equals(current).toArray()),
 			[current],
 		) ?? [];
-	const shown = boxes.filter((b) => (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
-	// ponytail: renders every message; switch to VirtualList once folders get big.
+	const shown = boxes.filter((b) => searching || (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
+	// ponytail: renders every message and searches in memory; VirtualList and an index once folders get big.
 	const messages = useLiveQuery(
-		async () => (await db.messages.where("mailboxId").anyOf(shown).sortBy("sentAt")).reverse(),
-		[shown.join()],
+		async () =>
+			(await db.messages.where("mailboxId").anyOf(shown).sortBy("sentAt"))
+				.reverse()
+				.filter((m) => !searching || matches(m, query)),
+		[shown.join(), query],
+	);
+	const inboxes = boxes.filter((b) => b.role === "inbox").map((b) => b.id);
+	const unread = useLiveQuery(
+		async () =>
+			(await db.messages.where("mailboxId").anyOf(inboxes).toArray()).some((m) => !m.flags.includes("\\Seen")),
+		[inboxes.join()],
 	);
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -95,7 +118,8 @@ function Inbox() {
 									key={role}
 									label={label}
 									icon={<Icon strokeWidth={1.75} />}
-									active={folder === role}
+									unread={role === "inbox" && unread}
+									active={!searching && folder === role}
 									onSelect={() => setFolder(role)}
 								/>
 							))}
@@ -107,7 +131,7 @@ function Inbox() {
 									key={b.id}
 									label={b.name}
 									icon={<Folder strokeWidth={1.75} />}
-									active={folder === b.id}
+									active={!searching && folder === b.id}
 									onSelect={() => setFolder(b.id)}
 								/>
 							))}
@@ -118,13 +142,30 @@ function Inbox() {
 					</Sidebar.Section>
 				</Sidebar.Root>
 			}
-			header={null}
+			header={
+				<SearchField
+					className="w-full max-w-xl"
+					contacts={[
+						...new Map(
+							(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
+						).values(),
+					]}
+					onSearch={(q) => {
+						setQuery(q);
+						setOpen(undefined);
+					}}
+				/>
+			}
 		>
 			{reading ? (
 				<Reader
 					message={reading}
 					onClose={() => setOpen(undefined)}
 					onWrite={setDraft}
+					onMarkUnread={() => {
+						setOpen(undefined);
+						void update(reading, { seen: false });
+					}}
 					onTrash={() => {
 						setOpen(undefined);
 						void update(reading, { trash: true });
