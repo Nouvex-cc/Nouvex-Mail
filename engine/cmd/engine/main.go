@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -86,9 +88,9 @@ func run() error {
 		return err
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Durable:       "engine",
-		FilterSubject: "cmd.mailbox.sync",
-		AckPolicy:     jetstream.AckExplicitPolicy,
+		Durable:        "engine",
+		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update"},
+		AckPolicy:      jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
 	})
@@ -128,10 +130,29 @@ func run() error {
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		var cmd msg.MailboxSync
-		if err := json.Unmarshal(m.Data(), &cmd); err != nil {
+		var update msg.MessageUpdate
+		var err error
+		if m.Subject() == "cmd.message.update" {
+			err = json.Unmarshal(m.Data(), &update)
+			cmd.AccountId = update.AccountId
+		} else {
+			err = json.Unmarshal(m.Data(), &cmd)
+		}
+		if err != nil {
 			slog.Warn("bad command", "subject", m.Subject(), "err", err)
 			_ = m.Term()
 			return
+		}
+		if update.MessageId != "" {
+			// A message that is gone already can't be changed anymore.
+			if err := mail.Update(ctx, db.New(pool), master, update); errors.Is(err, pgx.ErrNoRows) {
+				_ = m.Term()
+				return
+			} else if err != nil {
+				slog.Error("update failed", "account", update.AccountId, "err", err)
+				_ = m.NakWithDelay(time.Minute)
+				return
+			}
 		}
 		v, err := mail.Sync(ctx, pool, put, master, cmd.AccountId)
 		if err != nil {

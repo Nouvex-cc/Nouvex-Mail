@@ -9,7 +9,7 @@ import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db } from "../db";
 import { Reader } from "../reader";
-import { listen, pull } from "../sync";
+import { listen, pull, update } from "../sync";
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
@@ -72,7 +72,14 @@ function Inbox() {
 			header={null}
 		>
 			{reading ? (
-				<Reader message={reading} onClose={() => setOpen(undefined)} />
+				<Reader
+					message={reading}
+					onClose={() => setOpen(undefined)}
+					onTrash={() => {
+						setOpen(undefined);
+						void update(reading, { trash: true });
+					}}
+				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">
 					<Button variant="primary" onClick={() => setAdding(true)}>
@@ -90,7 +97,11 @@ function Inbox() {
 							snippet={m.snippet}
 							date={new Date(m.sentAt)}
 							unread={!m.flags.includes("\\Seen")}
-							onOpen={() => setOpen(m.id)}
+							onOpen={() => {
+								setOpen(m.id);
+								if (!m.flags.includes("\\Seen")) void update(m, { seen: true });
+							}}
+							onDelete={() => void update(m, { trash: true })}
 						/>
 					))}
 				</MessageList>
