@@ -32,6 +32,8 @@ export const mailbox = pgTable(
 			.notNull()
 			.references(() => mailAccount.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
+		// inbox, sent, drafts, trash, junk, archive, or empty for the user's own folders.
+		role: text("role").notNull().default(""),
 		uidValidity: bigint("uid_validity", { mode: "number" }).notNull(),
 	},
 	(t) => [unique().on(t.accountId, t.name)],

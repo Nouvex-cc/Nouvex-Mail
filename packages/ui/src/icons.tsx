@@ -181,6 +181,15 @@ export const FileVideo = icon(
 		/>
 	</>,
 );
+export const Folder = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			d="M3 5a1 1 0 0 1 1-1h5.52a1 1 0 0 1 .78.375l1.4 1.75a1 1 0 0 0 .78.375H20a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
+		/>
+	</>,
+);
 export const Forward = icon(
 	<>
 		<path
@@ -280,6 +289,16 @@ export const Search = icon(
 export const Send = icon(
 	<>
 		<path fill="none" stroke="currentColor" strokeLinejoin="round" d="M20 5L8.5 14.5V18l2-2M3 9l17.5-4.5l-6 15.5z" />
+	</>,
+);
+export const ShieldAlert = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			d="m8.464 15.536l7.072-7.071M21 12a9 9 0 1 1-18 0a9 9 0 0 1 18 0Z"
+		/>
 	</>,
 );
 export const Star = icon(

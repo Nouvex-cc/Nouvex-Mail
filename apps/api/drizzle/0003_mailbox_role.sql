@@ -1,0 +1,1 @@
+ALTER TABLE "mailbox" ADD COLUMN "role" text DEFAULT '' NOT NULL;

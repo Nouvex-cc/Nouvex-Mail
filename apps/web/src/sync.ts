@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { MailboxSynced, MessageSent } from "@nouvex/schema";
-import { db, type Message } from "./db";
+import { db, type Mailbox, type Message } from "./db";
 
 type Changes = {
 	version: number;
 	more: boolean;
+	mailboxes: { upserted: Omit<Mailbox, "accountId">[]; deleted: string[] };
 	messages: { upserted: Omit<Message, "accountId">[]; deleted: string[] };
 };
 
@@ -18,8 +19,10 @@ export function pull(accountId: string) {
 				const since = (await db.cursor.get(accountId))?.version ?? 0;
 				const res = await fetch(`/accounts/${accountId}/changes?since=${since}`);
 				if (!res.ok) throw new Error(`changes: ${res.status}`);
-				const { version, more, messages }: Changes = await res.json();
-				await db.transaction("rw", db.messages, db.cursor, async () => {
+				const { version, more, mailboxes, messages }: Changes = await res.json();
+				await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
+					await db.mailboxes.bulkPut(mailboxes.upserted.map((b) => ({ ...b, accountId })));
+					await db.mailboxes.bulkDelete(mailboxes.deleted);
 					await db.messages.bulkPut(messages.upserted.map((m) => ({ ...m, accountId })));
 					await db.messages.bulkDelete(messages.deleted);
 					await db.cursor.put({ accountId, version });
@@ -49,9 +52,9 @@ export function listen(accountIds: string[], onSent: (e: MessageSent) => void) {
 }
 
 // Applies the change locally right away; the server's version arrives through pull. A failed request puts the
-// message back as it was.
-export async function update(m: Message, change: { seen?: boolean; trash?: boolean }) {
-	if (change.trash) await db.messages.delete(m.id);
+// message back as it was. Moved messages come back with a new id in their new folder.
+export async function update(m: Message, change: { seen?: boolean; trash?: boolean; archive?: boolean }) {
+	if (change.trash || change.archive) await db.messages.delete(m.id);
 	else if (change.seen !== undefined) {
 		const flags = m.flags.filter((f) => f !== "\\Seen");
 		await db.messages.update(m.id, { flags: change.seen ? [...flags, "\\Seen"] : flags });

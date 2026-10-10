@@ -16,4 +16,8 @@ export interface MessageUpdate {
    * Move the message to the trash folder.
    */
   trash?: boolean;
+  /**
+   * Move the message to the archive folder.
+   */
+  archive?: boolean;
 }

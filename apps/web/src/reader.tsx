@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Button, MailFrame, Spinner, Thread, ThreadMessage, Tooltip, useShortcut } from "@nouvex/ui";
-import { ChevronLeft, Trash2 } from "@nouvex/ui/icons";
+import { Archive, ChevronLeft, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 
@@ -8,10 +8,12 @@ export function Reader({
 	message: m,
 	onClose,
 	onTrash,
+	onArchive,
 }: {
 	message: Message;
 	onClose: () => void;
 	onTrash: () => void;
+	onArchive?: () => void;
 }) {
 	useShortcut("Escape", onClose);
 	const body = useQuery({
@@ -31,11 +33,20 @@ export function Reader({
 					<ChevronLeft strokeWidth={1.75} />
 					Inbox
 				</Button>
-				<Tooltip content="Delete">
-					<Button variant="ghost" size="icon" aria-label="Delete" onClick={onTrash}>
-						<Trash2 strokeWidth={1.75} />
-					</Button>
-				</Tooltip>
+				<div className="flex gap-1">
+					{onArchive && (
+						<Tooltip content="Archive">
+							<Button variant="ghost" size="icon" aria-label="Archive" onClick={onArchive}>
+								<Archive strokeWidth={1.75} />
+							</Button>
+						</Tooltip>
+					)}
+					<Tooltip content="Delete">
+						<Button variant="ghost" size="icon" aria-label="Delete" onClick={onTrash}>
+							<Trash2 strokeWidth={1.75} />
+						</Button>
+					</Tooltip>
+				</div>
 			</div>
 			<Thread subject={m.subject}>
 				<ThreadMessage from={m.fromName || m.fromAddr} email={m.fromAddr} date={new Date(m.sentAt)} snippet={m.snippet}>

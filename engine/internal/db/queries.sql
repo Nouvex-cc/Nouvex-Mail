@@ -5,13 +5,19 @@ SELECT * FROM mail_account WHERE id = $1;
 SELECT * FROM mailbox WHERE account_id = $1 AND name = $2;
 
 -- name: CreateMailbox :exec
-INSERT INTO mailbox (id, account_id, name, uid_validity) VALUES ($1, $2, $3, $4);
+INSERT INTO mailbox (id, account_id, name, role, uid_validity) VALUES ($1, $2, $3, $4, $5);
+
+-- name: UpdateMailbox :exec
+UPDATE mailbox SET role = $2, uid_validity = $3 WHERE id = $1;
+
+-- name: ListMailboxes :many
+SELECT * FROM mailbox WHERE account_id = $1;
+
+-- name: DeleteMailbox :exec
+DELETE FROM mailbox WHERE id = $1;
 
 -- name: ClearMailbox :many
 DELETE FROM message WHERE mailbox_id = $1 RETURNING id;
-
--- name: SetUIDValidity :exec
-UPDATE mailbox SET uid_validity = $2 WHERE id = $1;
 
 -- name: MaxUID :one
 SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1;

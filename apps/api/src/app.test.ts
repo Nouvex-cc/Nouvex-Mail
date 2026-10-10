@@ -38,9 +38,9 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 			smtpPort: 465,
 			username: "x",
 			secret: new Uint8Array(1),
-			version: 3,
+			version: 4,
 		});
-		await db.insert(mailbox).values({ id: `${id}-in`, accountId: id, name: "INBOX", uidValidity: 1 });
+		await db.insert(mailbox).values({ id: `${id}-in`, accountId: id, name: "INBOX", role: "inbox", uidValidity: 1 });
 		const row = (n: number) => ({
 			id: `${id}-${n}`,
 			accountId: id,
@@ -59,16 +59,27 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 			{ accountId: id, version: 1, entity: "message", entityId: `${id}-1`, op: "upsert" },
 			{ accountId: id, version: 2, entity: "message", entityId: `${id}-2`, op: "upsert" },
 			{ accountId: id, version: 3, entity: "message", entityId: `${id}-1`, op: "delete" },
+			{ accountId: id, version: 4, entity: "mailbox", entityId: `${id}-in`, op: "upsert" },
 		]);
 
 		const get = async (q: string) => (await app.request(`/accounts/${id}/changes?${q}`, { headers })).json();
 		const first = await get("since=0&limit=2");
 		expect(first).toMatchObject({ version: 2, more: true, messages: { deleted: [] } });
 		expect(first.messages.upserted.map((m: { subject: string }) => m.subject).sort()).toEqual(["Mail 1", "Mail 2"]);
-		expect(await get("since=2")).toEqual({ version: 3, more: false, messages: { upserted: [], deleted: [`${id}-1`] } });
+		expect(await get("since=2")).toEqual({
+			version: 4,
+			more: false,
+			mailboxes: { upserted: [{ id: `${id}-in`, name: "INBOX", role: "inbox" }], deleted: [] },
+			messages: { upserted: [], deleted: [`${id}-1`] },
+		});
 		// Mail 1 was upserted and deleted within one page: only the delete remains.
 		expect((await get("since=0")).messages).toMatchObject({ deleted: [`${id}-1`] });
-		expect(await get("since=3")).toEqual({ version: 3, more: false, messages: { upserted: [], deleted: [] } });
+		expect(await get("since=4")).toEqual({
+			version: 4,
+			more: false,
+			mailboxes: { upserted: [], deleted: [] },
+			messages: { upserted: [], deleted: [] },
+		});
 
 		const other = await app.request(`/accounts/${crypto.randomUUID()}/changes?since=0`, { headers });
 		expect(other.status).toBe(404);
