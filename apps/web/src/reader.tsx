@@ -10,7 +10,7 @@ import {
 	Tooltip,
 	useShortcut,
 } from "@nouvex/ui";
-import { Archive, ChevronLeft, Trash2 } from "@nouvex/ui/icons";
+import { Archive, ChevronLeft, Mail, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 import type { Draft } from "./write";
@@ -21,12 +21,14 @@ export function Reader({
 	onTrash,
 	onArchive,
 	onWrite,
+	onMarkUnread,
 }: {
 	message: Message;
 	onClose: () => void;
 	onTrash: () => void;
 	onArchive?: () => void;
 	onWrite: (draft: Draft) => void;
+	onMarkUnread: () => void;
 }) {
 	useShortcut("Escape", onClose);
 	const body = useQuery({
@@ -39,6 +41,8 @@ export function Reader({
 		staleTime: Number.POSITIVE_INFINITY,
 	});
 
+	const quoted = body.data === undefined ? undefined : text(body.data);
+
 	return (
 		<div className="grid content-start gap-3 p-4">
 			<div className="flex items-center justify-between">
@@ -47,6 +51,11 @@ export function Reader({
 					Inbox
 				</Button>
 				<div className="flex gap-1">
+					<Tooltip content="Mark unread">
+						<Button variant="ghost" size="icon" aria-label="Mark unread" onClick={onMarkUnread}>
+							<Mail strokeWidth={1.75} />
+						</Button>
+					</Tooltip>
 					{onArchive && (
 						<Tooltip content="Archive">
 							<Button variant="ghost" size="icon" aria-label="Archive" onClick={onArchive}>
@@ -67,8 +76,8 @@ export function Reader({
 					email={m.fromAddr}
 					date={new Date(m.sentAt)}
 					snippet={m.snippet}
-					onReply={body.data === undefined ? undefined : () => onWrite(reply(m, text(body.data)))}
-					onForward={body.data === undefined ? undefined : () => onWrite(forward(m, text(body.data)))}
+					onReply={quoted === undefined ? undefined : () => onWrite(reply(m, quoted))}
+					onForward={quoted === undefined ? undefined : () => onWrite(forward(m, quoted))}
 				>
 					{body.data !== undefined ? (
 						<>

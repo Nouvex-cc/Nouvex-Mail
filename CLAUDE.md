@@ -28,7 +28,7 @@ docs/design.md   Design language, read before any UI work
 ## Commands
 
 ```sh
-docker compose up -d                # Postgres, NATS, SeaweedFS (S3), Stalwart, Mailpit
+docker compose up -d                # Postgres, NATS, SeaweedFS (S3), GreenMail (IMAP/SMTP)
 docker compose --profile obs up -d  # + Grafana/OTel (localhost:3001)
 bun dev                             # everything via Turbo
 bunx turbo lint typecheck test build

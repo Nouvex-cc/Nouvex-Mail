@@ -4,8 +4,6 @@ package mail
 
 import (
 	"context"
-	"slices"
-	"strings"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -49,15 +47,9 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		}
 	}
 	if cmd.Archive != nil && *cmd.Archive {
-		archive, err := specialFolder(c, imap.MailboxAttrArchive, "Archive")
+		archive, err := specialFolder(c, "archive", "Archive")
 		if err != nil {
 			return err
-		}
-		if archive == "" {
-			archive = "Archive"
-			if err := c.Create(archive, nil).Wait(); err != nil {
-				return err
-			}
 		}
 		if archive != place.Name {
 			_, err = c.Move(uid, archive).Wait()
@@ -65,7 +57,7 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		return err
 	}
 	if cmd.Trash != nil && *cmd.Trash {
-		trash, err := specialFolder(c, imap.MailboxAttrTrash, "Trash")
+		trash, err := specialFolder(c, "trash", "")
 		if err != nil {
 			return err
 		}
@@ -85,22 +77,20 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 	return nil
 }
 
-// specialFolder finds the folder marked with attr, or one called name on servers without SPECIAL-USE.
-func specialFolder(c *imapclient.Client, attr imap.MailboxAttr, name string) (string, error) {
-	opts := &imap.ListOptions{ReturnSpecialUse: c.Caps().Has(imap.CapSpecialUse)}
-	boxes, err := c.List("", "*", opts).Collect()
+// specialFolder finds the folder with the given role, the same way Sync assigns roles. A missing one is created
+// under create, unless that is empty.
+func specialFolder(c *imapclient.Client, want, create string) (string, error) {
+	boxes, err := c.List("", "*", &imap.ListOptions{ReturnSpecialUse: c.Caps().Has(imap.CapSpecialUse)}).Collect()
 	if err != nil {
 		return "", err
 	}
 	for _, b := range boxes {
-		if slices.Contains(b.Attrs, attr) {
+		if role(b) == want {
 			return b.Mailbox, nil
 		}
 	}
-	for _, b := range boxes {
-		if strings.EqualFold(b.Mailbox, name) {
-			return b.Mailbox, nil
-		}
+	if create == "" {
+		return "", nil
 	}
-	return "", nil
+	return create, c.Create(create, nil).Wait()
 }

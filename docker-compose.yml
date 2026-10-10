@@ -23,14 +23,12 @@ services:
     ports: ["8333:8333"]
     volumes: [s3:/data, ./docker/s3.json:/etc/s3.json:ro]
 
-  stalwart:
-    image: stalwartlabs/stalwart:latest
-    ports: ["1143:143", "1993:993", "8080:8080"]
-    volumes: [stalwart:/opt/stalwart]
-
-  mailpit:
-    image: axllent/mailpit
-    ports: ["1025:1025", "8025:8025"]
+  # Local IMAP and SMTP server: any address works, mailboxes are created on first login, any password is accepted.
+  greenmail:
+    image: greenmail/standalone:latest
+    environment:
+      GREENMAIL_OPTS: -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled
+    ports: ["993:3993", "465:3465"]
 
   lgtm:
     image: grafana/otel-lgtm
@@ -41,4 +39,3 @@ volumes:
   pg:
   nats:
   s3:
-  stalwart:

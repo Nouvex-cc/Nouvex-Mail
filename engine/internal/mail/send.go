@@ -149,15 +149,9 @@ func SaveSent(ctx context.Context, q *db.Queries, master []byte, accountID strin
 		return err
 	}
 	defer func() { _ = c.Logout().Wait() }()
-	sent, err := specialFolder(c, imap.MailboxAttrSent, "Sent")
+	sent, err := specialFolder(c, "sent", "Sent")
 	if err != nil {
 		return err
-	}
-	if sent == "" {
-		sent = "Sent"
-		if err := c.Create(sent, nil).Wait(); err != nil {
-			return err
-		}
 	}
 	w := c.Append(sent, int64(len(raw)), &imap.AppendOptions{Flags: []imap.Flag{imap.FlagSeen}})
 	if _, err := w.Write(raw); err != nil {

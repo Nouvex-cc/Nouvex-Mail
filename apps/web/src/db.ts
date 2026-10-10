@@ -35,11 +35,9 @@ db.version(1).stores({
 	messages: "id, [accountId+sentAt], sentAt",
 	cursor: "accountId",
 });
-// Folders came later; start over so they arrive with the next pull.
-db.version(2)
+// Folders and attachments came later; start over so they arrive with the next pull.
+db.version(3)
 	.stores({ messages: "id, mailboxId, sentAt", mailboxes: "id, accountId" })
-	.upgrade((tx) => Promise.all([tx.table("messages").clear(), tx.table("cursor").clear()]));
-// Same for attachments.
-db.version(3).upgrade((tx) =>
-	Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
-);
+	.upgrade((tx) =>
+		Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
+	);
