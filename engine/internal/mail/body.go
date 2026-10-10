@@ -18,12 +18,21 @@ var (
 	spaces = regexp.MustCompile(`\s+`)
 )
 
-// Body returns the HTML to show for a raw message (the text part, escaped, if there is no HTML part) and a
-// one-line snippet of its text. Sanitizing happens where it is shown.
-func Body(raw []byte) (body, snippet string, err error) {
+// File is an attachment of a message.
+type File struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Size int    `json:"size"`
+	Data []byte `json:"-"`
+}
+
+// Content returns the HTML to show for a raw message (the text part, escaped, if there is no HTML part), a one-line
+// snippet of its text and its attachments. Sanitizing happens where it is shown.
+// ponytail: inline images referenced by cid: become plain attachments; showing them in place needs cid rewriting.
+func Content(raw []byte) (body, snippet string, files []File, err error) {
 	mr, err := mail.CreateReader(bytes.NewReader(raw))
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	defer func() { _ = mr.Close() }()
 	var htmlPart, textPart string
@@ -33,22 +42,33 @@ func Body(raw []byte) (body, snippet string, err error) {
 			break
 		}
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
-		h, ok := p.Header.(*mail.InlineHeader)
-		if !ok {
-			continue
-		}
-		ct, _, _ := h.ContentType()
 		b, err := io.ReadAll(p.Body)
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
+		}
+		var ct, name string
+		switch h := p.Header.(type) {
+		case *mail.InlineHeader:
+			ct, _, _ = h.ContentType()
+			if _, params, err := h.ContentDisposition(); err == nil {
+				name = params["filename"]
+			}
+		case *mail.AttachmentHeader:
+			ct, _, _ = h.ContentType()
+			name, _ = h.Filename()
 		}
 		switch {
-		case ct == "text/html" && htmlPart == "":
+		case name == "" && ct == "text/html" && htmlPart == "":
 			htmlPart = string(b)
-		case ct == "text/plain" && textPart == "":
+		case name == "" && (ct == "text/plain" || ct == "") && textPart == "":
 			textPart = string(b)
+		case name != "" || !strings.HasPrefix(ct, "text/"):
+			if name == "" {
+				name = "attachment"
+			}
+			files = append(files, File{Name: name, Type: ct, Size: len(b), Data: b})
 		}
 	}
 	text := textPart
@@ -63,5 +83,5 @@ func Body(raw []byte) (body, snippet string, err error) {
 	if body == "" {
 		body = `<div style="white-space: pre-wrap">` + html.EscapeString(textPart) + `</div>`
 	}
-	return body, snippet, nil
+	return body, snippet, files, nil
 }

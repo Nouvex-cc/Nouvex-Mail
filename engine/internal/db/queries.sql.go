@@ -159,24 +159,25 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
 type InsertMessageParams struct {
-	ID        string
-	AccountID string
-	MailboxID string
-	Uid       int64
-	MessageID string
-	Subject   string
-	Snippet   string
-	FromName  string
-	FromAddr  string
-	SentAt    pgtype.Timestamptz
-	Flags     []string
-	Size      int32
+	ID          string
+	AccountID   string
+	MailboxID   string
+	Uid         int64
+	MessageID   string
+	Subject     string
+	Snippet     string
+	FromName    string
+	FromAddr    string
+	SentAt      pgtype.Timestamptz
+	Flags       []string
+	Size        int32
+	Attachments []byte
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -193,6 +194,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.SentAt,
 		arg.Flags,
 		arg.Size,
+		arg.Attachments,
 	)
 	if err != nil {
 		return 0, err

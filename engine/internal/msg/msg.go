@@ -64,6 +64,9 @@ type MessageSend struct {
 	// AccountId corresponds to the JSON schema field "accountId".
 	AccountId string `json:"accountId"`
 
+	// Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.
+	Attachments []MessageSendAttachmentsElem `json:"attachments,omitempty,omitzero"`
+
 	// Bcc corresponds to the JSON schema field "bcc".
 	Bcc []string `json:"bcc"`
 
@@ -81,6 +84,41 @@ type MessageSend struct {
 
 	// To corresponds to the JSON schema field "to".
 	To []string `json:"to"`
+}
+
+type MessageSendAttachmentsElem struct {
+	// Id corresponds to the JSON schema field "id".
+	Id string `json:"id"`
+
+	// Name corresponds to the JSON schema field "name".
+	Name string `json:"name"`
+
+	// Type corresponds to the JSON schema field "type".
+	Type string `json:"type"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageSendAttachmentsElem) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["id"]; raw != nil && !ok {
+		return fmt.Errorf("field id in MessageSendAttachmentsElem: required")
+	}
+	if _, ok := raw["name"]; raw != nil && !ok {
+		return fmt.Errorf("field name in MessageSendAttachmentsElem: required")
+	}
+	if _, ok := raw["type"]; raw != nil && !ok {
+		return fmt.Errorf("field type in MessageSendAttachmentsElem: required")
+	}
+	type Plain MessageSendAttachmentsElem
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageSendAttachmentsElem(plain)
+	return nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.

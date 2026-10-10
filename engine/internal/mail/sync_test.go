@@ -266,7 +266,7 @@ func TestWatch(t *testing.T) {
 func TestSaveSent(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	raw, _ := Compose("lena@example.com", msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", time.Now())
+	raw, _ := Compose("lena@example.com", msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", nil, time.Now())
 	// The test server has no Sent folder, so it gets created.
 	if err := SaveSent(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, raw); err != nil {
 		t.Fatal(err)

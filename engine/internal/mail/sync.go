@@ -5,7 +5,9 @@ package mail
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -183,8 +185,19 @@ func (s *syncer) folder(name, role string) error {
 			}
 			raw := m.FindBodySection(whole)
 			// An unparsable message still shows up, just without a body to read.
-			body, snippet, _ := Body(raw)
+			body, snippet, files, _ := Content(raw)
 			row.Snippet = snippet
+			if files == nil {
+				files = []File{}
+			}
+			if row.Attachments, err = json.Marshal(files); err != nil {
+				return err
+			}
+			for i, f := range files {
+				if err := s.put(ctx, fmt.Sprintf("att/%s/%d", row.ID, i), f.Data, f.Type); err != nil {
+					return err
+				}
+			}
 			if err := s.put(ctx, "raw/"+row.ID+".eml", raw, "message/rfc822"); err != nil {
 				return err
 			}

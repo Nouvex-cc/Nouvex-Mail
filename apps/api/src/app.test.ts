@@ -90,6 +90,25 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 		expect(await body.json()).toEqual({ html: "<p>Hi</p>" });
 		expect((await app.request(`/accounts/${id}/messages/nope/body`, { headers })).status).toBe(404);
 		await s3.file(`body/${id}-2.html`).delete();
+
+		await db
+			.update(message)
+			.set({ attachments: [{ name: "Übergabe.pdf", type: "application/pdf", size: 6 }] })
+			.where(eq(message.id, `${id}-2`));
+		await s3.file(`att/${id}-2/0`).write("%PDF-1");
+		const att = await app.request(`/accounts/${id}/messages/${id}-2/attachments/0`, { headers });
+		expect(await att.text()).toBe("%PDF-1");
+		expect(att.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''%C3%9Cbergabe.pdf");
+		expect(att.headers.get("x-content-type-options")).toBe("nosniff");
+		expect((await app.request(`/accounts/${id}/messages/${id}-2/attachments/1`, { headers })).status).toBe(404);
+		await s3.file(`att/${id}-2/0`).delete();
+
+		const form = new FormData();
+		form.set("file", new File(["hello"], "notes.txt", { type: "text/plain" }));
+		const up = await app.request(`/accounts/${id}/uploads`, { method: "POST", headers, body: form });
+		const { id: upload } = (await up.json()) as { id: string };
+		expect(await s3.file(`upload/${id}/${upload}`).text()).toBe("hello");
+		await s3.file(`upload/${id}/${upload}`).delete();
 	} finally {
 		await db.delete(changeLog).where(eq(changeLog.accountId, id));
 		await db.delete(user).where(eq(user.id, me.id));

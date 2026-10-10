@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, MailFrame, Spinner, Thread, ThreadMessage, Tooltip, useShortcut } from "@nouvex/ui";
+import {
+	AttachmentList,
+	AttachmentTile,
+	Button,
+	MailFrame,
+	Spinner,
+	Thread,
+	ThreadMessage,
+	Tooltip,
+	useShortcut,
+} from "@nouvex/ui";
 import { Archive, ChevronLeft, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
@@ -61,7 +71,21 @@ export function Reader({
 					onForward={body.data === undefined ? undefined : () => onWrite(forward(m, text(body.data)))}
 				>
 					{body.data !== undefined ? (
-						<MailFrame html={body.data} />
+						<>
+							<MailFrame html={body.data} />
+							{m.attachments.length > 0 && (
+								<AttachmentList className="mt-3">
+									{m.attachments.map((a, i) => (
+										<AttachmentTile
+											// biome-ignore lint/suspicious/noArrayIndexKey: attachments are addressed by position, the API too
+											key={i}
+											{...a}
+											onOpen={() => location.assign(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`)}
+										/>
+									))}
+								</AttachmentList>
+							)}
+						</>
 					) : body.isError ? (
 						<p className="p-4 text-sm text-muted">This message couldn't be loaded.</p>
 					) : (
