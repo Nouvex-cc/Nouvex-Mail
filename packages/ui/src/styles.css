@@ -369,9 +369,10 @@
 	display: grid;
 	grid-template-rows: 0fr;
 	transition: grid-template-rows 320ms var(--ease-out);
+	/* clip, not hidden: hidden would make this the scroll container and stop sticky bars inside from sticking. */
 	& > div {
 		min-height: 0;
-		overflow: hidden;
+		overflow: clip;
 	}
 	&[data-open] {
 		grid-template-rows: 1fr;
@@ -455,3 +456,158 @@
 	}
 }
 /* biome-ignore-end lint/complexity/noImportantStyles: see above */
+
+/* Progressive blur behind a sticky bar: blur layers that all start at the bar and reach less far the stronger they
+   are, so what scrolls under it softens gradually: fully blurred under the bar, then less and less over 2.5rem.
+   Overlapping layers rather than masks: Chrome ignores a mask on a backdrop filter over a scrolled iframe, and thin
+   bands can't blur across their own edges. Siblings, not nested: a backdrop filter inside another one only sees its
+   parent. The first layer is a tint that fades out; the bar needs `isolate` so all of it stays behind its content. */
+.progressive-blur {
+	position: absolute;
+	inset-inline: 0;
+	z-index: -1;
+	pointer-events: none;
+	& > div {
+		position: absolute;
+		inset-inline: 0;
+	}
+	& > div:nth-child(1) {
+		inset-block: 0;
+		background: linear-gradient(var(--fade), color-mix(in oklch, var(--paper) 80%, transparent) 40%, transparent 90%);
+	}
+	&[data-side="top"] {
+		top: 0;
+		bottom: -2.5rem;
+		--fade: to bottom;
+		& > div:nth-child(2) {
+			top: 0;
+			bottom: 0.0rem;
+			backdrop-filter: blur(0.6px);
+		}
+		& > div:nth-child(3) {
+			top: 0;
+			bottom: 0.25rem;
+			backdrop-filter: blur(1.2px);
+		}
+		& > div:nth-child(4) {
+			top: 0;
+			bottom: 0.5rem;
+			backdrop-filter: blur(2px);
+		}
+		& > div:nth-child(5) {
+			top: 0;
+			bottom: 0.75rem;
+			backdrop-filter: blur(3px);
+		}
+		& > div:nth-child(6) {
+			top: 0;
+			bottom: 1.0rem;
+			backdrop-filter: blur(4px);
+		}
+		& > div:nth-child(7) {
+			top: 0;
+			bottom: 1.25rem;
+			backdrop-filter: blur(5px);
+		}
+		& > div:nth-child(8) {
+			top: 0;
+			bottom: 1.5rem;
+			backdrop-filter: blur(6.5px);
+		}
+		& > div:nth-child(9) {
+			top: 0;
+			bottom: 1.75rem;
+			backdrop-filter: blur(8px);
+		}
+		& > div:nth-child(10) {
+			top: 0;
+			bottom: 2.0rem;
+			backdrop-filter: blur(9.5px);
+		}
+		& > div:nth-child(11) {
+			top: 0;
+			bottom: 2.25rem;
+			backdrop-filter: blur(11px);
+		}
+		& > div:nth-child(12) {
+			top: 0;
+			bottom: 2.5rem;
+			backdrop-filter: blur(12px);
+		}
+	}
+	&[data-side="bottom"] {
+		bottom: 0;
+		top: -2.5rem;
+		--fade: to top;
+		& > div:nth-child(2) {
+			bottom: 0;
+			top: 0.0rem;
+			backdrop-filter: blur(0.6px);
+		}
+		& > div:nth-child(3) {
+			bottom: 0;
+			top: 0.25rem;
+			backdrop-filter: blur(1.2px);
+		}
+		& > div:nth-child(4) {
+			bottom: 0;
+			top: 0.5rem;
+			backdrop-filter: blur(2px);
+		}
+		& > div:nth-child(5) {
+			bottom: 0;
+			top: 0.75rem;
+			backdrop-filter: blur(3px);
+		}
+		& > div:nth-child(6) {
+			bottom: 0;
+			top: 1.0rem;
+			backdrop-filter: blur(4px);
+		}
+		& > div:nth-child(7) {
+			bottom: 0;
+			top: 1.25rem;
+			backdrop-filter: blur(5px);
+		}
+		& > div:nth-child(8) {
+			bottom: 0;
+			top: 1.5rem;
+			backdrop-filter: blur(6.5px);
+		}
+		& > div:nth-child(9) {
+			bottom: 0;
+			top: 1.75rem;
+			backdrop-filter: blur(8px);
+		}
+		& > div:nth-child(10) {
+			bottom: 0;
+			top: 2.0rem;
+			backdrop-filter: blur(9.5px);
+		}
+		& > div:nth-child(11) {
+			bottom: 0;
+			top: 2.25rem;
+			backdrop-filter: blur(11px);
+		}
+		& > div:nth-child(12) {
+			bottom: 0;
+			top: 2.5rem;
+			backdrop-filter: blur(12px);
+		}
+	}
+}
+
+/* A status pill shows only its icon and opens to its text on hover or focus. */
+@utility status-pill {
+	display: inline-grid;
+	grid-template-columns: auto 0fr;
+	transition: grid-template-columns 200ms var(--ease-out);
+	&:hover,
+	&:focus-visible {
+		grid-template-columns: auto 1fr;
+	}
+	& > :last-child {
+		overflow: hidden;
+		white-space: nowrap;
+	}
+}
