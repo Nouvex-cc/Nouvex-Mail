@@ -177,6 +177,7 @@ const Message = z.object({
 	id: z.string(),
 	mailboxId: z.string(),
 	messageId: z.string(),
+	threadId: z.string(),
 	subject: z.string(),
 	snippet: z.string(),
 	fromName: z.string(),
@@ -251,7 +252,10 @@ app.openapi(
 				more: rows.length > limit,
 				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
-					upserted: messages.map(({ accountId: _, uid: __, sentAt, ...m }) => ({ ...m, sentAt: sentAt.toISOString() })),
+					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, ...m }) => ({
+						...m,
+						sentAt: sentAt.toISOString(),
+					})),
 					deleted: msgs.deleted,
 				},
 			},

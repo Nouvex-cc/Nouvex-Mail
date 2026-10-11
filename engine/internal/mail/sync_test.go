@@ -33,9 +33,10 @@ const sealed = "AeVCfofwDm5ahJCtI82tdCIIVvFGf4BwyDIroAsv8BzQ4CPCXPqq675SlWplhAG7
 
 // fixture is an IMAP server with one user and a mail_account row pointing at it.
 type fixture struct {
-	pool *pgxpool.Pool
-	id   string
-	add  func(subject string)
+	pool   *pgxpool.Pool
+	id     string
+	add    func(subject string)
+	addRaw func(raw string)
 }
 
 // Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
@@ -57,6 +58,11 @@ func setup(t *testing.T) fixture {
 	for _, box := range []string{"INBOX", "Trash"} {
 		if err := u.Create(box, nil); err != nil {
 			t.Fatal(err)
+		}
+	}
+	addRaw := func(raw string) {
+		if _, err := u.Append("INBOX", bytes.NewReader([]byte(raw)), &imap.AppendOptions{}); err != nil {
+			t.Error(err)
 		}
 	}
 	add := func(subject string) {
@@ -95,7 +101,7 @@ func setup(t *testing.T) fixture {
 		VALUES ($1, $1, 'lena@example.com', '127.0.0.1', $2, '127.0.0.1', 25, 'lena', $3)`, id, port, secret); err != nil {
 		t.Fatal(err)
 	}
-	return fixture{pool, id, add}
+	return fixture{pool, id, add, addRaw}
 }
 
 func TestSync(t *testing.T) {
@@ -321,5 +327,46 @@ func TestReparse(t *testing.T) {
 	_ = f.pool.QueryRow(ctx, `SELECT snippet FROM message WHERE id = $1`, id).Scan(&snippet)
 	if snippet != "Hi" || !bytes.Contains(stored["body/"+id+".html"], []byte("Hi")) {
 		t.Fatalf("%q %q", snippet, stored["body/"+id+".html"])
+	}
+}
+
+func TestThreads(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	put := func(context.Context, string, []byte, string) error { return nil }
+	master := bytes.Repeat([]byte{7}, 32)
+	mail := func(id, subject, headers string) string {
+		return "From: Lena <lena@example.com>\r\nSubject: " + subject + "\r\nMessage-ID: <" + id + ">\r\n" + headers + "\r\nHi"
+	}
+	sync := func() {
+		if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	threadOf := func(subject string) (id string) {
+		_ = f.pool.QueryRow(ctx, `SELECT thread_id FROM message WHERE account_id = $1 AND subject = $2`, f.id, subject).Scan(&id)
+		return id
+	}
+
+	f.addRaw(mail("a@x", "Keys", ""))
+	f.addRaw(mail("b@x", "Re: Keys", "In-Reply-To: <a@x>\r\nReferences: <a@x>\r\n"))
+	f.addRaw(mail("c@x", "Saturday", ""))
+	// Mail without a Message-ID doesn't belong together just for that.
+	f.addRaw("From: a@x\r\nSubject: Ad 1\r\n\r\nHi")
+	f.addRaw("From: a@x\r\nSubject: Ad 2\r\n\r\nHi")
+	// An answer to a message we haven't seen yet starts a conversation of its own...
+	f.addRaw(mail("e@x", "Re: Invoice", "In-Reply-To: <d@x>\r\n"))
+	sync()
+	if threadOf("Ad 1") == threadOf("Ad 2") {
+		t.Fatal("mail without a Message-ID grouped together")
+	}
+	if threadOf("Keys") == "" || threadOf("Keys") != threadOf("Re: Keys") || threadOf("Keys") == threadOf("Saturday") {
+		t.Fatal("answer not in the conversation it answers")
+	}
+	// ...and joins it once the message it answers arrives, together with what came before.
+	f.addRaw(mail("d@x", "Invoice", "References: <c@x>\r\n"))
+	sync()
+	if threadOf("Invoice") != threadOf("Re: Invoice") || threadOf("Invoice") != threadOf("Saturday") {
+		t.Fatalf("conversations not merged: %q %q %q", threadOf("Saturday"), threadOf("Invoice"), threadOf("Re: Invoice"))
 	}
 }

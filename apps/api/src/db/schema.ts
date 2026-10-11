@@ -64,6 +64,9 @@ export const message = pgTable(
 			.references(() => mailbox.id, { onDelete: "cascade" }),
 		uid: bigint("uid", { mode: "number" }).notNull(),
 		messageId: text("message_id").notNull(),
+		// Message-IDs this one answers (In-Reply-To and References), and the conversation it belongs to.
+		refs: text("refs").array().notNull().default([]),
+		threadId: text("thread_id").notNull().default(""),
 		subject: text("subject").notNull(),
 		snippet: text("snippet").notNull().default(""),
 		fromName: text("from_name").notNull(),
@@ -74,7 +77,13 @@ export const message = pgTable(
 		// Stored in S3 as att/<message id>/<index>.
 		attachments: jsonb("attachments").$type<{ name: string; type: string; size: number }[]>().notNull().default([]),
 	},
-	(t) => [unique().on(t.mailboxId, t.uid), index().on(t.accountId, t.sentAt)],
+	(t) => [
+		unique().on(t.mailboxId, t.uid),
+		index().on(t.accountId, t.sentAt),
+		index().on(t.accountId, t.threadId),
+		index().on(t.accountId, t.messageId),
+		index().using("gin", t.refs),
+	],
 );
 
 // One row per change, version is monotonic per account. Clients ask for "everything after version N".

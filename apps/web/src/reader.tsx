@@ -15,15 +15,16 @@ import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 import type { Draft } from "./write";
 
+/** A conversation, oldest message first. The actions on top apply to all of it. */
 export function Reader({
-	message: m,
+	messages,
 	onClose,
 	onTrash,
 	onArchive,
 	onWrite,
 	onMarkUnread,
 }: {
-	message: Message;
+	messages: Message[];
 	onClose: () => void;
 	onTrash: () => void;
 	onArchive?: () => void;
@@ -31,17 +32,8 @@ export function Reader({
 	onMarkUnread: () => void;
 }) {
 	useShortcut("Escape", onClose);
-	const body = useQuery({
-		queryKey: ["body", m.id],
-		queryFn: async () => {
-			const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
-			if (!res.ok) throw new Error(`body: ${res.status}`);
-			return ((await res.json()) as { html: string }).html;
-		},
-		staleTime: Number.POSITIVE_INFINITY,
-	});
-
-	const quoted = body.data === undefined ? undefined : text(body.data);
+	const first = messages[0];
+	if (!first) return null;
 
 	return (
 		<div className="grid content-start gap-3 p-4">
@@ -70,39 +62,68 @@ export function Reader({
 					</Tooltip>
 				</div>
 			</div>
-			<Thread subject={m.subject}>
-				<ThreadMessage
-					from={m.fromName || m.fromAddr}
-					email={m.fromAddr}
-					date={new Date(m.sentAt)}
-					snippet={m.snippet}
-					onReply={quoted === undefined ? undefined : () => onWrite(reply(m, quoted))}
-					onForward={quoted === undefined ? undefined : () => onWrite(forward(m, quoted))}
-				>
-					{body.data !== undefined ? (
-						<>
-							<MailFrame html={body.data} />
-							{m.attachments.length > 0 && (
-								<AttachmentList className="mt-3">
-									{m.attachments.map((a, i) => (
-										<AttachmentTile
-											// biome-ignore lint/suspicious/noArrayIndexKey: attachments are addressed by position, the API too
-											key={i}
-											{...a}
-											onOpen={() => location.assign(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`)}
-										/>
-									))}
-								</AttachmentList>
-							)}
-						</>
-					) : body.isError ? (
-						<p className="p-4 text-sm text-muted">This message couldn't be loaded.</p>
-					) : (
-						<Spinner />
-					)}
-				</ThreadMessage>
+			<Thread subject={first.subject}>
+				{messages.map((m) => (
+					<Entry key={m.id} message={m} onWrite={onWrite} />
+				))}
 			</Thread>
 		</div>
+	);
+}
+
+// One message of the conversation; its body loads when it is first shown.
+function Entry({
+	message: m,
+	onWrite,
+	defaultExpanded,
+}: {
+	message: Message;
+	onWrite: (draft: Draft) => void;
+	defaultExpanded?: boolean;
+}) {
+	const body = useQuery({
+		queryKey: ["body", m.id],
+		queryFn: async () => {
+			const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
+			if (!res.ok) throw new Error(`body: ${res.status}`);
+			return ((await res.json()) as { html: string }).html;
+		},
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+	const quoted = body.data === undefined ? undefined : text(body.data);
+
+	return (
+		<ThreadMessage
+			from={m.fromName || m.fromAddr}
+			email={m.fromAddr}
+			date={new Date(m.sentAt)}
+			snippet={m.snippet}
+			defaultExpanded={defaultExpanded ?? m.seen === 0}
+			onReply={quoted === undefined ? undefined : () => onWrite(reply(m, quoted))}
+			onForward={quoted === undefined ? undefined : () => onWrite(forward(m, quoted))}
+		>
+			{body.data !== undefined ? (
+				<>
+					<MailFrame html={body.data} />
+					{m.attachments.length > 0 && (
+						<AttachmentList className="mt-3">
+							{m.attachments.map((a, i) => (
+								<AttachmentTile
+									// biome-ignore lint/suspicious/noArrayIndexKey: attachments are addressed by position, the API too
+									key={i}
+									{...a}
+									onOpen={() => location.assign(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`)}
+								/>
+							))}
+						</AttachmentList>
+					)}
+				</>
+			) : body.isError ? (
+				<p className="p-4 text-sm text-muted">This message couldn't be loaded.</p>
+			) : (
+				<Spinner />
+			)}
+		</ThreadMessage>
 	);
 }
 
