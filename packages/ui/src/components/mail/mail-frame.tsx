@@ -193,6 +193,7 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 	}, [doc]);
 
 	// Quotes toggle in place without rewriting the frame.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a rewritten frame needs the class again
 	useEffect(() => {
 		frame.current?.contentDocument?.body.classList.toggle("show-quote", showQuote);
 	}, [showQuote, doc]);
