@@ -13,7 +13,6 @@ import {
 import { createPortal } from "react-dom";
 import { FileImage, Moon, Sun } from "../../icons";
 import { cn } from "../../lib";
-import { Button } from "../button";
 
 export type MailFrameProps = {
 	html: string;

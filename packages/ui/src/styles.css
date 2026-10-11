@@ -481,7 +481,7 @@
 		--fade: to bottom;
 		& > div:nth-child(2) {
 			top: 0;
-			bottom: 0.0rem;
+			bottom: 0rem;
 			backdrop-filter: blur(0.6px);
 		}
 		& > div:nth-child(3) {
@@ -501,7 +501,7 @@
 		}
 		& > div:nth-child(6) {
 			top: 0;
-			bottom: 1.0rem;
+			bottom: 1rem;
 			backdrop-filter: blur(4px);
 		}
 		& > div:nth-child(7) {
@@ -521,7 +521,7 @@
 		}
 		& > div:nth-child(10) {
 			top: 0;
-			bottom: 2.0rem;
+			bottom: 2rem;
 			backdrop-filter: blur(9.5px);
 		}
 		& > div:nth-child(11) {
@@ -541,7 +541,7 @@
 		--fade: to top;
 		& > div:nth-child(2) {
 			bottom: 0;
-			top: 0.0rem;
+			top: 0rem;
 			backdrop-filter: blur(0.6px);
 		}
 		& > div:nth-child(3) {
@@ -561,7 +561,7 @@
 		}
 		& > div:nth-child(6) {
 			bottom: 0;
-			top: 1.0rem;
+			top: 1rem;
 			backdrop-filter: blur(4px);
 		}
 		& > div:nth-child(7) {
@@ -581,7 +581,7 @@
 		}
 		& > div:nth-child(10) {
 			bottom: 0;
-			top: 2.0rem;
+			top: 2rem;
 			backdrop-filter: blur(9.5px);
 		}
 		& > div:nth-child(11) {
