@@ -198,8 +198,9 @@ function Inbox() {
 	// A conversation is starred when any of its messages is; starring marks the newest.
 	const isStarred = (thread: Message[]) => thread.some((m) => m.starred === 1);
 	const toggleStar = (thread: Message[]) => {
-		if (isStarred(thread)) for (const m of thread) m.starred === 1 && void update(m, { flagged: false });
-		else {
+		if (isStarred(thread)) {
+			for (const m of thread) if (m.starred === 1) void update(m, { flagged: false });
+		} else {
 			const newest = thread.reduce((a, b) => (b.sentAt > a.sentAt ? b : a));
 			void update(newest, { flagged: true });
 		}
