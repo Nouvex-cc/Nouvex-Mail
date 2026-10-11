@@ -13,6 +13,10 @@ export interface MessageUpdate {
   messageId: string;
   seen?: boolean;
   /**
+   * Starred.
+   */
+  flagged?: boolean;
+  /**
    * Move the message to the trash folder.
    */
   trash?: boolean;

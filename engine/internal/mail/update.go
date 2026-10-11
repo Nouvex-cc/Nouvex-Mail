@@ -37,12 +37,15 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 	}
 	uid := imap.UIDSetNum(imap.UID(place.Uid))
 
-	if cmd.Seen != nil {
+	for flag, on := range map[imap.Flag]*bool{imap.FlagSeen: cmd.Seen, imap.FlagFlagged: cmd.Flagged} {
+		if on == nil {
+			continue
+		}
 		op := imap.StoreFlagsAdd
-		if !*cmd.Seen {
+		if !*on {
 			op = imap.StoreFlagsDel
 		}
-		if err := c.Store(uid, &imap.StoreFlags{Op: op, Silent: true, Flags: []imap.Flag{imap.FlagSeen}}, nil).Close(); err != nil {
+		if err := c.Store(uid, &imap.StoreFlags{Op: op, Silent: true, Flags: []imap.Flag{flag}}, nil).Close(); err != nil {
 			return err
 		}
 	}

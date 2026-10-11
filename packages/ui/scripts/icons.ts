@@ -38,6 +38,7 @@ const used: Record<string, string> = {
 	Send: "send-plane-line",
 	ShieldAlert: "forbid-circle-line",
 	Star: "star-line",
+	StarFilled: "star-fill",
 	Sun: "sun-line",
 	Trash2: "delete-2-line",
 	Underline: "underline-line",

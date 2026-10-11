@@ -2,6 +2,7 @@
 import {
 	AccountSwitcher,
 	AppShell,
+	BulkBar,
 	Button,
 	MessageList,
 	MessageRow,
@@ -10,7 +11,7 @@ import {
 	Sidebar,
 	useToast,
 } from "@nouvex/ui";
-import { Archive, File, Folder, Inbox as InboxIcon, PenLine, Send, ShieldAlert, Trash2 } from "@nouvex/ui/icons";
+import { Archive, File, Folder, Inbox as InboxIcon, PenLine, Send, ShieldAlert, Star, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { Dexie } from "dexie";
@@ -83,19 +84,30 @@ function Inbox() {
 			() => (current === "all" ? db.mailboxes.toArray() : db.mailboxes.where("accountId").equals(current).toArray()),
 			[current],
 		) ?? [];
-	const shown = boxes.filter((b) => searching || (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
+	// Starred and search look across every folder in view.
+	const everywhere = searching || folder === "starred";
+	const shown = boxes.filter((b) => everywhere || (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
 	// Only a page of the newest messages is read and rendered; scrolling to the end asks for the next one. Each folder
 	// is read newest first through its index, so the cost doesn't grow with the mailbox.
 	const [limit, setLimit] = useState(page);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts at the first page again
 	useEffect(() => setLimit(page), [shown.join(), query]);
 	const messages = useLiveQuery(async () => {
+		const inView = new Set(shown);
 		if (searching) {
-			const inView = new Set(shown);
 			return db.messages
 				.orderBy("sentAt")
 				.reverse()
 				.filter((m) => inView.has(m.mailboxId) && matches(m, query))
+				.limit(limit)
+				.toArray();
+		}
+		if (folder === "starred") {
+			return db.messages
+				.where("[starred+sentAt]")
+				.between([1, Dexie.minKey], [1, Dexie.maxKey])
+				.reverse()
+				.filter((m) => inView.has(m.mailboxId))
 				.limit(limit)
 				.toArray();
 		}
@@ -113,7 +125,7 @@ function Inbox() {
 			.flat()
 			.sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 			.slice(0, limit);
-	}, [shown.join(), query, limit]);
+	}, [shown.join(), query, limit, folder]);
 	const inboxes = boxes.filter((b) => b.role === "inbox").map((b) => b.id);
 	const unread = useLiveQuery(
 		async () =>
@@ -145,11 +157,31 @@ function Inbox() {
 		return thread.length ? thread : db.messages.where("id").equals(open).toArray();
 	}, [open]);
 	// Moving a conversation moves what of it is in the folder in view; Sent keeps its copies.
-	const inView = (thread: Message[]) => thread.filter((m) => shown.includes(m.mailboxId));
+	const sent = new Set(boxes.filter((b) => b.role === "sent").map((b) => b.id));
+	const inView = (thread: Message[]) =>
+		thread.filter((m) => shown.includes(m.mailboxId) && (folder === "sent" || !sent.has(m.mailboxId)));
 	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean }) => {
 		setOpen(undefined);
 		for (const m of inView(thread)) void update(m, change);
 	};
+	const markRead = (thread: Message[]) => {
+		for (const m of thread) if (m.seen === 0) void update(m, { seen: true });
+	};
+	// A conversation is starred when any of its messages is; starring marks the newest.
+	const isStarred = (thread: Message[]) => thread.some((m) => m.starred === 1);
+	const toggleStar = (thread: Message[]) => {
+		if (isStarred(thread)) for (const m of thread) m.starred === 1 && void update(m, { flagged: false });
+		else {
+			const newest = thread.reduce((a, b) => (b.sentAt > a.sentAt ? b : a));
+			void update(newest, { flagged: true });
+		}
+	};
+	// Rows are conversations; the key is what selection and opening go by.
+	const key = (thread: Message[]) => thread[0]?.threadId || thread[0]?.id || "";
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts without a selection
+	useEffect(() => setSelected(new Set()), [shown.join(), query]);
+	const picked = threads.filter((t) => selected.has(key(t)));
 	const failing = (accounts.data ?? []).filter((a) => a.syncError && (current === "all" || a.id === current));
 	const contacts = [
 		...new Map(
@@ -186,6 +218,12 @@ function Inbox() {
 									onSelect={() => setFolder(role)}
 								/>
 							))}
+						<Sidebar.Item
+							label="Starred"
+							icon={<Star strokeWidth={1.75} />}
+							active={!searching && folder === "starred"}
+							onSelect={() => setFolder("starred")}
+						/>
 					</Sidebar.Section>
 					{own.length > 0 && (
 						<Sidebar.Section title="Folders" collapsible>
@@ -226,6 +264,8 @@ function Inbox() {
 						const last = reading.at(-1);
 						if (last) void update(last, { seen: false });
 					}}
+					starred={isStarred(reading)}
+					onStar={() => toggleStar(reading)}
 					onTrash={() => moveThread(reading, { trash: true })}
 					onArchive={folder === "archive" ? undefined : () => moveThread(reading, { archive: true })}
 				/>
@@ -236,7 +276,8 @@ function Inbox() {
 					</Button>
 				</div>
 			) : (
-				<>
+				// Full height, so the bulk bar's anchor sits at the bottom of the view even under a short list.
+				<div className="flex min-h-full flex-col">
 					{failing.map((a) => (
 						<div key={a.id} className="m-3 flex items-start gap-3 rounded-lg border border-line bg-raised p-3 text-sm">
 							<div className="grid flex-1 gap-0.5">
@@ -257,7 +298,7 @@ function Inbox() {
 							</Button>
 						</div>
 					))}
-					<MessageList>
+					<MessageList onSelectionChange={(rows) => setSelected(new Set(rows.map((i) => key(threads[i] ?? []))))}>
 						{threads.map((thread) => {
 							// biome-ignore lint/style/noNonNullAssertion: groupBy never makes an empty group
 							const m = thread[0]!;
@@ -272,9 +313,13 @@ function Inbox() {
 									attachments={thread.reduce((n, t) => n + t.attachments.length, 0)}
 									date={new Date(m.sentAt)}
 									unread={thread.some((t) => t.seen === 0)}
+									starred={isStarred(thread)}
+									onStar={() => toggleStar(thread)}
+									selected={selected.has(key(thread))}
+									selecting={selected.size > 0}
 									onOpen={() => {
-										setOpen(m.threadId || m.id);
-										for (const t of thread) if (t.seen === 0) void update(t, { seen: true });
+										setOpen(key(thread));
+										markRead(thread);
 									}}
 									onArchive={folder === "archive" ? undefined : () => moveThread(thread, { archive: true })}
 									onDelete={() => moveThread(thread, { trash: true })}
@@ -283,7 +328,30 @@ function Inbox() {
 						})}
 					</MessageList>
 					{messages?.length === limit && <More onVisible={() => setLimit((l) => l + page)} />}
-				</>
+					{/* At the bottom of the view: pushed down under a short list, stuck there while a long one scrolls. */}
+					<div className="sticky bottom-0 mt-auto h-0">
+						<BulkBar
+							count={picked.length}
+							onArchive={
+								folder === "archive"
+									? undefined
+									: () => {
+											for (const t of picked) moveThread(t, { archive: true });
+											setSelected(new Set());
+										}
+							}
+							onDelete={() => {
+								for (const t of picked) moveThread(t, { trash: true });
+								setSelected(new Set());
+							}}
+							onMarkRead={() => {
+								for (const t of picked) markRead(t);
+								setSelected(new Set());
+							}}
+							onClear={() => setSelected(new Set())}
+						/>
+					</div>
+				</div>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
 			<Write

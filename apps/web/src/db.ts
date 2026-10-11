@@ -19,9 +19,14 @@ export interface Message {
 	attachments: { name: string; type: string; size: number }[];
 	// 1 when flags has \Seen. Only here so unread mail can be found through an index; IndexedDB can't index booleans.
 	seen: 0 | 1;
+	// 1 when flags has \Flagged, for the Starred view.
+	starred: 0 | 1;
 }
 
-export const seen = (flags: string[]) => (flags.includes("\\Seen") ? 1 : 0);
+export const seen = (flags: string[]): 0 | 1 => (flags.includes("\\Seen") ? 1 : 0);
+export const starred = (flags: string[]): 0 | 1 => (flags.includes("\\Flagged") ? 1 : 0);
+/** What the app derives from flags, for storing a message as the server describes it. */
+export const local = (flags: string[]) => ({ flags, seen: seen(flags), starred: starred(flags) });
 
 export interface Mailbox {
 	id: string;
@@ -60,3 +65,14 @@ db.version(4)
 	);
 // Conversations; the threadId of stored messages arrives with the next pull.
 db.version(5).stores({ messages: "id, mailboxId, sentAt, threadId, [mailboxId+sentAt], [mailboxId+seen]" });
+// Starred messages, newest first.
+db.version(6)
+	.stores({ messages: "id, mailboxId, sentAt, threadId, [mailboxId+sentAt], [mailboxId+seen], [starred+sentAt]" })
+	.upgrade((tx) =>
+		tx
+			.table("messages")
+			.toCollection()
+			.modify((m: Message) => {
+				m.starred = starred(m.flags);
+			}),
+	);
