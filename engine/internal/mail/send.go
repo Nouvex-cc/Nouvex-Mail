@@ -22,11 +22,11 @@ import (
 // Compose builds a plain text message, multipart with files if there are any. Bcc recipients get it through the
 // envelope only. parent is the Message-ID of the message this answers, or empty.
 // ponytail: References holds only the parent; the parent's own References would need its raw headers.
-func Compose(from string, cmd msg.MessageSend, parent string, files []File, now time.Time) ([]byte, error) {
+func Compose(from mail.Address, cmd msg.MessageSend, parent string, files []File, now time.Time) ([]byte, error) {
 	var h mail.Header
 	h.SetDate(now)
 	h.SetSubject(cmd.Subject)
-	h.SetAddressList("From", []*mail.Address{{Address: from}})
+	h.SetAddressList("From", []*mail.Address{&from})
 	for field, list := range map[string][]string{"To": cmd.To, "Cc": cmd.Cc} {
 		if len(list) == 0 {
 			continue
@@ -41,7 +41,7 @@ func Compose(from string, cmd msg.MessageSend, parent string, files []File, now 
 		h.SetMsgIDList("In-Reply-To", []string{parent})
 		h.SetMsgIDList("References", []string{parent})
 	}
-	if err := h.GenerateMessageIDWithHostname(from[strings.LastIndex(from, "@")+1:]); err != nil {
+	if err := h.GenerateMessageIDWithHostname(from.Address[strings.LastIndex(from.Address, "@")+1:]); err != nil {
 		return nil, err
 	}
 	var buf bytes.Buffer
@@ -119,7 +119,7 @@ func Send(ctx context.Context, q *db.Queries, get Get, master []byte, cmd msg.Me
 		}
 		files[i] = File{Name: a.Name, Type: a.Type, Data: data}
 	}
-	raw, err := Compose(acc.Email, cmd, parent, files, time.Now())
+	raw, err := Compose(mail.Address{Name: acc.DisplayName, Address: acc.Email}, cmd, parent, files, time.Now())
 	if err != nil {
 		return nil, err
 	}

@@ -77,7 +77,7 @@ func (q *Queries) DeleteMessage(ctx context.Context, id string) error {
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error FROM mail_account WHERE id = $1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature FROM mail_account WHERE id = $1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
@@ -96,6 +96,8 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.Version,
 		&i.CreatedAt,
 		&i.SyncError,
+		&i.DisplayName,
+		&i.Signature,
 	)
 	return i, err
 }

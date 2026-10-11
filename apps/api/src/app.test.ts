@@ -110,6 +110,16 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 		expect(await s3.file(`upload/${id}/${upload}`).text()).toBe("hello");
 		await s3.file(`upload/${id}/${upload}`).delete();
 
+		const patch = await app.request(`/accounts/${id}`, {
+			method: "PATCH",
+			headers: { ...headers, "content-type": "application/json" },
+			body: JSON.stringify({ displayName: "Lena H.", signature: "Lena" }),
+		});
+		expect(patch.status).toBe(204);
+		expect(await (await app.request("/accounts", { headers })).json()).toMatchObject([
+			{ id, displayName: "Lena H.", signature: "Lena" },
+		]);
+
 		const del = (account: string) => app.request(`/accounts/${account}`, { method: "DELETE", headers });
 		expect((await del(crypto.randomUUID())).status).toBe(404);
 		expect((await del(id)).status).toBe(204);
