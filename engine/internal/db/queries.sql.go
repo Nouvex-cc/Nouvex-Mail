@@ -227,6 +227,42 @@ func (q *Queries) ListAccountIDs(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const listContent = `-- name: ListContent :many
+SELECT id, account_id, snippet, attachments FROM message WHERE $1::text = '' OR account_id = $1
+`
+
+type ListContentRow struct {
+	ID          string
+	AccountID   string
+	Snippet     string
+	Attachments []byte
+}
+
+func (q *Queries) ListContent(ctx context.Context, accountID string) ([]ListContentRow, error) {
+	rows, err := q.db.Query(ctx, listContent, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContentRow
+	for rows.Next() {
+		var i ListContentRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.Snippet,
+			&i.Attachments,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listFlags = `-- name: ListFlags :many
 SELECT id, uid, flags FROM message WHERE mailbox_id = $1
 `
@@ -322,6 +358,21 @@ func (q *Queries) MaxUID(ctx context.Context, mailboxID string) (int64, error) {
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const setContent = `-- name: SetContent :exec
+UPDATE message SET snippet = $2, attachments = $3 WHERE id = $1
+`
+
+type SetContentParams struct {
+	ID          string
+	Snippet     string
+	Attachments []byte
+}
+
+func (q *Queries) SetContent(ctx context.Context, arg SetContentParams) error {
+	_, err := q.db.Exec(ctx, setContent, arg.ID, arg.Snippet, arg.Attachments)
+	return err
 }
 
 const setFlags = `-- name: SetFlags :exec

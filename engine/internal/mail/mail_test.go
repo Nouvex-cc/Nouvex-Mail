@@ -112,3 +112,19 @@ func TestFlagStrings(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestLatin1(t *testing.T) {
+	raw := "From: a@x\r\nSubject: s\r\nContent-Type: text/plain; charset=iso-8859-1\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nViele Gr=FC=DFe\r\n"
+	_, snippet, _, err := Content([]byte(raw))
+	if err != nil || snippet != "Viele Grüße" {
+		t.Fatalf("%q %v", snippet, err)
+	}
+}
+
+func TestBrokenEncoding(t *testing.T) {
+	raw := "From: a@x\r\nSubject: s\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nStill readable =\r\n=ZZ broken"
+	_, snippet, _, err := Content([]byte(raw))
+	if err != nil || !strings.HasPrefix(snippet, "Still readable") {
+		t.Fatalf("%q %v", snippet, err)
+	}
+}

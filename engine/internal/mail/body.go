@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 
+	// Registers the charsets besides UTF-8 (Latin-1, Windows-1252, ...); without it such mails come out empty.
+	_ "github.com/emersion/go-message/charset"
 	"github.com/emersion/go-message/mail"
 )
 
@@ -44,10 +46,9 @@ func Content(raw []byte) (body, snippet string, files []File, err error) {
 		if err != nil {
 			return "", "", nil, err
 		}
-		b, err := io.ReadAll(p.Body)
-		if err != nil {
-			return "", "", nil, err
-		}
+		// Senders get the encoding wrong now and then (a stray "=" in quoted-printable); like other mail apps, keep
+		// what could be read instead of losing the whole message.
+		b, _ := io.ReadAll(p.Body)
 		var ct, name string
 		switch h := p.Header.(type) {
 		case *mail.InlineHeader:
