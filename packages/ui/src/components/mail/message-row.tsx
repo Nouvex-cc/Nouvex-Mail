@@ -29,6 +29,8 @@ export type MessageRowProps = {
 	starred?: boolean;
 	onStar?: () => void;
 	onOpen?: () => void;
+	/** The pointer or focus arrived, so the row is likely opened next: a chance to load what it shows. */
+	onPreload?: () => void;
 	onArchive?: () => void;
 	onSnooze?: (until: Date) => void;
 	onDelete?: () => void;
@@ -60,6 +62,7 @@ export function MessageRow({
 	starred = false,
 	onStar,
 	onOpen,
+	onPreload,
 	onArchive,
 	onSnooze,
 	onDelete,
@@ -130,6 +133,8 @@ export function MessageRow({
 			// A hairline between rows, starting at the sender so the checkbox column stays open.
 			className="group relative touch-pan-y overflow-hidden rounded-md outline-none select-none after:absolute after:right-4 after:bottom-0 after:left-15 after:h-px after:bg-line last:after:hidden focus-visible:outline-2 focus-visible:-outline-offset-2"
 			onClick={() => onOpen?.()}
+			onPointerEnter={onPreload}
+			onFocus={onPreload}
 			onKeyDown={(e) => {
 				if (e.target !== e.currentTarget) return;
 				const key = e.key.toLowerCase();

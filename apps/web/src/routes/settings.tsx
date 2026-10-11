@@ -5,13 +5,13 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { type Account, useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
-import { auth } from "../auth";
+import { session } from "../auth";
 import { forget } from "../sync";
 import { applyTheme, storedTheme, type Theme } from "../theme";
 
 export const Route = createFileRoute("/settings")({
 	beforeLoad: async () => {
-		const { data } = await auth.getSession();
+		const { data } = await session();
 		if (!data) throw redirect({ to: "/login" });
 	},
 	component: Settings,

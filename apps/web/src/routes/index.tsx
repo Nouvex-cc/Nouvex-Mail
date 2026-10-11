@@ -33,7 +33,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
 import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
-import { auth } from "../auth";
+import { auth, session } from "../auth";
 import { db, type Message } from "../db";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
@@ -66,7 +66,7 @@ export const Route = createFileRoute("/")({
 		thread: typeof s.thread === "string" ? s.thread : undefined,
 	}),
 	beforeLoad: async () => {
-		const { data } = await auth.getSession();
+		const { data } = await session();
 		if (!data) throw redirect({ to: "/login" });
 		return { user: data.user };
 	},
@@ -379,6 +379,14 @@ function Inbox() {
 										setOpen(key(thread));
 										markRead(thread);
 									}}
+									// The body is there by the time the click lands, so the mail shows at once.
+									onPreload={() =>
+										void queryClient.prefetchQuery({
+											queryKey: ["body", m.id],
+											queryFn: () => body(m),
+											staleTime: Number.POSITIVE_INFINITY,
+										})
+									}
 									onArchive={folder === "archive" ? undefined : () => moveThread(thread, { archive: true })}
 									onSnooze={
 										folder === "inbox"

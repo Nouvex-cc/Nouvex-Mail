@@ -5,6 +5,7 @@ import {
 	type ReactNode,
 	useContext,
 	useEffect,
+	useLayoutEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -184,34 +185,36 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 	const frame = useRef<HTMLIFrameElement>(null);
 	const { body, blocked, quoted, layout } = useMemo(() => prepare(html, allow, proxy), [html, allow, proxy]);
 
-	// Follow the content's height; quotes toggle in place without reloading the frame.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: a new body reloads the frame, so the observer reattaches
-	useEffect(() => {
-		const el = frame.current;
-		if (!el) return;
-		let resize: ResizeObserver | undefined;
-		const onLoad = () => {
-			const doc = el.contentDocument;
-			if (!doc) return;
-			doc.body.classList.toggle("show-quote", showQuote);
-			const fit = () => {
-				el.style.height = `${doc.documentElement.scrollHeight}px`;
-			};
-			resize?.disconnect();
-			resize = new ResizeObserver(fit);
-			resize.observe(doc.documentElement);
-			fit();
-			requestAnimationFrame(() => setReady(true));
-		};
-		el.addEventListener("load", onLoad);
-		if (el.contentDocument?.readyState === "complete") onLoad();
-		return () => {
-			el.removeEventListener("load", onLoad);
-			resize?.disconnect();
-		};
-	}, [body, showQuote]);
-
 	const slot = useContext(FrameSlot);
+	const doc = `<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body class="${[layout && "layout", slot !== undefined && "flush"].filter(Boolean).join(" ")}">${body}</body></html>`;
+
+	// Written straight into the frame instead of srcdoc: the frame's load event waits for every image, this way the
+	// mail has its height in the first paint and images fill in after. The frame then follows the content's height.
+	useLayoutEffect(() => {
+		const el = frame.current;
+		const d = el?.contentDocument;
+		if (!el || !d) return;
+		d.open();
+		d.write(doc);
+		d.close();
+		const fit = () => {
+			el.style.height = `${d.documentElement.scrollHeight}px`;
+		};
+		const resize = new ResizeObserver(fit);
+		resize.observe(d.documentElement);
+		fit();
+		const raf = requestAnimationFrame(() => setReady(true));
+		return () => {
+			resize.disconnect();
+			cancelAnimationFrame(raf);
+		};
+	}, [doc]);
+
+	// Quotes toggle in place without rewriting the frame.
+	useEffect(() => {
+		frame.current?.contentDocument?.body.classList.toggle("show-quote", showQuote);
+	}, [showQuote, doc]);
+
 	const pills = (
 		<>
 			{blocked > 0 && !allow && (
@@ -241,7 +244,6 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 				<iframe
 					ref={frame}
 					title="Message"
-					srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body class="${[layout && "layout", slot !== undefined && "flush"].filter(Boolean).join(" ")}">${body}</body></html>`}
 					sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
 					// The mail's own dark CSS only matches when the frame itself is dark.
 					className={cn(
