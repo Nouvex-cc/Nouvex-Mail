@@ -9,13 +9,12 @@ import { Button } from "../button";
 import { Tooltip } from "../tooltip";
 import { FrameSlot } from "./mail-frame";
 
-// Blur layers behind a sticky bar; see progressive-blur in styles.css.
+// Frosted glass and a fade behind a sticky bar; see progressive-blur in styles.css.
 function ProgressiveBlur({ side }: { side: "top" | "bottom" }) {
 	return (
 		<div className="progressive-blur" data-side={side} aria-hidden>
-			{["tint", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, "bar"].map((layer) => (
-				<div key={layer} />
-			))}
+			<div />
+			<div />
 		</div>
 	);
 }
