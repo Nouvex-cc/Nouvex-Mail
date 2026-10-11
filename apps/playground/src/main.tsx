@@ -52,7 +52,6 @@ import { ComposerDemo } from "./demos/composer";
 import { InboxDemo } from "./demos/inbox";
 import { NavigationDemo } from "./demos/navigation";
 import { ReadingDemo } from "./demos/reading";
-import { ViewersDemo } from "./demos/viewers";
 import { Hero } from "./hero";
 import "./index.css";
 
@@ -558,25 +557,16 @@ function Mail() {
 }
 
 function App() {
-	const [page, setPage] = useState(location.hash === "#viewers" ? "viewers" : "components");
+	const [page, setPage] = useState("components");
 	return (
 		<>
 			<div className="mx-auto flex max-w-6xl px-6 pt-6">
 				<ToggleGroup value={[page]} onValueChange={(v) => v[0] && setPage(v[0])}>
 					<Toggle value="components">Components</Toggle>
 					<Toggle value="mail">Mail</Toggle>
-					<Toggle value="viewers">Viewers</Toggle>
 				</ToggleGroup>
 			</div>
-			{page === "viewers" ? (
-				<main className="mx-auto max-w-7xl px-6 py-6">
-					<ViewersDemo />
-				</main>
-			) : page === "mail" ? (
-				<Mail />
-			) : (
-				<Components />
-			)}
+			{page === "mail" ? <Mail /> : <Components />}
 		</>
 	);
 }

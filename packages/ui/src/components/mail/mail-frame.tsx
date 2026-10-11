@@ -22,8 +22,8 @@ export type MailFrameProps = {
 };
 
 /**
- * Set by a ThreadMessage: the frame then sits flush in the message and puts its status pills into the message's
- * footer, next to Reply and Forward.
+ * Set by a ThreadMessage: the frame then sits flush in the message, its text in line with the header, and puts its
+ * status pills next to the message's date.
  */
 export const FrameSlot = createContext<HTMLElement | null | undefined>(undefined);
 
@@ -90,8 +90,9 @@ const looks = {
 const base = ({ faces, stack }: { faces: string; stack: string }, look: keyof typeof looks) => `<style>
 	${faces}
 	${looks[look]}
-	body { margin: 0; padding: 16px 20px; font: 14px/1.55 ${stack}; overflow-wrap: anywhere; }
+	body { margin: 0; padding: 16px 20px; font: 16px/1.6 ${stack}; overflow-wrap: anywhere; }
 	body:not(.layout) > * { max-width: 72ch; }
+	body.flush { padding: 4px 0 8px; }
 	img { max-width: 100%; height: auto; }
 	img[data-src] { display: none; }
 	a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
@@ -240,7 +241,7 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 				<iframe
 					ref={frame}
 					title="Message"
-					srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body${layout ? ' class="layout"' : ""}>${body}</body></html>`}
+					srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body class="${[layout && "layout", slot !== undefined && "flush"].filter(Boolean).join(" ")}">${body}</body></html>`}
 					sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
 					// The mail's own dark CSS only matches when the frame itself is dark.
 					className={cn(
@@ -258,7 +259,6 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 					onClick={() => setShowQuote((s) => !s)}
 					className={cn(
 						"inline-flex h-5 w-fit items-center rounded-full bg-hover px-2 text-xs text-muted outline-none transition-colors duration-100 hover:bg-selected hover:text-ink focus-visible:outline-2",
-						slot !== undefined && "mx-5",
 					)}
 				>
 					•••

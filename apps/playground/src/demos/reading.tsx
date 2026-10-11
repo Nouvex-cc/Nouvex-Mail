@@ -31,7 +31,7 @@ export function ReadingDemo() {
 	}, []);
 
 	return (
-		<Thread subject="Keys for the new flat">
+		<Thread subject="Keys for the new flat" reply={{ to: "Lena Hartmann", onReply() {}, onForward() {} }}>
 			<ThreadMessage
 				from="Mateo Coerdts"
 				email="mateo@nouvex.example"
@@ -65,8 +65,6 @@ export function ReadingDemo() {
 				to={["Mateo Coerdts"]}
 				date={day(-1, 8, 30)}
 				snippet="Your flat, ready on Friday"
-				onReply={() => {}}
-				onForward={() => {}}
 			>
 				<MailFrame html={newsletter} />
 			</ThreadMessage>
@@ -76,8 +74,6 @@ export function ReadingDemo() {
 				to={["Mateo Coerdts", "Jonas Weber"]}
 				date={day(0, 9, 42)}
 				snippet="Here's the signed protocol and a photo."
-				onReply={() => {}}
-				onForward={() => {}}
 			>
 				<p>Here's the signed protocol and a photo. I'm still uploading the floor plan.</p>
 				<AttachmentList>
