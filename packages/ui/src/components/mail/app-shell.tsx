@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
+import { ScrollArea } from "@base-ui/react/scroll-area";
 import type { ReactNode } from "react";
 import { cn } from "../../lib";
 
-/** Logo, header and sidebar as one surface; the content sits in it with a rounded corner. */
+/**
+ * Logo, header and sidebar as one surface; the content sits in it as a panel with rounded top corners. The panel
+ * scrolls without a native scrollbar: a thin line in the gap to the window's right edge shows where you are, never
+ * over the content. It brightens while scrolling and widens under the pointer to be dragged.
+ */
 export function AppShell({
 	logo,
 	sidebar,
@@ -24,7 +29,20 @@ export function AppShell({
 				<header className="flex items-center">{header}</header>
 			</div>
 			<div className="min-h-0">{sidebar}</div>
-			<main className="min-h-0 overflow-auto rounded-tl-xl border-t border-l border-line bg-paper">{children}</main>
+			<ScrollArea.Root className="relative min-h-0 pr-2.5">
+				<ScrollArea.Viewport
+					render={<main />}
+					className="h-full overscroll-contain rounded-t-xl border-x border-t border-line bg-paper outline-none"
+				>
+					{children}
+				</ScrollArea.Viewport>
+				<ScrollArea.Scrollbar
+					orientation="vertical"
+					className="group/rail absolute top-3 right-0 bottom-3 hidden w-2.5 cursor-grab touch-none justify-center active:cursor-grabbing data-has-overflow-y:flex"
+				>
+					<ScrollArea.Thumb className="w-0.5 rounded-full bg-line-strong transition-[width,background-color] duration-200 ease-out group-hover/rail:w-1.5 group-hover/rail:bg-muted group-active/rail:w-1.5 group-active/rail:bg-ink group-data-scrolling/rail:w-1 group-data-scrolling/rail:bg-muted" />
+				</ScrollArea.Scrollbar>
+			</ScrollArea.Root>
 		</div>
 	);
 }
