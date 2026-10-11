@@ -24,11 +24,16 @@ export function AppShell({
 	return (
 		<div className={cn("grid grid-cols-[15rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] bg-sunken", className)}>
 			{/* Spans the whole width so the header is centered in the window. */}
-			<div className="col-span-2 grid h-16 grid-cols-[minmax(0,1fr)_minmax(0,36rem)_minmax(0,1fr)] items-center gap-3 px-4">
+			<div
+				data-frame
+				className="col-span-2 grid h-16 grid-cols-[minmax(0,1fr)_minmax(0,36rem)_minmax(0,1fr)] items-center gap-3 px-4"
+			>
 				{logo}
 				<header className="flex items-center">{header}</header>
 			</div>
-			<div className="min-h-0">{sidebar}</div>
+			<div data-frame className="min-h-0">
+				{sidebar}
+			</div>
 			<ScrollArea.Root className="relative min-h-0 pr-2.5">
 				<ScrollArea.Viewport
 					render={<main />}

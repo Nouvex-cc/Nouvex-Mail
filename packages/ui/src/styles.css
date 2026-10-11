@@ -38,6 +38,12 @@
 	--label-blue: light-dark(oklch(0.6 0.1 250), oklch(0.7 0.09 250));
 	--label-purple: light-dark(oklch(0.58 0.1 300), oklch(0.68 0.09 300));
 	--shadow-color: light-dark(oklch(0.2 0.01 60), oklch(0 0 0));
+	/* The accent: what's on, chosen or new (primary buttons, the active folder, unread, checked controls). Ink
+	   unless a theme gives it a hue. */
+	--accent: var(--ink);
+	--on-accent: var(--on-ink);
+	--accent-soft: var(--selected);
+	--accent-text: var(--ink);
 }
 
 :root.light {
@@ -62,6 +68,10 @@
 	--color-line-strong: var(--line-strong);
 	--color-hover: var(--hover);
 	--color-selected: var(--selected);
+	--color-accent: var(--accent);
+	--color-on-accent: var(--on-accent);
+	--color-accent-soft: var(--accent-soft);
+	--color-accent-text: var(--accent-text);
 	--color-danger: var(--danger);
 	--color-positive: var(--positive);
 	--color-scrim: var(--scrim);
@@ -350,6 +360,14 @@
 	}
 	&[data-expanded] {
 		opacity: 1;
+	}
+}
+
+/* Avatars are neutral; a theme that colors people ([data-people="color"]) gives every name its label hue. */
+@utility avatar-tone {
+	[data-people="color"] & {
+		background: color-mix(in oklab, var(--label) 22%, var(--paper));
+		color: color-mix(in oklab, var(--label) 72%, var(--ink));
 	}
 }
 

@@ -73,3 +73,33 @@
 	opacity: 0.07;
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
+
+/* Color directions (/#color). A direction only sets tokens; --hue picks the hue. */
+[data-tone="accent"],
+[data-tone="tinted"],
+[data-tone="frame"] {
+	--accent: light-dark(oklch(0.55 0.16 var(--hue)), oklch(0.72 0.13 var(--hue)));
+	--on-accent: light-dark(oklch(0.99 0.01 var(--hue)), oklch(0.18 0.03 var(--hue)));
+	--accent-soft: light-dark(oklch(0.93 0.04 var(--hue)), oklch(0.32 0.06 var(--hue)));
+	--accent-text: light-dark(oklch(0.42 0.14 var(--hue)), oklch(0.86 0.08 var(--hue)));
+}
+[data-tone="tinted"] {
+	--sunken: light-dark(oklch(0.955 0.018 var(--hue)), oklch(0.17 0.02 var(--hue)));
+	--hover: light-dark(oklch(0.94 0.022 var(--hue)), oklch(0.25 0.025 var(--hue)));
+	--line: light-dark(oklch(0.9 0.02 var(--hue)), oklch(0.27 0.02 var(--hue)));
+}
+[data-tone="frame"] {
+	--sunken: light-dark(oklch(0.33 0.09 var(--hue)), oklch(0.24 0.07 var(--hue)));
+}
+[data-tone="frame"] [data-frame] {
+	--ink: oklch(0.97 0.01 var(--hue));
+	--muted: oklch(0.83 0.04 var(--hue));
+	--faint: oklch(0.7 0.05 var(--hue));
+	--paper: light-dark(oklch(0.4 0.09 var(--hue)), oklch(0.3 0.07 var(--hue)));
+	--hover: light-dark(oklch(0.39 0.09 var(--hue)), oklch(0.3 0.07 var(--hue)));
+	--selected: light-dark(oklch(0.44 0.1 var(--hue)), oklch(0.34 0.08 var(--hue)));
+	--line: light-dark(oklch(0.42 0.09 var(--hue)), oklch(0.32 0.07 var(--hue)));
+	--accent: oklch(0.97 0.01 var(--hue));
+	--accent-soft: light-dark(oklch(0.46 0.1 var(--hue)), oklch(0.36 0.08 var(--hue)));
+	--accent-text: oklch(0.99 0 0);
+}

@@ -22,7 +22,7 @@ export function Checkbox({ className, ...props }: Styled<BaseCheckbox.Root.Props
 	return (
 		<BaseCheckbox.Root
 			className={cn(
-				"group grid size-4 shrink-0 place-items-center rounded-sm border border-line-strong bg-paper text-on-ink outline-none transition duration-150 ease-out focus-visible:outline-2 active:scale-92 checked:border-ink checked:bg-ink data-indeterminate:border-ink data-indeterminate:bg-ink disabled:opacity-50",
+				"group grid size-4 shrink-0 place-items-center rounded-sm border border-line-strong bg-paper text-on-accent outline-none transition duration-150 ease-out focus-visible:outline-2 active:scale-92 checked:border-accent checked:bg-accent data-indeterminate:border-accent data-indeterminate:bg-accent disabled:opacity-50",
 				className,
 			)}
 			{...props}

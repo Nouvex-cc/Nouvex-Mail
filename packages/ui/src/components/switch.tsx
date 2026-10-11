@@ -8,7 +8,7 @@ export function Switch({ className, onCheckedChange, ...props }: Styled<BaseSwit
 	return (
 		<BaseSwitch.Root
 			className={cn(
-				"inline-flex h-5 w-8 shrink-0 rounded-full bg-line-strong p-0.5 outline-none transition duration-150 checked:bg-ink disabled:opacity-50",
+				"inline-flex h-5 w-8 shrink-0 rounded-full bg-line-strong p-0.5 outline-none transition duration-150 checked:bg-accent disabled:opacity-50",
 				className,
 			)}
 			onCheckedChange={(checked, details) => {

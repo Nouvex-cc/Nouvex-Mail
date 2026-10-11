@@ -169,7 +169,7 @@ export function MessageRow({
 				<div
 					className={cn(
 						"absolute inset-0 flex items-center px-4 text-on-ink [&_svg]:size-4",
-						dx < 0 ? "justify-end bg-positive" : "bg-ink",
+						dx < 0 ? "justify-end bg-positive" : "bg-accent",
 					)}
 				>
 					{dx < 0 ? <Archive strokeWidth={1.75} /> : <Clock strokeWidth={1.75} />}
@@ -186,7 +186,7 @@ export function MessageRow({
 				>
 					<Checkbox aria-hidden tabIndex={-1} checked={selected} className="pointer-events-none" />
 				</span>
-				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ink", !unread && "invisible")} />
+				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-accent", !unread && "invisible")} />
 				<span className={cn("flex w-40 shrink-0 items-baseline gap-1.5", unread ? "font-semibold" : "text-muted")}>
 					<span className="truncate">
 						{email ? (

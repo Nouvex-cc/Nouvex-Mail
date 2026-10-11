@@ -6,7 +6,7 @@ function List({ className, children, ...props }: Styled<BaseTabs.List.Props>) {
 	return (
 		<BaseTabs.List className={cn("relative z-0 flex gap-1 border-b border-line", className)} {...props}>
 			{children}
-			<BaseTabs.Indicator className="absolute bottom-0 left-0 -z-1 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-ink transition-all duration-150 ease-out" />
+			<BaseTabs.Indicator className="absolute bottom-0 left-0 -z-1 h-0.5 w-(--active-tab-width) translate-x-(--active-tab-left) bg-accent transition-all duration-150 ease-out" />
 		</BaseTabs.List>
 	);
 }

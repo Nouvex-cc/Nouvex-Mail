@@ -16,7 +16,7 @@ const End = ({ unread, trigger, children }: { unread?: boolean; trigger?: boolea
 		<span
 			aria-hidden
 			data-fold-hide={trigger || undefined}
-			className={cn("size-1.5 rounded-full bg-ink", !unread && "invisible")}
+			className={cn("size-1.5 rounded-full bg-accent", !unread && "invisible")}
 		/>
 		<span className="grid size-4 place-items-center">{children}</span>
 	</span>

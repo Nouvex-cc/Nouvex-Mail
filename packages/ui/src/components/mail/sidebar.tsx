@@ -26,7 +26,7 @@ function Root({ className, children }: { className?: string; children: ReactNode
 			className={cn("relative flex h-full flex-col gap-4 overflow-y-auto bg-sunken p-2", className)}
 		>
 			{/* One surface slides to the active item, wherever it is in the sidebar. */}
-			<Highlight attr="data-active" className="rounded-md bg-selected" />
+			<Highlight attr="data-active" className="rounded-md bg-accent-soft" />
 			{children}
 		</nav>
 	);
@@ -77,12 +77,12 @@ function Item({ icon, label, active, unread, count, shortcut, onSelect }: Sideba
 			data-active={active || undefined}
 			aria-current={active ? "page" : undefined}
 			onClick={onSelect}
-			className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-muted outline-none transition duration-100 select-none focus-visible:outline-2 focus-visible:-outline-offset-2 active:scale-98 data-active:font-medium data-active:text-ink [&:not([data-active])]:hover:bg-hover [&:not([data-active])]:hover:text-ink [&_svg]:size-4 [&_svg]:shrink-0"
+			className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-muted outline-none transition duration-100 select-none focus-visible:outline-2 focus-visible:-outline-offset-2 active:scale-98 data-active:font-medium data-active:text-accent-text [&:not([data-active])]:hover:bg-hover [&:not([data-active])]:hover:text-ink [&_svg]:size-4 [&_svg]:shrink-0"
 		>
 			{icon}
 			<span className="min-w-0 flex-1 truncate">{label}</span>
 			{unread && (
-				<span className="size-1.5 shrink-0 rounded-full bg-ink">
+				<span className="size-1.5 shrink-0 rounded-full bg-accent">
 					<span className="sr-only">Unread</span>
 				</span>
 			)}
