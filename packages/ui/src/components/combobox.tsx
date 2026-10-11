@@ -42,7 +42,7 @@ export const Combobox = {
 	),
 	Popup: ({ className, children, ...props }: Styled<BaseCombobox.Popup.Props>) => (
 		<BaseCombobox.Portal>
-			<BaseCombobox.Positioner sideOffset={4} className="outline-none">
+			<BaseCombobox.Positioner sideOffset={4} className="z-50 outline-none">
 				<BaseCombobox.Popup
 					className={cn(
 						popup,
