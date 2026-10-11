@@ -11,6 +11,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addJob = `-- name: AddJob :exec
+INSERT INTO scheduled (id, account_id, run_at, kind, payload) VALUES ($1, $2, $3, $4, $5)
+`
+
+type AddJobParams struct {
+	ID        string
+	AccountID string
+	RunAt     pgtype.Timestamptz
+	Kind      string
+	Payload   []byte
+}
+
+func (q *Queries) AddJob(ctx context.Context, arg AddJobParams) error {
+	_, err := q.db.Exec(ctx, addJob,
+		arg.ID,
+		arg.AccountID,
+		arg.RunAt,
+		arg.Kind,
+		arg.Payload,
+	)
+	return err
+}
+
 const clearMailbox = `-- name: ClearMailbox :many
 DELETE FROM message WHERE mailbox_id = $1 RETURNING id
 `
@@ -74,6 +97,25 @@ DELETE FROM message WHERE id = $1
 func (q *Queries) DeleteMessage(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteMessage, id)
 	return err
+}
+
+const findByRole = `-- name: FindByRole :one
+SELECT m.id FROM message m JOIN mailbox b ON b.id = m.mailbox_id
+WHERE m.account_id = $1 AND m.message_id = $2 AND b.role = $3
+LIMIT 1
+`
+
+type FindByRoleParams struct {
+	AccountID string
+	MessageID string
+	Role      string
+}
+
+func (q *Queries) FindByRole(ctx context.Context, arg FindByRoleParams) (string, error) {
+	row := q.db.QueryRow(ctx, findByRole, arg.AccountID, arg.MessageID, arg.Role)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getAccount = `-- name: GetAccount :one
@@ -482,6 +524,39 @@ type SetThreadParams struct {
 func (q *Queries) SetThread(ctx context.Context, arg SetThreadParams) error {
 	_, err := q.db.Exec(ctx, setThread, arg.ID, arg.Refs, arg.ThreadID)
 	return err
+}
+
+const takeDueJobs = `-- name: TakeDueJobs :many
+DELETE FROM scheduled
+WHERE id IN (SELECT id FROM scheduled WHERE run_at <= now() ORDER BY run_at LIMIT 20 FOR UPDATE SKIP LOCKED)
+RETURNING id, account_id, run_at, kind, payload
+`
+
+// Taken jobs are gone; a job that fails is added again.
+func (q *Queries) TakeDueJobs(ctx context.Context) ([]Scheduled, error) {
+	rows, err := q.db.Query(ctx, takeDueJobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Scheduled
+	for rows.Next() {
+		var i Scheduled
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.RunAt,
+			&i.Kind,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const threadsFor = `-- name: ThreadsFor :many

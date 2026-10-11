@@ -312,6 +312,7 @@ var roleNames = map[string]string{
 	"trash":  "trash", "deleted items": "trash", "deleted messages": "trash",
 	"junk": "junk", "spam": "junk",
 	"archive": "archive",
+	"snoozed": "snoozed",
 }
 
 func role(b *imap.ListData) string {

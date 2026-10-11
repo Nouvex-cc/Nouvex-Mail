@@ -17,8 +17,6 @@ export function Write({
 }) {
 	const toast = useToast();
 	const send = async (m: OutgoingMessage) => {
-		// ponytail: scheduling needs delayed delivery; the composer offers it already.
-		if (m.sendAt) return toast.add({ title: "Send later isn't supported yet" });
 		const uploads = await Promise.all(
 			m.files.map(async (file) => {
 				const form = new FormData();
@@ -39,10 +37,16 @@ export function Write({
 				subject: m.subject,
 				text: m.body,
 				inReplyTo: draft?.inReplyTo,
+				sendAt: m.sendAt?.toISOString(),
 				attachments: uploads,
 			}),
 		});
 		if (!res.ok) return toast.add({ title: "Couldn't send", description: "Check the recipients and try again." });
+		if (m.sendAt) {
+			toast.add({
+				title: `Scheduled for ${m.sendAt.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`,
+			});
+		}
 		onClose();
 	};
 

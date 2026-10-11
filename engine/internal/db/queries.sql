@@ -76,3 +76,17 @@ SELECT id, account_id, message_id FROM message WHERE thread_id = '' ORDER BY sen
 
 -- name: SetThread :exec
 UPDATE message SET refs = $2, thread_id = $3 WHERE id = $1;
+
+-- name: AddJob :exec
+INSERT INTO scheduled (id, account_id, run_at, kind, payload) VALUES ($1, $2, $3, $4, $5);
+
+-- name: TakeDueJobs :many
+-- Taken jobs are gone; a job that fails is added again.
+DELETE FROM scheduled
+WHERE id IN (SELECT id FROM scheduled WHERE run_at <= now() ORDER BY run_at LIMIT 20 FOR UPDATE SKIP LOCKED)
+RETURNING *;
+
+-- name: FindByRole :one
+SELECT m.id FROM message m JOIN mailbox b ON b.id = m.mailbox_id
+WHERE m.account_id = $1 AND m.message_id = $2 AND b.role = $3
+LIMIT 1;

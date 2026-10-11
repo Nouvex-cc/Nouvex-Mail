@@ -90,6 +90,14 @@ type Passkey struct {
 	Aaguid       pgtype.Text
 }
 
+type Scheduled struct {
+	ID        string
+	AccountID string
+	RunAt     pgtype.Timestamptz
+	Kind      string
+	Payload   []byte
+}
+
 type Session struct {
 	ID        string
 	ExpiresAt pgtype.Timestamp

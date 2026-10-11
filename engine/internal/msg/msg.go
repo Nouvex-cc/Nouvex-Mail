@@ -4,6 +4,7 @@ package msg
 
 import "encoding/json"
 import "fmt"
+import "time"
 
 // Request: API asks the engine whether these settings log in to IMAP and SMTP,
 // before saving an account. The reply is an AccountChecked.
@@ -140,6 +141,9 @@ type MessageSend struct {
 	// Id of the message this answers, for the thread headers.
 	InReplyTo *string `json:"inReplyTo,omitempty,omitzero"`
 
+	// Send then instead of now.
+	SendAt *time.Time `json:"sendAt,omitempty,omitzero"`
+
 	// Subject corresponds to the JSON schema field "subject".
 	Subject string `json:"subject"`
 
@@ -262,11 +266,17 @@ type MessageUpdate struct {
 	// Starred.
 	Flagged *bool `json:"flagged,omitempty,omitzero"`
 
+	// Move the message back to the INBOX.
+	Inbox *bool `json:"inbox,omitempty,omitzero"`
+
 	// MessageId corresponds to the JSON schema field "messageId".
 	MessageId string `json:"messageId"`
 
 	// Seen corresponds to the JSON schema field "seen".
 	Seen *bool `json:"seen,omitempty,omitzero"`
+
+	// Move it to Snoozed until then, then back to the INBOX.
+	SnoozeUntil *time.Time `json:"snoozeUntil,omitempty,omitzero"`
 
 	// Move the message to the trash folder.
 	Trash *bool `json:"trash,omitempty,omitzero"`

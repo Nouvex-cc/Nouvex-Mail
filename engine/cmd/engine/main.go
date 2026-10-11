@@ -5,6 +5,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -216,6 +217,8 @@ func run() error {
 	}
 	defer func() { _ = check.Unsubscribe() }()
 
+	go runJobs(ctx, db.New(pool), js)
+
 	slog.Info("engine running")
 	<-ctx.Done()
 	return nil
@@ -228,6 +231,19 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 	var cmd msg.MessageSend
 	if err := json.Unmarshal(m.Data(), &cmd); err != nil {
 		slog.Warn("bad command", "subject", m.Subject(), "err", err)
+		return
+	}
+	// Send later: kept as a job until it's due, then it comes back here without sendAt.
+	if cmd.SendAt != nil && cmd.SendAt.After(time.Now()) {
+		at := *cmd.SendAt
+		cmd.SendAt = nil
+		payload, _ := json.Marshal(cmd)
+		if err := q.AddJob(ctx, db.AddJobParams{
+			ID: rand.Text(), AccountID: cmd.AccountId, Kind: "send", Payload: payload,
+			RunAt: pgtype.Timestamptz{Time: at, Valid: true},
+		}); err != nil {
+			slog.Error("schedule send", "account", cmd.AccountId, "err", err)
+		}
 		return
 	}
 	ev := msg.MessageSent{AccountId: cmd.AccountId, Subject: cmd.Subject}
@@ -245,4 +261,42 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 	}
 	b, _ := json.Marshal(ev)
 	_ = nc.Publish("evt.message.sent", b)
+}
+
+// runJobs turns due jobs back into commands: a message to send, a snoozed message to move back to the INBOX.
+// ponytail: polls every 20 seconds, so things happen up to 20 seconds late.
+func runJobs(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
+	tick := time.NewTicker(20 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		jobs, err := q.TakeDueJobs(ctx)
+		if err != nil {
+			slog.Error("jobs", "err", err)
+			continue
+		}
+		for _, j := range jobs {
+			subject, data := "cmd.message.send", j.Payload
+			if j.Kind == "unsnooze" {
+				var p struct{ MessageID string }
+				_ = json.Unmarshal(j.Payload, &p)
+				// Moved out of Snoozed meanwhile: nothing to bring back.
+				id, err := q.FindByRole(ctx, db.FindByRoleParams{AccountID: j.AccountID, MessageID: p.MessageID, Role: "snoozed"})
+				if err != nil {
+					continue
+				}
+				yes := true
+				subject = "cmd.message.update"
+				data, _ = json.Marshal(msg.MessageUpdate{AccountId: j.AccountID, MessageId: id, Inbox: &yes})
+			}
+			if _, err := js.Publish(ctx, subject, data); err != nil {
+				slog.Error("job", "kind", j.Kind, "err", err)
+				_ = q.AddJob(ctx, db.AddJobParams(j))
+			}
+		}
+	}
 }
