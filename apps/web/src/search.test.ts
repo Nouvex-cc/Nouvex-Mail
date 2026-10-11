@@ -16,6 +16,7 @@ const m: Message = {
 	flags: [],
 	size: 10,
 	attachments: [{ name: "plan.pdf", type: "application/pdf", size: 5 }],
+	seen: 0,
 };
 const q = (text: string, ...filters: [string, string][]) => ({
 	text,

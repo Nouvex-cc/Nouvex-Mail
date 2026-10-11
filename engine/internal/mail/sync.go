@@ -316,11 +316,14 @@ func role(b *imap.ListData) string {
 	return roleNames[strings.ToLower(b.Mailbox)]
 }
 
-// flagStrings returns the flags sorted, so stored and fetched lists compare equal.
+// flagStrings returns the flags sorted, so stored and fetched lists compare equal. \Recent is left out: it only
+// holds for the session that first sees a message, so the next sync would count every message as changed.
 func flagStrings(flags []imap.Flag) []string {
-	s := make([]string, len(flags))
-	for i, f := range flags {
-		s[i] = string(f)
+	s := []string{}
+	for _, f := range flags {
+		if f != `\Recent` {
+			s = append(s, string(f))
+		}
 	}
 	slices.Sort(s)
 	return s

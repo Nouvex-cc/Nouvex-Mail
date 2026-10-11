@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { MailboxSynced, MessageSent } from "@nouvex/schema";
-import { db, type Mailbox, type Message } from "./db";
+import { db, type Mailbox, type Message, seen } from "./db";
 
 type Changes = {
 	version: number;
 	more: boolean;
 	mailboxes: { upserted: Omit<Mailbox, "accountId">[]; deleted: string[] };
-	messages: { upserted: Omit<Message, "accountId">[]; deleted: string[] };
+	messages: { upserted: Omit<Message, "accountId" | "seen">[]; deleted: string[] };
 };
 
 // Pulls everything after the stored cursor, page by page. Concurrent calls for the same account share one run.
@@ -23,7 +23,7 @@ export function pull(accountId: string) {
 				await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
 					await db.mailboxes.bulkPut(mailboxes.upserted.map((b) => ({ ...b, accountId })));
 					await db.mailboxes.bulkDelete(mailboxes.deleted);
-					await db.messages.bulkPut(messages.upserted.map((m) => ({ ...m, accountId })));
+					await db.messages.bulkPut(messages.upserted.map((m) => ({ ...m, accountId, seen: seen(m.flags) })));
 					await db.messages.bulkDelete(messages.deleted);
 					await db.cursor.put({ accountId, version });
 				});
@@ -60,7 +60,8 @@ export async function update(m: Message, change: { seen?: boolean; trash?: boole
 	if (change.trash || change.archive) await db.messages.delete(m.id);
 	else if (change.seen !== undefined) {
 		const flags = m.flags.filter((f) => f !== "\\Seen");
-		await db.messages.update(m.id, { flags: change.seen ? [...flags, "\\Seen"] : flags });
+		const next = change.seen ? [...flags, "\\Seen"] : flags;
+		await db.messages.update(m.id, { flags: next, seen: seen(next) });
 	}
 	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/update`, {
 		method: "POST",
