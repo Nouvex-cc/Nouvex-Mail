@@ -18,7 +18,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
 import { AddAccount } from "../add-account";
 import { auth } from "../auth";
-import { db } from "../db";
+import { db, type Message } from "../db";
 import { Reader } from "../reader";
 import { matches } from "../search";
 import { forget, listen, pull, update } from "../sync";
@@ -124,7 +124,32 @@ function Inbox() {
 	);
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
-	const reading = messages?.find((m) => m.id === open);
+	// One row per conversation, at its newest message in view.
+	const threads = [...Map.groupBy(messages ?? [], (m) => m.threadId || m.id).values()];
+	// The count covers the whole conversation, your replies in Sent included.
+	const threadIds = threads.map((t) => t[0]?.threadId ?? "").filter(Boolean);
+	const sizes = useLiveQuery(
+		async () =>
+			new Map(
+				await Promise.all(
+					threadIds.map(async (id) => [id, await db.messages.where("threadId").equals(id).count()] as const),
+				),
+			),
+		[threadIds.join()],
+	);
+	// The open conversation, from every folder: replies from Sent show up next to what they answer.
+	const reading = useLiveQuery(async () => {
+		if (!open) return undefined;
+		const thread = await db.messages.where("threadId").equals(open).sortBy("sentAt");
+		// A message whose conversation hasn't arrived yet opens on its own.
+		return thread.length ? thread : db.messages.where("id").equals(open).toArray();
+	}, [open]);
+	// Moving a conversation moves what of it is in the folder in view; Sent keeps its copies.
+	const inView = (thread: Message[]) => thread.filter((m) => shown.includes(m.mailboxId));
+	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean }) => {
+		setOpen(undefined);
+		for (const m of inView(thread)) void update(m, change);
+	};
 	const failing = (accounts.data ?? []).filter((a) => a.syncError && (current === "all" || a.id === current));
 	const contacts = [
 		...new Map(
@@ -191,27 +216,18 @@ function Inbox() {
 				/>
 			}
 		>
-			{reading ? (
+			{reading?.length ? (
 				<Reader
-					message={reading}
+					messages={reading}
 					onClose={() => setOpen(undefined)}
 					onWrite={setDraft}
 					onMarkUnread={() => {
 						setOpen(undefined);
-						void update(reading, { seen: false });
+						const last = reading.at(-1);
+						if (last) void update(last, { seen: false });
 					}}
-					onTrash={() => {
-						setOpen(undefined);
-						void update(reading, { trash: true });
-					}}
-					onArchive={
-						folder === "archive"
-							? undefined
-							: () => {
-									setOpen(undefined);
-									void update(reading, { archive: true });
-								}
-					}
+					onTrash={() => moveThread(reading, { trash: true })}
+					onArchive={folder === "archive" ? undefined : () => moveThread(reading, { archive: true })}
 				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">
@@ -242,24 +258,29 @@ function Inbox() {
 						</div>
 					))}
 					<MessageList>
-						{messages?.map((m) => (
-							<MessageRow
-								key={m.id}
-								from={m.fromName || m.fromAddr}
-								email={m.fromAddr}
-								subject={m.subject}
-								snippet={m.snippet}
-								attachments={m.attachments.length}
-								date={new Date(m.sentAt)}
-								unread={!m.flags.includes("\\Seen")}
-								onOpen={() => {
-									setOpen(m.id);
-									if (!m.flags.includes("\\Seen")) void update(m, { seen: true });
-								}}
-								onArchive={folder === "archive" ? undefined : () => void update(m, { archive: true })}
-								onDelete={() => void update(m, { trash: true })}
-							/>
-						))}
+						{threads.map((thread) => {
+							// biome-ignore lint/style/noNonNullAssertion: groupBy never makes an empty group
+							const m = thread[0]!;
+							return (
+								<MessageRow
+									key={m.threadId || m.id}
+									from={m.fromName || m.fromAddr}
+									email={m.fromAddr}
+									subject={m.subject}
+									snippet={m.snippet}
+									count={sizes?.get(m.threadId) ?? thread.length}
+									attachments={thread.reduce((n, t) => n + t.attachments.length, 0)}
+									date={new Date(m.sentAt)}
+									unread={thread.some((t) => t.seen === 0)}
+									onOpen={() => {
+										setOpen(m.threadId || m.id);
+										for (const t of thread) if (t.seen === 0) void update(t, { seen: true });
+									}}
+									onArchive={folder === "archive" ? undefined : () => moveThread(thread, { archive: true })}
+									onDelete={() => moveThread(thread, { trash: true })}
+								/>
+							);
+						})}
 					</MessageList>
 					{messages?.length === limit && <More onVisible={() => setLimit((l) => l + page)} />}
 				</>

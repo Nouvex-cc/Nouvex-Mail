@@ -160,8 +160,8 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
@@ -179,6 +179,8 @@ type InsertMessageParams struct {
 	Flags       []string
 	Size        int32
 	Attachments []byte
+	Refs        []string
+	ThreadID    string
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -196,6 +198,8 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Flags,
 		arg.Size,
 		arg.Attachments,
+		arg.Refs,
+		arg.ThreadID,
 	)
 	if err != nil {
 		return 0, err
@@ -323,6 +327,36 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 	return items, nil
 }
 
+const listThreadless = `-- name: ListThreadless :many
+SELECT id, account_id, message_id FROM message WHERE thread_id = '' ORDER BY sent_at
+`
+
+type ListThreadlessRow struct {
+	ID        string
+	AccountID string
+	MessageID string
+}
+
+func (q *Queries) ListThreadless(ctx context.Context) ([]ListThreadlessRow, error) {
+	rows, err := q.db.Query(ctx, listThreadless)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListThreadlessRow
+	for rows.Next() {
+		var i ListThreadlessRow
+		if err := rows.Scan(&i.ID, &i.AccountID, &i.MessageID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const logChange = `-- name: LogChange :one
 WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING version)
 INSERT INTO change_log (account_id, version, entity, entity_id, op)
@@ -358,6 +392,36 @@ func (q *Queries) MaxUID(ctx context.Context, mailboxID string) (int64, error) {
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const mergeThread = `-- name: MergeThread :many
+UPDATE message SET thread_id = $1::text WHERE account_id = $2 AND thread_id = $3 RETURNING id
+`
+
+type MergeThreadParams struct {
+	Keep      string
+	AccountID string
+	ThreadID  string
+}
+
+func (q *Queries) MergeThread(ctx context.Context, arg MergeThreadParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, mergeThread, arg.Keep, arg.AccountID, arg.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const setContent = `-- name: SetContent :exec
@@ -401,6 +465,56 @@ type SetSyncErrorParams struct {
 func (q *Queries) SetSyncError(ctx context.Context, arg SetSyncErrorParams) error {
 	_, err := q.db.Exec(ctx, setSyncError, arg.ID, arg.SyncError)
 	return err
+}
+
+const setThread = `-- name: SetThread :exec
+UPDATE message SET refs = $2, thread_id = $3 WHERE id = $1
+`
+
+type SetThreadParams struct {
+	ID       string
+	Refs     []string
+	ThreadID string
+}
+
+func (q *Queries) SetThread(ctx context.Context, arg SetThreadParams) error {
+	_, err := q.db.Exec(ctx, setThread, arg.ID, arg.Refs, arg.ThreadID)
+	return err
+}
+
+const threadsFor = `-- name: ThreadsFor :many
+SELECT DISTINCT thread_id FROM message
+WHERE account_id = $1 AND thread_id <> ''
+  AND (message_id = ANY($2::text[])
+    OR ($3::text <> '' AND (refs && ARRAY[$3::text] OR message_id = $3::text)))
+`
+
+type ThreadsForParams struct {
+	AccountID string
+	Refs      []string
+	MessageID string
+}
+
+// Conversations a message belongs to: those of the messages it answers, of messages that answer it, and of other
+// copies of it (the same mail in Sent and INBOX). Without a Message-ID only the first counts.
+func (q *Queries) ThreadsFor(ctx context.Context, arg ThreadsForParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, threadsFor, arg.AccountID, arg.Refs, arg.MessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var thread_id string
+		if err := rows.Scan(&thread_id); err != nil {
+			return nil, err
+		}
+		items = append(items, thread_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateMailbox = `-- name: UpdateMailbox :exec

@@ -128,3 +128,13 @@ func TestBrokenEncoding(t *testing.T) {
 		t.Fatalf("%q %v", snippet, err)
 	}
 }
+
+func TestReferences(t *testing.T) {
+	raw := "From: a@x\r\nIn-Reply-To: <b@x>\r\nReferences: <a@x> <b@x>\r\n\r\nHi"
+	if got := References([]byte(raw)); !slices.Equal(got, []string{"a@x", "b@x"}) {
+		t.Fatal(got)
+	}
+	if got := References([]byte("From: a@x\r\n\r\nHi")); got == nil || len(got) != 0 {
+		t.Fatal(got)
+	}
+}

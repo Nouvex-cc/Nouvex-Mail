@@ -7,6 +7,8 @@ export interface Message {
 	accountId: string;
 	mailboxId: string;
 	messageId: string;
+	// The conversation; replies and the messages they answer share it, across folders.
+	threadId: string;
 	subject: string;
 	snippet: string;
 	fromName: string;
@@ -56,3 +58,5 @@ db.version(4)
 				m.seen = seen(m.flags);
 			}),
 	);
+// Conversations; the threadId of stored messages arrives with the next pull.
+db.version(5).stores({ messages: "id, mailboxId, sentAt, threadId, [mailboxId+sentAt], [mailboxId+seen]" });

@@ -231,6 +231,12 @@ func (s *syncer) folder(name, role string) error {
 						return err
 					}
 				}
+				row.Refs = References(raw)
+				if row.ThreadID, err = thread(ctx, s.q, s.acc.ID, row.MessageID, row.Refs, func(id string) error {
+					return s.log("message", id, "upsert")
+				}); err != nil {
+					return err
+				}
 				if err := s.put(ctx, "raw/"+row.ID+".eml", raw, "message/rfc822"); err != nil {
 					return err
 				}

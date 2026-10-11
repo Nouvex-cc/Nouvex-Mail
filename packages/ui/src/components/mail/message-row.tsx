@@ -24,6 +24,8 @@ export type MessageRowProps = {
 	/** Some row in the list is selected: checkboxes stay visible on every row. */
 	selecting?: boolean;
 	attachments?: number;
+	/** Messages in the conversation this row stands for, shown after the sender from two on. */
+	count?: number;
 	onOpen?: () => void;
 	onArchive?: () => void;
 	onSnooze?: (until: Date) => void;
@@ -52,6 +54,7 @@ export function MessageRow({
 	selected = false,
 	selecting = false,
 	attachments = 0,
+	count = 1,
 	onOpen,
 	onArchive,
 	onSnooze,
@@ -117,7 +120,7 @@ export function MessageRow({
 			role="option"
 			tabIndex={0}
 			aria-selected={selected}
-			aria-label={`${unread ? "Unread, " : ""}${from}, ${subject}, ${formatMailDateLong(date)}`}
+			aria-label={`${unread ? "Unread, " : ""}${from}${count > 1 ? `, ${count} messages` : ""}, ${subject}, ${formatMailDateLong(date)}`}
 			className="group relative touch-pan-y overflow-hidden rounded-md outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2"
 			onClick={() => onOpen?.()}
 			onKeyDown={(e) => {
@@ -171,14 +174,17 @@ export function MessageRow({
 					<Checkbox aria-hidden tabIndex={-1} checked={selected} className="pointer-events-none" />
 				</span>
 				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ink", !unread && "invisible")} />
-				<span className={cn("w-40 shrink-0 truncate", unread && "font-semibold")}>
-					{email ? (
-						<SenderCard name={from} email={email} onWrite={onWrite} onShowMessages={onShowMessages}>
-							{from}
-						</SenderCard>
-					) : (
-						from
-					)}
+				<span className={cn("flex w-40 shrink-0 items-baseline gap-1.5", unread && "font-semibold")}>
+					<span className="truncate">
+						{email ? (
+							<SenderCard name={from} email={email} onWrite={onWrite} onShowMessages={onShowMessages}>
+								{from}
+							</SenderCard>
+						) : (
+							from
+						)}
+					</span>
+					{count > 1 && <span className="shrink-0 text-xs font-normal text-muted">{count}</span>}
 				</span>
 				<span className="flex min-w-0 flex-1 items-center gap-1.5">
 					{labels.slice(0, 2).map((l) => (

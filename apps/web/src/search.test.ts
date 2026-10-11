@@ -8,6 +8,7 @@ const m: Message = {
 	accountId: "a",
 	mailboxId: "b",
 	messageId: "x",
+	threadId: "x",
 	subject: "Keys for the new flat",
 	snippet: "When can you pick them up?",
 	fromName: "Lena Hartmann",

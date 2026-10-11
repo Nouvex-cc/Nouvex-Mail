@@ -70,6 +70,8 @@ type Message struct {
 	Size        int32
 	Snippet     string
 	Attachments []byte
+	Refs        []string
+	ThreadID    string
 }
 
 type Passkey struct {
