@@ -52,7 +52,7 @@ export function AppShell({
 					orientation="vertical"
 					className="group/rail absolute top-3 right-0 bottom-3 hidden w-2.5 cursor-grab touch-none justify-center active:cursor-grabbing data-has-overflow-y:flex"
 				>
-					<ScrollArea.Thumb className="w-0.5 rounded-full bg-line-strong transition-[width,background-color] duration-200 ease-out group-hover/rail:w-1.5 group-hover/rail:bg-muted group-active/rail:w-1.5 group-active/rail:bg-ink group-data-scrolling/rail:w-1 group-data-scrolling/rail:bg-muted" />
+					<ScrollArea.Thumb className="w-0.5 rounded-full bg-line-strong transition-all duration-200 ease-out group-hover/rail:w-1.5 group-hover/rail:bg-muted group-active/rail:w-1.5 group-active/rail:bg-ink group-data-scrolling/rail:w-1 group-data-scrolling/rail:bg-muted" />
 				</ScrollArea.Scrollbar>
 			</ScrollArea.Root>
 		</div>

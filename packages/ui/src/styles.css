@@ -415,6 +415,18 @@
 	}
 }
 
+/* Backdrop: the picture blurred, zoomed past its edges and shown as strongly as it was measured to allow. */
+@utility backdrop-layer {
+	& > img {
+		filter: blur(var(--backdrop-blur));
+		scale: var(--backdrop-zoom);
+		opacity: var(--backdrop-shown);
+	}
+	& > .grain {
+		opacity: var(--backdrop-grain);
+	}
+}
+
 /* A color sample for a hue, e.g. in theme settings. */
 @utility hue-swatch {
 	background: light-dark(oklch(0.6 0.15 var(--hue)), oklch(0.7 0.13 var(--hue)));

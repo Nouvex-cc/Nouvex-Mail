@@ -95,28 +95,26 @@ export function Backdrop({ src, blur, grain, strength, onFit }: BackdropProps) {
 		<div
 			aria-hidden
 			data-backdrop={fit?.scheme ?? "measuring"}
-			className="pointer-events-none absolute inset-0 overflow-hidden bg-paper"
+			className="backdrop-layer pointer-events-none absolute inset-0 overflow-hidden bg-paper"
+			style={
+				{
+					"--backdrop-blur": `${blur}px`,
+					// Scaled a little past the edges so the blur doesn't fade them into the paper.
+					"--backdrop-zoom": 1 + blur / 150,
+					"--backdrop-shown": fit?.strength ?? 0,
+					"--backdrop-grain": grain,
+				} as React.CSSProperties
+			}
 		>
-			<img
-				src={src}
-				alt=""
-				// Scaled a little past the edges so the blur doesn't fade them into the paper.
-				className="size-full object-cover transition-opacity duration-200"
-				style={{
-					filter: blur ? `blur(${blur}px)` : undefined,
-					scale: blur ? 1 + blur / 150 : undefined,
-					opacity: fit?.strength ?? 0,
-				}}
-			/>
-			<div className="grain absolute inset-0" style={{ opacity: grain }} />
+			<img src={src} alt="" className="size-full object-cover transition-opacity duration-200" />
+			<div className="grain absolute inset-0" />
 			{(["light", "dark"] as const).map((scheme) => (
 				<span
 					key={scheme}
 					ref={(el) => {
 						probes.current[scheme] = el;
 					}}
-					className="invisible absolute bg-paper text-muted"
-					style={{ colorScheme: scheme }}
+					className={`invisible absolute bg-paper text-muted ${scheme === "dark" ? "scheme-dark" : "scheme-light"}`}
 				/>
 			))}
 		</div>
