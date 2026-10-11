@@ -1,0 +1,1 @@
+ALTER TABLE "mail_account" ADD COLUMN "sync_error" text;

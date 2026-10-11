@@ -1,0 +1,10 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "AccountChecked",
+	"description": "Reply to AccountCheck. Without error, both logins worked.",
+	"type": "object",
+	"properties": {
+		"error": { "type": "string" }
+	},
+	"additionalProperties": false
+}

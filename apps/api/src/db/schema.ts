@@ -32,6 +32,8 @@ export const mailAccount = pgTable("mail_account", {
 	// Password sealed with a per-secret key, see secret.ts.
 	secret: bytea("secret").notNull(),
 	version: bigint("version", { mode: "number" }).notNull().default(0),
+	// Why the last sync failed, cleared by the next one that works. Written by the engine.
+	syncError: text("sync_error"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

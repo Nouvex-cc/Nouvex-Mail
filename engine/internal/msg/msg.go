@@ -5,6 +5,67 @@ package msg
 import "encoding/json"
 import "fmt"
 
+// Request: API asks the engine whether these settings log in to IMAP and SMTP,
+// before saving an account. The reply is an AccountChecked.
+type AccountCheck struct {
+	// ImapHost corresponds to the JSON schema field "imapHost".
+	ImapHost string `json:"imapHost"`
+
+	// ImapPort corresponds to the JSON schema field "imapPort".
+	ImapPort int `json:"imapPort"`
+
+	// The password sealed like mail_account.secret, base64.
+	Secret string `json:"secret"`
+
+	// SmtpHost corresponds to the JSON schema field "smtpHost".
+	SmtpHost string `json:"smtpHost"`
+
+	// SmtpPort corresponds to the JSON schema field "smtpPort".
+	SmtpPort int `json:"smtpPort"`
+
+	// Username corresponds to the JSON schema field "username".
+	Username string `json:"username"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *AccountCheck) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["imapHost"]; raw != nil && !ok {
+		return fmt.Errorf("field imapHost in AccountCheck: required")
+	}
+	if _, ok := raw["imapPort"]; raw != nil && !ok {
+		return fmt.Errorf("field imapPort in AccountCheck: required")
+	}
+	if _, ok := raw["secret"]; raw != nil && !ok {
+		return fmt.Errorf("field secret in AccountCheck: required")
+	}
+	if _, ok := raw["smtpHost"]; raw != nil && !ok {
+		return fmt.Errorf("field smtpHost in AccountCheck: required")
+	}
+	if _, ok := raw["smtpPort"]; raw != nil && !ok {
+		return fmt.Errorf("field smtpPort in AccountCheck: required")
+	}
+	if _, ok := raw["username"]; raw != nil && !ok {
+		return fmt.Errorf("field username in AccountCheck: required")
+	}
+	type Plain AccountCheck
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = AccountCheck(plain)
+	return nil
+}
+
+// Reply to AccountCheck. Without error, both logins worked.
+type AccountChecked struct {
+	// Error corresponds to the JSON schema field "error".
+	Error *string `json:"error,omitempty,omitzero"`
+}
+
 // Command: API asks the engine to sync one account.
 type MailboxSync struct {
 	// AccountId corresponds to the JSON schema field "accountId".
@@ -29,10 +90,13 @@ func (j *MailboxSync) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
-// Event: engine finished syncing an account.
+// Event: engine saved new data for an account, or a sync failed.
 type MailboxSynced struct {
 	// AccountId corresponds to the JSON schema field "accountId".
 	AccountId string `json:"accountId"`
+
+	// Set when the sync failed; version is then the last good one.
+	Error *string `json:"error,omitempty,omitzero"`
 
 	// Version corresponds to the JSON schema field "version".
 	Version int `json:"version"`

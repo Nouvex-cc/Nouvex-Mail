@@ -36,6 +36,13 @@
       "when": 1791663323330,
       "tag": "0004_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791704656356,
+      "tag": "0005_sync_error",
+      "breakpoints": true
     }
   ]
 }

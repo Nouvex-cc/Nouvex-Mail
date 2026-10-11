@@ -1,0 +1,16 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "AccountCheck",
+	"description": "Request: API asks the engine whether these settings log in to IMAP and SMTP, before saving an account. The reply is an AccountChecked.",
+	"type": "object",
+	"properties": {
+		"imapHost": { "type": "string" },
+		"imapPort": { "type": "integer" },
+		"smtpHost": { "type": "string" },
+		"smtpPort": { "type": "integer" },
+		"username": { "type": "string" },
+		"secret": { "type": "string", "description": "The password sealed like mail_account.secret, base64." }
+	},
+	"required": ["imapHost", "imapPort", "smtpHost", "smtpPort", "username", "secret"],
+	"additionalProperties": false
+}

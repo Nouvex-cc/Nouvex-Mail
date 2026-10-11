@@ -20,7 +20,7 @@ import { auth } from "../auth";
 import { db } from "../db";
 import { Reader } from "../reader";
 import { matches } from "../search";
-import { listen, pull, update } from "../sync";
+import { forget, listen, pull, update } from "../sync";
 import { type Draft, Write } from "../write";
 
 const standard = [
@@ -55,7 +55,8 @@ function Inbox() {
 	const [open, setOpen] = useState<string>();
 	const accounts = useQuery({
 		queryKey: ["accounts"],
-		queryFn: async () => (await fetch("/accounts")).json() as Promise<{ id: string; email: string }[]>,
+		queryFn: async () =>
+			(await fetch("/accounts")).json() as Promise<{ id: string; email: string; syncError: string | null }[]>,
 	});
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
 
@@ -63,12 +64,16 @@ function Inbox() {
 		if (!ids) return;
 		const list = ids.split(",");
 		for (const id of list) void pull(id);
-		return listen(list, (e) =>
-			toast.add(
-				e.error ? { title: `Couldn't send “${e.subject}”`, description: e.error } : { title: `Sent “${e.subject}”` },
-			),
+		return listen(
+			list,
+			(e) =>
+				toast.add(
+					e.error ? { title: `Couldn't send “${e.subject}”`, description: e.error } : { title: `Sent “${e.subject}”` },
+				),
+			// A sync that failed or worked again changes the account's error.
+			() => void accounts.refetch(),
 		);
-	}, [ids, toast]);
+	}, [ids, toast, accounts.refetch]);
 
 	const boxes =
 		useLiveQuery(
@@ -93,6 +98,7 @@ function Inbox() {
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
 	const reading = messages?.find((m) => m.id === open);
+	const failing = (accounts.data ?? []).filter((a) => a.syncError && (current === "all" || a.id === current));
 	const contacts = [
 		...new Map(
 			(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
@@ -187,26 +193,48 @@ function Inbox() {
 					</Button>
 				</div>
 			) : (
-				<MessageList>
-					{messages?.map((m) => (
-						<MessageRow
-							key={m.id}
-							from={m.fromName || m.fromAddr}
-							email={m.fromAddr}
-							subject={m.subject}
-							snippet={m.snippet}
-							attachments={m.attachments.length}
-							date={new Date(m.sentAt)}
-							unread={!m.flags.includes("\\Seen")}
-							onOpen={() => {
-								setOpen(m.id);
-								if (!m.flags.includes("\\Seen")) void update(m, { seen: true });
-							}}
-							onArchive={folder === "archive" ? undefined : () => void update(m, { archive: true })}
-							onDelete={() => void update(m, { trash: true })}
-						/>
+				<>
+					{failing.map((a) => (
+						<div key={a.id} className="m-3 flex items-start gap-3 rounded-lg border border-line bg-raised p-3 text-sm">
+							<div className="grid flex-1 gap-0.5">
+								<span className="font-medium">Couldn't sync {a.email}</span>
+								<span className="text-muted">{a.syncError}</span>
+							</div>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={async () => {
+									await fetch(`/accounts/${a.id}`, { method: "DELETE" });
+									await forget(a.id);
+									if (current === a.id) setCurrent("all");
+									void accounts.refetch();
+								}}
+							>
+								Remove account
+							</Button>
+						</div>
 					))}
-				</MessageList>
+					<MessageList>
+						{messages?.map((m) => (
+							<MessageRow
+								key={m.id}
+								from={m.fromName || m.fromAddr}
+								email={m.fromAddr}
+								subject={m.subject}
+								snippet={m.snippet}
+								attachments={m.attachments.length}
+								date={new Date(m.sentAt)}
+								unread={!m.flags.includes("\\Seen")}
+								onOpen={() => {
+									setOpen(m.id);
+									if (!m.flags.includes("\\Seen")) void update(m, { seen: true });
+								}}
+								onArchive={folder === "archive" ? undefined : () => void update(m, { archive: true })}
+								onDelete={() => void update(m, { trash: true })}
+							/>
+						))}
+					</MessageList>
+				</>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
 			<Write

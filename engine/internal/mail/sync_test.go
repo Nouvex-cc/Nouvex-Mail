@@ -112,12 +112,12 @@ func TestSync(t *testing.T) {
 	}
 	// INBOX and Trash, then the two messages.
 	for _, want := range []int64{4, 4} {
-		if v, err := Sync(ctx, pool, put, master, id); err != nil || v != want {
+		if v, err := Sync(ctx, pool, put, master, id, func(int64) {}); err != nil || v != want {
 			t.Fatalf("version %d, %v; want %d", v, err, want)
 		}
 	}
 	add("Invoice")
-	if v, err := Sync(ctx, pool, put, master, id); err != nil || v != 5 {
+	if v, err := Sync(ctx, pool, put, master, id, func(int64) {}); err != nil || v != 5 {
 		t.Fatalf("version %d, %v; want 5", v, err)
 	}
 	var roles []string
@@ -154,7 +154,7 @@ func TestUIDValidityChange(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("One")
 	f.add("Two")
-	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE mailbox SET uid_validity = uid_validity + 1 WHERE account_id = $1`, f.id); err != nil {
@@ -162,7 +162,7 @@ func TestUIDValidityChange(t *testing.T) {
 	}
 	// Both folders were renumbered: both old rows are deleted, both messages come back as new rows, and both
 	// folders are logged as changed.
-	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 10 {
+	if v, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil || v != 10 {
 		t.Fatalf("version %d, %v; want 10", v, err)
 	}
 	var deletes, rows int
@@ -181,7 +181,7 @@ func TestUpdate(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("Read me")
 	f.add("Throw me away")
-	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
@@ -199,11 +199,11 @@ func TestUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One flag change, one message gone from the INBOX and the same one new in Trash.
-	if v, err := Sync(ctx, f.pool, put, master, f.id); err != nil || v != 7 {
+	if v, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil || v != 7 {
 		t.Fatalf("version %d, %v; want 7", v, err)
 	}
 	f.add("Keep me")
-	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	var keep string
@@ -212,7 +212,7 @@ func TestUpdate(t *testing.T) {
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: keep, Archive: &yes}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Sync(ctx, f.pool, put, master, f.id); err != nil {
+	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	var archived int
@@ -242,7 +242,7 @@ func TestWatch(t *testing.T) {
 	calls := make(chan struct{}, 10)
 	done := make(chan struct{})
 	go func() {
-		Watch(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { calls <- struct{}{} })
+		Watch(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { calls <- struct{}{} }, func(error) {})
 		close(done)
 	}()
 	wait := func(what string) {
@@ -279,5 +279,20 @@ func TestSaveSent(t *testing.T) {
 	defer func() { _ = c.Logout().Wait() }()
 	if sel, err := c.Select("Sent", nil).Wait(); err != nil || sel.NumMessages != 1 {
 		t.Fatalf("%+v %v", sel, err)
+	}
+}
+
+func TestSyncInBatches(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	for i := range 60 {
+		f.add(fmt.Sprint("Mail ", i))
+	}
+	var saves []int64
+	put := func(context.Context, string, []byte, string) error { return nil }
+	v, err := Sync(ctx, f.pool, put, bytes.Repeat([]byte{7}, 32), f.id, func(v int64) { saves = append(saves, v) })
+	// INBOX: one save per batch of 50, then the folder; Trash: the folder.
+	if err != nil || v != 62 || !slices.Contains(saves, 51) || !slices.Contains(saves, 61) {
+		t.Fatalf("version %d, %v, saves %v", v, err, saves)
 	}
 }

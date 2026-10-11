@@ -6,9 +6,13 @@
  */
 
 /**
- * Event: engine finished syncing an account.
+ * Event: engine saved new data for an account, or a sync failed.
  */
 export interface MailboxSynced {
   accountId: string;
   version: number;
+  /**
+   * Set when the sync failed; version is then the last good one.
+   */
+  error?: string;
 }

@@ -109,6 +109,11 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 		const { id: upload } = (await up.json()) as { id: string };
 		expect(await s3.file(`upload/${id}/${upload}`).text()).toBe("hello");
 		await s3.file(`upload/${id}/${upload}`).delete();
+
+		const del = (account: string) => app.request(`/accounts/${account}`, { method: "DELETE", headers });
+		expect((await del(crypto.randomUUID())).status).toBe(404);
+		expect((await del(id)).status).toBe(204);
+		expect(await (await app.request("/accounts", { headers })).json()).toEqual([]);
 	} finally {
 		await db.delete(changeLog).where(eq(changeLog.accountId, id));
 		await db.delete(user).where(eq(user.id, me.id));
