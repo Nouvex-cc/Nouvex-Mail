@@ -4,9 +4,12 @@ package mail
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
@@ -48,6 +51,32 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		if err := c.Store(uid, &imap.StoreFlags{Op: op, Silent: true, Flags: []imap.Flag{flag}}, nil).Close(); err != nil {
 			return err
 		}
+	}
+	if cmd.Inbox != nil && *cmd.Inbox && place.Name != "INBOX" {
+		_, err := c.Move(uid, "INBOX").Wait()
+		return err
+	}
+	if cmd.SnoozeUntil != nil {
+		// Snoozed is a folder on the server, so other mail apps see it too; a job brings it back.
+		snoozed, err := specialFolder(c, "snoozed", "Snoozed")
+		if err != nil {
+			return err
+		}
+		messageID, err := q.GetMessageID(ctx, db.GetMessageIDParams{ID: cmd.MessageId, AccountID: cmd.AccountId})
+		if err != nil {
+			return err
+		}
+		payload, _ := json.Marshal(map[string]string{"messageId": messageID})
+		if err := q.AddJob(ctx, db.AddJobParams{
+			ID: rand.Text(), AccountID: cmd.AccountId, Kind: "unsnooze", Payload: payload,
+			RunAt: pgtype.Timestamptz{Time: *cmd.SnoozeUntil, Valid: true},
+		}); err != nil {
+			return err
+		}
+		if snoozed != place.Name {
+			_, err = c.Move(uid, snoozed).Wait()
+		}
+		return err
 	}
 	if cmd.Archive != nil && *cmd.Archive {
 		archive, err := specialFolder(c, "archive", "Archive")

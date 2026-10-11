@@ -102,3 +102,18 @@ export const changeLog = pgTable(
 	},
 	(t) => [primaryKey({ columns: [t.accountId, t.version] }), index().on(t.entity, t.entityId)],
 );
+
+// Work the engine does later: sending a message at a chosen time, bringing a snoozed message back to the INBOX.
+export const scheduled = pgTable(
+	"scheduled",
+	{
+		id: text("id").primaryKey(),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		runAt: timestamp("run_at", { withTimezone: true }).notNull(),
+		kind: text("kind", { enum: ["send", "unsnooze"] }).notNull(),
+		payload: jsonb("payload").notNull(),
+	},
+	(t) => [index().on(t.runAt)],
+);

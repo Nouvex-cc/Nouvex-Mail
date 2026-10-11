@@ -10,6 +10,7 @@
 		"bcc": { "type": "array", "items": { "type": "string" } },
 		"subject": { "type": "string" },
 		"text": { "type": "string" },
+		"sendAt": { "type": "string", "format": "date-time", "description": "Send then instead of now." },
 		"inReplyTo": { "type": "string", "description": "Id of the message this answers, for the thread headers." },
 		"attachments": {
 			"type": "array",

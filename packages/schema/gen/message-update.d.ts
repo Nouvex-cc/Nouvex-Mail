@@ -24,4 +24,12 @@ export interface MessageUpdate {
    * Move the message to the archive folder.
    */
   archive?: boolean;
+  /**
+   * Move it to Snoozed until then, then back to the INBOX.
+   */
+  snoozeUntil?: string;
+  /**
+   * Move the message back to the INBOX.
+   */
+  inbox?: boolean;
 }

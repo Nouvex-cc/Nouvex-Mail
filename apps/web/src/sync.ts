@@ -58,9 +58,9 @@ export function listen(accountIds: string[], onSent: (e: MessageSent) => void, o
 // message back as it was. Moved messages come back with a new id in their new folder.
 export async function update(
 	m: Message,
-	change: { seen?: boolean; flagged?: boolean; trash?: boolean; archive?: boolean },
+	change: { seen?: boolean; flagged?: boolean; trash?: boolean; archive?: boolean; snoozeUntil?: string },
 ) {
-	if (change.trash || change.archive) await db.messages.delete(m.id);
+	if (change.trash || change.archive || change.snoozeUntil) await db.messages.delete(m.id);
 	else {
 		let flags = m.flags;
 		for (const [flag, on] of [

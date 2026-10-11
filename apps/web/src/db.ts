@@ -32,7 +32,7 @@ export interface Mailbox {
 	id: string;
 	accountId: string;
 	name: string;
-	role: "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "";
+	role: "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "snoozed" | "";
 }
 
 // Local copy of what the delta sync has delivered so far; `cursor` stores the last change_log version per account.

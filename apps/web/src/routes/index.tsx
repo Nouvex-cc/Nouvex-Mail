@@ -13,6 +13,7 @@ import {
 } from "@nouvex/ui";
 import {
 	Archive,
+	Clock,
 	File,
 	Folder,
 	Inbox as InboxIcon,
@@ -38,6 +39,7 @@ import { type Draft, Write } from "../write";
 
 const standard = [
 	{ role: "inbox", label: "Inbox", Icon: InboxIcon },
+	{ role: "snoozed", label: "Snoozed", Icon: Clock },
 	{ role: "archive", label: "Archive", Icon: Archive },
 	{ role: "sent", label: "Sent", Icon: Send },
 	{ role: "drafts", label: "Drafts", Icon: File },
@@ -168,7 +170,7 @@ function Inbox() {
 	const sent = new Set(boxes.filter((b) => b.role === "sent").map((b) => b.id));
 	const inView = (thread: Message[]) =>
 		thread.filter((m) => shown.includes(m.mailboxId) && (folder === "sent" || !sent.has(m.mailboxId)));
-	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean }) => {
+	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean; snoozeUntil?: string }) => {
 		setOpen(undefined);
 		for (const m of inView(thread)) void update(m, change);
 	};
@@ -335,6 +337,16 @@ function Inbox() {
 										markRead(thread);
 									}}
 									onArchive={folder === "archive" ? undefined : () => moveThread(thread, { archive: true })}
+									onSnooze={
+										folder === "inbox"
+											? (until) => {
+													moveThread(thread, { snoozeUntil: until.toISOString() });
+													toast.add({
+														title: `Snoozed until ${until.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`,
+													});
+												}
+											: undefined
+									}
 									onDelete={() => moveThread(thread, { trash: true })}
 								/>
 							);

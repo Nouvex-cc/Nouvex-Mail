@@ -216,7 +216,7 @@ app.openapi(
 const Mailbox = z.object({
 	id: z.string(),
 	name: z.string(),
-	role: z.enum(["inbox", "sent", "drafts", "trash", "junk", "archive", ""]),
+	role: z.enum(["inbox", "sent", "drafts", "trash", "junk", "archive", "snoozed", ""]),
 });
 
 const Message = z.object({
@@ -371,6 +371,7 @@ app.openapi(
 							flagged: z.boolean().optional(),
 							trash: z.boolean().optional(),
 							archive: z.boolean().optional(),
+							snoozeUntil: z.iso.datetime().optional(),
 						}),
 					},
 				},
@@ -410,6 +411,7 @@ app.openapi(
 							subject: z.string(),
 							text: z.string(),
 							inReplyTo: z.string().optional(),
+							sendAt: z.iso.datetime().optional(),
 							attachments: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string() })).optional(),
 						}),
 					},

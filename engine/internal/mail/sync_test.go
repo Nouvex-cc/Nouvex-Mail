@@ -11,6 +11,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net"
@@ -369,5 +370,59 @@ func TestThreads(t *testing.T) {
 	sync()
 	if threadOf("Invoice") != threadOf("Re: Invoice") || threadOf("Invoice") != threadOf("Saturday") {
 		t.Fatalf("conversations not merged: %q %q %q", threadOf("Saturday"), threadOf("Invoice"), threadOf("Re: Invoice"))
+	}
+}
+
+func TestSnooze(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	q := db.New(f.pool)
+	put := func(context.Context, string, []byte, string) error { return nil }
+	master := bytes.Repeat([]byte{7}, 32)
+	sync := func() {
+		if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roleOf := func() (role string) {
+		_ = f.pool.QueryRow(ctx, `SELECT b.role FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 AND m.subject = 'Later'`, f.id).Scan(&role)
+		return role
+	}
+	f.add("Later")
+	sync()
+	var id string
+	_ = f.pool.QueryRow(ctx, `SELECT id FROM message WHERE account_id = $1 AND subject = 'Later'`, f.id).Scan(&id)
+
+	until := time.Now().Add(-time.Second)
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: id, SnoozeUntil: &until}); err != nil {
+		t.Fatal(err)
+	}
+	sync()
+	if roleOf() != "snoozed" {
+		t.Fatalf("in %q, not snoozed", roleOf())
+	}
+	jobs, err := q.TakeDueJobs(ctx)
+	var mine []db.Scheduled
+	for _, j := range jobs {
+		if j.AccountID == f.id {
+			mine = append(mine, j)
+		}
+	}
+	if err != nil || len(mine) != 1 || mine[0].Kind != "unsnooze" {
+		t.Fatalf("%+v %v", mine, err)
+	}
+	var p struct{ MessageID string }
+	_ = json.Unmarshal(mine[0].Payload, &p)
+	back, err := q.FindByRole(ctx, db.FindByRoleParams{AccountID: f.id, MessageID: p.MessageID, Role: "snoozed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: back, Inbox: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	sync()
+	if roleOf() != "inbox" {
+		t.Fatalf("in %q, not back in the INBOX", roleOf())
 	}
 }

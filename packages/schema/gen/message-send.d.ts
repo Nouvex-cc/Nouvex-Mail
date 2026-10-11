@@ -16,6 +16,10 @@ export interface MessageSend {
   subject: string;
   text: string;
   /**
+   * Send then instead of now.
+   */
+  sendAt?: string;
+  /**
    * Id of the message this answers, for the thread headers.
    */
   inReplyTo?: string;
