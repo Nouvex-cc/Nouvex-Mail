@@ -457,47 +457,21 @@
 }
 /* biome-ignore-end lint/complexity/noImportantStyles: see above */
 
-/* Behind a sticky bar: frosted glass under the bar itself, then a fade into the page over 2.5rem, so what scrolls
-   under it disappears softly. No blur in the fade: a mask on a backdrop filter is ignored by Chrome over a scrolled
-   iframe and leaves a hard edge. The bar needs `isolate` so this stays behind its content. */
+/* Behind a sticky bar: frosted glass, cut off by a hairline. A fade or a blur that fades out would look nicer, but
+   mail brings its own background, so a fade into the page color turns grey over light mail, and Chrome drops the
+   mask a fading blur needs over the scrolled mail frame. The bar needs `isolate` so this stays behind its content. */
 .progressive-blur {
 	position: absolute;
-	inset-inline: 0;
+	inset: 0;
 	z-index: -1;
 	pointer-events: none;
-	& > div {
-		position: absolute;
-		inset-inline: 0;
-	}
+	backdrop-filter: blur(20px) saturate(1.5);
+	background: color-mix(in oklch, var(--paper) 72%, transparent);
 	&[data-side="top"] {
-		top: 0;
-		bottom: -2.5rem;
-		& > div:first-child {
-			top: 0;
-			bottom: 2.5rem;
-			backdrop-filter: blur(16px) saturate(1.4);
-			background: color-mix(in oklch, var(--paper) 75%, transparent);
-		}
-		& > div:last-child {
-			top: calc(100% - 2.5rem);
-			bottom: 0;
-			background: linear-gradient(to bottom, color-mix(in oklch, var(--paper) 75%, transparent), transparent);
-		}
+		border-bottom: 1px solid var(--line);
 	}
 	&[data-side="bottom"] {
-		top: -2.5rem;
-		bottom: 0;
-		& > div:first-child {
-			bottom: 0;
-			top: 2.5rem;
-			backdrop-filter: blur(16px) saturate(1.4);
-			background: color-mix(in oklch, var(--paper) 75%, transparent);
-		}
-		& > div:last-child {
-			bottom: calc(100% - 2.5rem);
-			top: 0;
-			background: linear-gradient(to top, color-mix(in oklch, var(--paper) 75%, transparent), transparent);
-		}
+		border-top: 1px solid var(--line);
 	}
 }
 

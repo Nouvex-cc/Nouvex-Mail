@@ -9,14 +9,9 @@ import { Button } from "../button";
 import { Tooltip } from "../tooltip";
 import { FrameSlot } from "./mail-frame";
 
-// Frosted glass and a fade behind a sticky bar; see progressive-blur in styles.css.
+// Frosted glass behind a sticky bar; see progressive-blur in styles.css.
 function ProgressiveBlur({ side }: { side: "top" | "bottom" }) {
-	return (
-		<div className="progressive-blur" data-side={side} aria-hidden>
-			<div />
-			<div />
-		</div>
-	);
+	return <div className="progressive-blur" data-side={side} aria-hidden />;
 }
 
 // Opens by growing a grid row and fading the body in from under the snippet; see fold-panel in styles.css.
