@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import DOMPurify from "dompurify";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { cn } from "../../lib";
 import { Button } from "../button";
 
@@ -36,12 +36,44 @@ function appFont() {
 	return font;
 }
 
-// Inside the frame: a light card in both themes (mails bring their own colors), readable defaults, quotes hidden
-// until the toggle outside shows them.
-const base = ({ faces, stack }: { faces: string; stack: string }) => `<style>
+// The app is dark with .dark on the root, or without .light when the system is dark.
+const darkQuery = typeof matchMedia === "undefined" ? undefined : matchMedia("(prefers-color-scheme: dark)");
+const isDark = () => {
+	const root = document.documentElement.classList;
+	return root.contains("dark") || (!root.contains("light") && !!darkQuery?.matches);
+};
+function useDark() {
+	return useSyncExternalStore((change) => {
+		darkQuery?.addEventListener("change", change);
+		const classes = new MutationObserver(change);
+		classes.observe(document.documentElement, { attributeFilter: ["class"] });
+		return () => {
+			darkQuery?.removeEventListener("change", change);
+			classes.disconnect();
+		};
+	}, isDark);
+}
+
+// Mails that bring their own dark design say so in their CSS.
+const ownDark = /prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/i;
+
+// In a dark app, a mail with its own dark design gets to use it; any other mail is turned dark by inverting lightness
+// and turning hues back, the way Apple Mail does it. Pictures are inverted back so they look as sent; the slight
+// contrast cut keeps white from glaring.
+const flip = "invert(1) hue-rotate(180deg)";
+const looks = {
+	light: ":root { color-scheme: light; } html { background: #fff; color: #1f1d1b; }",
+	own: ":root { color-scheme: dark; } html { background: oklch(0.215 0.006 60); color: oklch(0.94 0.004 75); }",
+	// On body, not html: the page background behind html isn't filtered and would show as a white edge.
+	flipped: `:root { color-scheme: light; } html { background: oklch(0.175 0.005 60); }
+	body { background: #fff; color: #1f1d1b; filter: ${flip} contrast(0.82); }
+	img, picture, video, canvas, svg, [style*="background-image"], [background] { filter: ${flip}; }`,
+};
+
+// Inside the frame: readable defaults in the chosen look, quotes hidden until the toggle outside shows them.
+const base = ({ faces, stack }: { faces: string; stack: string }, look: keyof typeof looks) => `<style>
 	${faces}
-	:root { color-scheme: light; }
-	html { background: #fff; color: #1f1d1b; }
+	${looks[look]}
 	body { margin: 0; padding: 16px 20px; font: 14px/1.55 ${stack}; overflow-wrap: anywhere; }
 	body > * { max-width: 72ch; }
 	img { max-width: 100%; height: auto; }
@@ -112,11 +144,16 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 		if (before && /^(on .+ wrote|am .+ schrieb .+):?\s*$/i.test(before.textContent?.trim() ?? ""))
 			before.setAttribute("data-nx-quote", "");
 	}
-	return { body: doc.body.innerHTML, blocked, quoted: !!quote };
+	// The parser moves a <style> that comes before any content into <head>; most HTML mail starts with one.
+	const styles = [...doc.head.querySelectorAll("style")].map((style) => style.outerHTML).join("");
+	return { body: styles + doc.body.innerHTML, blocked, quoted: !!quote };
 }
 
 /** Renders a mail in a sandboxed frame (no scripts) that grows with its content, so it never scrolls on its own. */
 export function MailFrame({ html, proxy, className }: MailFrameProps) {
+	const dark = useDark();
+	const [original, setOriginal] = useState(false);
+	const look = !dark || original ? "light" : ownDark.test(html) ? "own" : "flipped";
 	const [allow, setAllow] = useState(false);
 	const [showQuote, setShowQuote] = useState(false);
 	const [ready, setReady] = useState(false);
@@ -160,14 +197,29 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 					</Button>
 				</div>
 			)}
-			<iframe
-				ref={frame}
-				title="Message"
-				srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont())}</head><body>${body}</body></html>`}
-				sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-				className="block h-0 w-full overflow-hidden rounded-lg border border-line data-[ready]:transition-all data-[ready]:duration-150 data-[ready]:ease-out"
-				data-ready={ready || undefined}
-			/>
+			{/* The border sits outside the frame so it follows the app's theme, not the frame's. */}
+			<div className="overflow-hidden rounded-lg border border-line">
+				<iframe
+					ref={frame}
+					title="Message"
+					srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body>${body}</body></html>`}
+					sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+					// The mail's own dark CSS only matches when the frame itself is dark.
+					className={cn(
+						"block h-0 w-full data-[ready]:transition-all data-[ready]:duration-150 data-[ready]:ease-out",
+						look === "own" ? "scheme-dark" : "scheme-light",
+					)}
+					data-ready={ready || undefined}
+				/>
+			</div>
+			{dark && (
+				<div className="flex items-center justify-between gap-3 rounded-md bg-sunken py-1 pr-1 pl-3 text-sm text-muted">
+					{original ? "Original colors" : "Dark colors"}
+					<Button size="sm" variant="ghost" onClick={() => setOriginal((o) => !o)}>
+						{original ? "Show dark" : "Show original"}
+					</Button>
+				</div>
+			)}
 			{quoted && (
 				<button
 					type="button"
