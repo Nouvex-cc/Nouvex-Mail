@@ -369,9 +369,10 @@
 	display: grid;
 	grid-template-rows: 0fr;
 	transition: grid-template-rows 320ms var(--ease-out);
+	/* clip, not hidden: hidden would make this the scroll container and stop sticky bars inside from sticking. */
 	& > div {
 		min-height: 0;
-		overflow: hidden;
+		overflow: clip;
 	}
 	&[data-open] {
 		grid-template-rows: 1fr;
@@ -455,3 +456,36 @@
 	}
 }
 /* biome-ignore-end lint/complexity/noImportantStyles: see above */
+
+/* Behind a sticky bar: frosted glass, cut off by a hairline. A fade or a blur that fades out would look nicer, but
+   mail brings its own background, so a fade into the page color turns grey over light mail, and Chrome drops the
+   mask a fading blur needs over the scrolled mail frame. The bar needs `isolate` so this stays behind its content. */
+.progressive-blur {
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	pointer-events: none;
+	backdrop-filter: blur(20px) saturate(1.5);
+	background: color-mix(in oklch, var(--paper) 72%, transparent);
+	&[data-side="top"] {
+		border-bottom: 1px solid var(--line);
+	}
+	&[data-side="bottom"] {
+		border-top: 1px solid var(--line);
+	}
+}
+
+/* A status pill shows only its icon and opens to its text on hover or focus. */
+@utility status-pill {
+	display: inline-grid;
+	grid-template-columns: auto 0fr;
+	transition: grid-template-columns 200ms var(--ease-out);
+	&:hover,
+	&:focus-visible {
+		grid-template-columns: auto 1fr;
+	}
+	& > :last-child {
+		overflow: hidden;
+		white-space: nowrap;
+	}
+}

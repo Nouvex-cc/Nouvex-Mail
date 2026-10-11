@@ -1,8 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 import DOMPurify from "dompurify";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
+import { createPortal } from "react-dom";
+import { FileImage, Moon, Sun } from "../../icons";
 import { cn } from "../../lib";
-import { Button } from "../button";
 
 export type MailFrameProps = {
 	html: string;
@@ -10,6 +20,12 @@ export type MailFrameProps = {
 	proxy?(url: string): string;
 	className?: string;
 };
+
+/**
+ * Set by a ThreadMessage: the frame then sits flush in the message and puts its status pills into the message's
+ * footer, next to Reply and Forward.
+ */
+export const FrameSlot = createContext<{ node: HTMLElement | null } | undefined>(undefined);
 
 const remote = /^https?:\/\//i;
 const cssUrl = /url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi;
@@ -62,8 +78,8 @@ const ownDark = /prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/
 // contrast cut keeps white from glaring.
 const flip = "invert(1) hue-rotate(180deg)";
 const looks = {
-	light: ":root { color-scheme: light; } html { background: #fff; color: #1f1d1b; }",
-	own: ":root { color-scheme: dark; } html { background: oklch(0.215 0.006 60); color: oklch(0.94 0.004 75); }",
+	light: ":root { color-scheme: light; } html { background: oklch(0.993 0.002 75); color: #1f1d1b; }",
+	own: ":root { color-scheme: dark; } html { background: oklch(0.175 0.005 60); color: oklch(0.94 0.004 75); }",
 	// On body, not html: the page background behind html isn't filtered and would show as a white edge.
 	flipped: `:root { color-scheme: light; } html { background: oklch(0.175 0.005 60); }
 	body { background: #fff; color: #1f1d1b; filter: ${flip} contrast(0.82); }
@@ -187,18 +203,33 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 		};
 	}, [body, showQuote]);
 
+	const slot = useContext(FrameSlot);
+	const pills = (
+		<>
+			{blocked > 0 && !allow && (
+				<StatusPill
+					icon={<FileImage strokeWidth={1.75} />}
+					label="Remote images hidden"
+					action="Show"
+					onClick={() => setAllow(true)}
+				/>
+			)}
+			{dark && (
+				<StatusPill
+					icon={original ? <Sun strokeWidth={1.75} /> : <Moon strokeWidth={1.75} />}
+					label={original ? "Original colors" : "Dark colors"}
+					action={original ? "Show dark" : "Show original"}
+					onClick={() => setOriginal((o) => !o)}
+				/>
+			)}
+		</>
+	);
+
 	return (
 		<div className={cn("grid gap-2", className)}>
-			{blocked > 0 && !allow && (
-				<div className="flex items-center justify-between gap-3 rounded-md bg-sunken py-1 pr-1 pl-3 text-sm text-muted">
-					Remote images are hidden
-					<Button size="sm" variant="ghost" onClick={() => setAllow(true)}>
-						Show
-					</Button>
-				</div>
-			)}
-			{/* The border sits outside the frame so it follows the app's theme, not the frame's. */}
-			<div className="overflow-hidden rounded-lg border border-line">
+			{/* In a message the mail sits flush; on its own it gets a border, outside the frame so it follows the app's
+			    theme, not the frame's. */}
+			<div className={slot ? undefined : "overflow-hidden rounded-lg border border-line"}>
 				<iframe
 					ref={frame}
 					title="Message"
@@ -212,25 +243,49 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 					data-ready={ready || undefined}
 				/>
 			</div>
-			{dark && (
-				<div className="flex items-center justify-between gap-3 rounded-md bg-sunken py-1 pr-1 pl-3 text-sm text-muted">
-					{original ? "Original colors" : "Dark colors"}
-					<Button size="sm" variant="ghost" onClick={() => setOriginal((o) => !o)}>
-						{original ? "Show dark" : "Show original"}
-					</Button>
-				</div>
-			)}
 			{quoted && (
 				<button
 					type="button"
 					aria-label={showQuote ? "Hide quoted text" : "Show quoted text"}
 					aria-expanded={showQuote}
 					onClick={() => setShowQuote((s) => !s)}
-					className="inline-flex h-5 w-fit items-center rounded-full bg-hover px-2 text-xs text-muted outline-none transition-colors duration-100 hover:bg-selected hover:text-ink focus-visible:outline-2"
+					className={cn(
+						"inline-flex h-5 w-fit items-center rounded-full bg-hover px-2 text-xs text-muted outline-none transition-colors duration-100 hover:bg-selected hover:text-ink focus-visible:outline-2",
+						slot && "mx-5",
+					)}
 				>
 					•••
 				</button>
 			)}
+			{slot ? slot.node && createPortal(pills, slot.node) : <div className="flex gap-1.5">{pills}</div>}
 		</div>
+	);
+}
+
+/** Just the icon until hovered or focused, then it opens to what it says and what a click does. */
+function StatusPill({
+	icon,
+	label,
+	action,
+	onClick,
+}: {
+	icon: ReactNode;
+	label: string;
+	action: string;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			aria-label={`${label}. ${action}`}
+			onClick={onClick}
+			className="status-pill h-7 items-center rounded-full bg-sunken pr-2.5 pl-1.5 text-sm text-muted outline-none hover:text-ink focus-visible:outline-2 [&_svg]:size-4"
+		>
+			<span className="grid size-4 place-items-center">{icon}</span>
+			<span>
+				<span className="pl-1.5">{label}</span>
+				<span className="pl-1.5 font-medium text-ink">{action}</span>
+			</span>
+		</button>
 	);
 }

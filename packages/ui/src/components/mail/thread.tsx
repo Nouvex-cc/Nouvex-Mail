@@ -7,6 +7,12 @@ import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Avatar } from "../avatar";
 import { Button } from "../button";
 import { Tooltip } from "../tooltip";
+import { FrameSlot } from "./mail-frame";
+
+// Frosted glass behind a sticky bar; see progressive-blur in styles.css.
+function ProgressiveBlur({ side }: { side: "top" | "bottom" }) {
+	return <div className="progressive-blur" data-side={side} aria-hidden />;
+}
 
 // Opens by growing a grid row and fading the body in from under the snippet; see fold-panel in styles.css.
 function Panel({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
@@ -51,6 +57,8 @@ export function ThreadMessage({
 	// by the time the row is clicked and the message opens in one smooth motion.
 	const [ready, setReady] = useState(open);
 	const panelId = useId();
+	// Where the mail frame puts its status pills, next to Reply and Forward.
+	const [footer, setFooter] = useState<HTMLElement | null>(null);
 
 	return (
 		<div data-open={open || undefined} className="group border-b border-line last:border-b-0">
@@ -64,8 +72,10 @@ export function ThreadMessage({
 					setReady(true);
 					setOpen(!open);
 				}}
-				className="flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
+				// Open, the header stays at the top while the mail scrolls under it.
+				className="isolate z-10 flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 group-data-open:sticky group-data-open:top-0"
 			>
+				{open && <ProgressiveBlur side="top" />}
 				<Avatar name={from} />
 				<span className="grid min-w-0 flex-1">
 					<span className="truncate font-medium">{from}</span>
@@ -85,25 +95,26 @@ export function ThreadMessage({
 			</button>
 			<Panel open={open} id={panelId}>
 				{ready && (
-					<div className="grid gap-3 pr-4 pb-4 pl-15">
+					<FrameSlot.Provider value={{ node: footer }}>
 						{children}
-						{(onReply || onForward) && (
-							<div className="flex gap-2">
-								{onReply && (
-									<Button size="sm" onClick={onReply}>
-										<Reply strokeWidth={1.75} />
-										Reply
-									</Button>
-								)}
-								{onForward && (
-									<Button size="sm" onClick={onForward}>
-										<Forward strokeWidth={1.75} />
-										Forward
-									</Button>
-								)}
-							</div>
-						)}
-					</div>
+						{/* Stays at the bottom while the mail scrolls under it. */}
+						<div className="sticky bottom-0 isolate z-10 flex items-center gap-2 px-4 py-3">
+							<ProgressiveBlur side="bottom" />
+							{onReply && (
+								<Button size="sm" onClick={onReply}>
+									<Reply strokeWidth={1.75} />
+									Reply
+								</Button>
+							)}
+							{onForward && (
+								<Button size="sm" onClick={onForward}>
+									<Forward strokeWidth={1.75} />
+									Forward
+								</Button>
+							)}
+							<div ref={setFooter} className="ml-auto flex gap-1.5" />
+						</div>
+					</FrameSlot.Provider>
 				)}
 			</Panel>
 		</div>
@@ -127,7 +138,8 @@ export function Thread({ subject, children, className }: { subject: string; chil
 	return (
 		<section className={cn("grid", className)}>
 			<h2 className="px-4 pb-3 text-xl font-semibold text-balance">{subject}</h2>
-			<div className="overflow-hidden rounded-lg border border-line">
+			{/* clip, not hidden: the open message's header and footer stick to the page while it scrolls. */}
+			<div className="overflow-clip rounded-lg border border-line">
 				{fold ? (
 					<>
 						{items[0]}
