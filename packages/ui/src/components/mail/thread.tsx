@@ -108,14 +108,23 @@ export type ThreadReply = {
 	onForward(): void;
 };
 
-// Floats at the bottom of the conversation; R, A and F do the same from anywhere in it.
+// Floats at the bottom of the conversation while the mail scrolls under it.
+function Floating({ children }: { children: ReactNode }) {
+	return (
+		<div className="pointer-events-none sticky bottom-4 z-10 flex justify-center px-4">
+			<div className="pointer-events-auto w-full max-w-2xl">{children}</div>
+		</div>
+	);
+}
+
+// R, A and F do the same from anywhere in the conversation.
 function ReplyBar({ to, onReply, onReplyAll, onForward }: ThreadReply) {
 	useShortcut("r", onReply);
 	useShortcut("a", () => onReplyAll?.());
 	useShortcut("f", onForward);
 	return (
-		<div className="pointer-events-none sticky bottom-4 z-10 flex justify-center px-4">
-			<div className="pointer-events-auto flex w-full max-w-2xl items-center gap-1 rounded-xl border border-line bg-raised p-1.5 shadow-pop">
+		<Floating>
+			<div className="flex items-center gap-1 rounded-xl border border-line bg-raised p-1.5 shadow-pop">
 				<button
 					type="button"
 					onClick={onReply}
@@ -135,7 +144,7 @@ function ReplyBar({ to, onReply, onReplyAll, onForward }: ThreadReply) {
 					Forward
 				</Button>
 			</div>
-		</div>
+		</Floating>
 	);
 }
 
@@ -148,6 +157,8 @@ export function Thread({
 	back,
 	actions,
 	reply,
+	composer,
+	after,
 	children,
 	className,
 }: {
@@ -157,6 +168,10 @@ export function Thread({
 	/** Right of the subject, for the whole conversation. */
 	actions?: ReactNode;
 	reply?: ThreadReply;
+	/** Takes the reply bar's place, e.g. the reply being written. */
+	composer?: ReactNode;
+	/** In the conversation after the newest message. */
+	after?: ReactNode;
 	children: ReactNode;
 	className?: string;
 }) {
@@ -197,8 +212,9 @@ export function Thread({
 					earlier.length > 0 && <div className="border-b border-line">{earlier}</div>
 				)}
 				{newest && cloneElement(newest, { defaultExpanded: true })}
+				{after}
 			</div>
-			{reply && <ReplyBar {...reply} />}
+			{composer ? <Floating>{composer}</Floating> : reply && <ReplyBar {...reply} />}
 		</section>
 	);
 }
