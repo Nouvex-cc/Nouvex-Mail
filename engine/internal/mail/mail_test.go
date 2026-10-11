@@ -3,9 +3,12 @@
 package mail
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/emersion/go-imap/v2"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 )
@@ -100,5 +103,12 @@ func TestComposeWithFiles(t *testing.T) {
 	_, snippet, files, err := Content(raw)
 	if err != nil || snippet != "Attached." || len(files) != 1 || files[0].Name != "Vertrag.pdf" || string(files[0].Data) != "%PDF-1" {
 		t.Fatalf("%q %+v %v", snippet, files, err)
+	}
+}
+
+func TestFlagStrings(t *testing.T) {
+	got := flagStrings([]imap.Flag{imap.FlagSeen, `\Recent`, "$NotJunk"})
+	if !slices.Equal(got, []string{"$NotJunk", `\Seen`}) {
+		t.Fatal(got)
 	}
 }

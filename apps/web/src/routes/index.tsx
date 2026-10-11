@@ -13,8 +13,9 @@ import {
 import { Archive, File, Folder, Inbox as InboxIcon, PenLine, Send, ShieldAlert, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db } from "../db";
@@ -31,6 +32,8 @@ const standard = [
 	{ role: "junk", label: "Junk", Icon: ShieldAlert },
 	{ role: "trash", label: "Trash", Icon: Trash2 },
 ] as const;
+
+const page = 100;
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
@@ -81,18 +84,42 @@ function Inbox() {
 			[current],
 		) ?? [];
 	const shown = boxes.filter((b) => searching || (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
-	// ponytail: renders every message and searches in memory; VirtualList and an index once folders get big.
-	const messages = useLiveQuery(
-		async () =>
-			(await db.messages.where("mailboxId").anyOf(shown).sortBy("sentAt"))
+	// Only a page of the newest messages is read and rendered; scrolling to the end asks for the next one. Each folder
+	// is read newest first through its index, so the cost doesn't grow with the mailbox.
+	const [limit, setLimit] = useState(page);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts at the first page again
+	useEffect(() => setLimit(page), [shown.join(), query]);
+	const messages = useLiveQuery(async () => {
+		if (searching) {
+			const inView = new Set(shown);
+			return db.messages
+				.orderBy("sentAt")
 				.reverse()
-				.filter((m) => !searching || matches(m, query)),
-		[shown.join(), query],
-	);
+				.filter((m) => inView.has(m.mailboxId) && matches(m, query))
+				.limit(limit)
+				.toArray();
+		}
+		const newest = await Promise.all(
+			shown.map((id) =>
+				db.messages
+					.where("[mailboxId+sentAt]")
+					.between([id, Dexie.minKey], [id, Dexie.maxKey])
+					.reverse()
+					.limit(limit)
+					.toArray(),
+			),
+		);
+		return newest
+			.flat()
+			.sort((a, b) => b.sentAt.localeCompare(a.sentAt))
+			.slice(0, limit);
+	}, [shown.join(), query, limit]);
 	const inboxes = boxes.filter((b) => b.role === "inbox").map((b) => b.id);
 	const unread = useLiveQuery(
 		async () =>
-			(await db.messages.where("mailboxId").anyOf(inboxes).toArray()).some((m) => !m.flags.includes("\\Seen")),
+			(await Promise.all(inboxes.map((id) => db.messages.where("[mailboxId+seen]").equals([id, 0]).count()))).some(
+				Boolean,
+			),
 		[inboxes.join()],
 	);
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
@@ -234,6 +261,7 @@ function Inbox() {
 							/>
 						))}
 					</MessageList>
+					{messages?.length === limit && <More onVisible={() => setLimit((l) => l + page)} />}
 				</>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
@@ -245,4 +273,17 @@ function Inbox() {
 			/>
 		</AppShell>
 	);
+}
+
+// Sits under the list and asks for the next page as it scrolls into view.
+function More({ onVisible }: { onVisible: () => void }) {
+	const ref = useRef<HTMLDivElement>(null);
+	const latest = useRef(onVisible);
+	latest.current = onVisible;
+	useEffect(() => {
+		const io = new IntersectionObserver(([e]) => e?.isIntersecting && latest.current(), { rootMargin: "800px" });
+		if (ref.current) io.observe(ref.current);
+		return () => io.disconnect();
+	}, []);
+	return <div ref={ref} className="h-px" />;
 }

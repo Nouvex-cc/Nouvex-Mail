@@ -15,7 +15,11 @@ export interface Message {
 	flags: string[];
 	size: number;
 	attachments: { name: string; type: string; size: number }[];
+	// 1 when flags has \Seen. Only here so unread mail can be found through an index; IndexedDB can't index booleans.
+	seen: 0 | 1;
 }
+
+export const seen = (flags: string[]) => (flags.includes("\\Seen") ? 1 : 0);
 
 export interface Mailbox {
 	id: string;
@@ -40,4 +44,15 @@ db.version(3)
 	.stores({ messages: "id, mailboxId, sentAt", mailboxes: "id, accountId" })
 	.upgrade((tx) =>
 		Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
+	);
+// Indexes that let a folder be read newest first, a page at a time, and its unread mail be counted.
+db.version(4)
+	.stores({ messages: "id, mailboxId, sentAt, [mailboxId+sentAt], [mailboxId+seen]" })
+	.upgrade((tx) =>
+		tx
+			.table("messages")
+			.toCollection()
+			.modify((m: Message) => {
+				m.seen = seen(m.flags);
+			}),
 	);
