@@ -10,6 +10,7 @@ import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
 import { changeLog, mailAccount, mailbox, message } from "./db/schema";
+import { fetchImage } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
 
@@ -20,6 +21,12 @@ app.use("*", httpInstrumentationMiddleware({ serviceName: "nouvex-api" }));
 app.use("*", cors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:5173", credentials: true }));
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+
+app.use("/image", async (c, next) => {
+	const session = await auth.api.getSession({ headers: c.req.raw.headers });
+	if (!session) return c.body(null, 401);
+	await next();
+});
 
 app.use("/accounts/*", async (c, next) => {
 	const session = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -538,6 +545,32 @@ app.openapi(
 	async (c) => {
 		await draft({ ...c.req.valid("param"), to: [], cc: [], bcc: [], subject: "", text: "", discard: true });
 		return c.body(null, 202);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/image",
+		operationId: "getImage",
+		description: "Loads a remote image of a mail through the server, so the sender never sees the reader's address.",
+		request: { query: z.object({ url: z.url() }) },
+		responses: {
+			200: { description: "The image", content: { "image/*": { schema: z.any() } } },
+			404: { description: "Not a public image" },
+		},
+	}),
+	async (c) => {
+		const image = await fetchImage(c.req.valid("query").url);
+		if (!image) return c.body(null, 404);
+		return new Response(image.body, {
+			headers: {
+				"content-type": image.type,
+				"cache-control": "private, max-age=86400",
+				"x-content-type-options": "nosniff",
+				"content-security-policy": "sandbox",
+			},
+		});
 	},
 );
 

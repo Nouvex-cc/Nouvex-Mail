@@ -16,7 +16,7 @@ import { cn } from "../../lib";
 
 export type MailFrameProps = {
 	html: string;
-	/** Routes allowed remote images through the image proxy. */
+	/** Routes remote images through the image proxy. With one they load right away, without one only on request. */
 	proxy?(url: string): string;
 	className?: string;
 };
@@ -176,7 +176,8 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 	const dark = useDark();
 	const [original, setOriginal] = useState(false);
 	const look = !dark || original ? "light" : ownDark.test(html) ? "own" : "flipped";
-	const [allow, setAllow] = useState(false);
+	// Through a proxy remote images can't reveal the reader, so they load right away.
+	const [allow, setAllow] = useState(proxy !== undefined);
 	const [showQuote, setShowQuote] = useState(false);
 	const [ready, setReady] = useState(false);
 	const frame = useRef<HTMLIFrameElement>(null);

@@ -15,6 +15,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 import type { Draft } from "./write";
 
+const image = (url: string) => `/image?url=${encodeURIComponent(url)}`;
+
 /** A conversation, oldest message first. The actions on top apply to all of it. */
 export function Reader({
 	messages,
@@ -111,7 +113,7 @@ function Entry({
 		>
 			{html.data !== undefined ? (
 				<>
-					<MailFrame html={html.data} />
+					<MailFrame html={html.data} proxy={image} />
 					{m.attachments.length > 0 && (
 						<AttachmentList className="mt-3">
 							{m.attachments.map((a, i) => (
