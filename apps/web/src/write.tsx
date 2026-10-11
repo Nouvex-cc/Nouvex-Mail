@@ -1,8 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Composer, type Contact, Dialog, type OutgoingMessage, useToast } from "@nouvex/ui";
+import { useMemo, useRef } from "react";
 
-// What the composer starts with: empty for a new message, filled in for a reply or forward.
-export type Draft = { accountId?: string; to?: string[]; subject?: string; body?: string; inReplyTo?: string };
+// What the composer starts with: empty for a new message, filled in for a reply or forward, or a saved draft
+// (draftId) to continue.
+export type Draft = {
+	accountId?: string;
+	to?: string[];
+	subject?: string;
+	body?: string;
+	inReplyTo?: string;
+	draftId?: string;
+};
+
+export const when = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
 
 export function Write({
 	from,
@@ -16,7 +27,46 @@ export function Write({
 	onClose: () => void;
 }) {
 	const toast = useToast();
+	// Every edit is saved as a draft two seconds after typing stops; closing saves right away.
+	const draftId = useMemo(() => draft?.draftId ?? crypto.randomUUID(), [draft]);
+	const pending = useRef<{ timer: ReturnType<typeof setTimeout>; save: () => void }>(undefined);
+	const cancel = () => {
+		clearTimeout(pending.current?.timer);
+		pending.current = undefined;
+	};
+	const flush = () => {
+		const p = pending.current;
+		cancel();
+		p?.save();
+	};
+	const change = (m: Omit<OutgoingMessage, "files" | "sendAt">) => {
+		cancel();
+		const save = () =>
+			void fetch(`/accounts/${from?.id}/drafts/${draftId}`, {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					to: m.to,
+					cc: m.cc,
+					bcc: m.bcc,
+					subject: m.subject,
+					text: m.body,
+					inReplyTo: draft?.inReplyTo,
+				}),
+			});
+		pending.current = { timer: setTimeout(flush, 2000), save };
+	};
+	const discard = () => {
+		cancel();
+		void fetch(`/accounts/${from?.id}/drafts/${draftId}`, { method: "DELETE" });
+		onClose();
+	};
+	const close = () => {
+		flush();
+		onClose();
+	};
 	const send = async (m: OutgoingMessage) => {
+		cancel();
 		const uploads = await Promise.all(
 			m.files.map(async (file) => {
 				const form = new FormData();
@@ -37,21 +87,18 @@ export function Write({
 				subject: m.subject,
 				text: m.body,
 				inReplyTo: draft?.inReplyTo,
+				draftId,
 				sendAt: m.sendAt?.toISOString(),
 				attachments: uploads,
 			}),
 		});
 		if (!res.ok) return toast.add({ title: "Couldn't send", description: "Check the recipients and try again." });
-		if (m.sendAt) {
-			toast.add({
-				title: `Scheduled for ${m.sendAt.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`,
-			});
-		}
+		if (m.sendAt) toast.add({ title: `Scheduled for ${when(m.sendAt)}` });
 		onClose();
 	};
 
 	return (
-		<Dialog.Root open={draft !== undefined} onOpenChange={(open) => open || onClose()}>
+		<Dialog.Root open={draft !== undefined} onOpenChange={(open) => open || close()}>
 			<Dialog.Popup className="max-w-2xl">
 				<Dialog.Title>New message</Dialog.Title>
 				<Dialog.Description>From {from?.email}</Dialog.Description>
@@ -59,9 +106,13 @@ export function Write({
 					contacts={contacts}
 					defaultTo={draft?.to}
 					defaultSubject={draft?.subject}
-					// The signature goes above a quoted message, the way replies are written.
-					defaultBody={from?.signature ? `\n\n-- \n${from.signature}${draft?.body ?? ""}` : draft?.body}
+					// The signature goes above a quoted message, the way replies are written; a draft has it already.
+					defaultBody={
+						from?.signature && !draft?.draftId ? `\n\n-- \n${from.signature}${draft?.body ?? ""}` : draft?.body
+					}
 					onSend={send}
+					onChange={change}
+					onDiscard={discard}
 				/>
 			</Dialog.Popup>
 		</Dialog.Root>

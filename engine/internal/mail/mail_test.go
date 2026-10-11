@@ -58,7 +58,7 @@ func TestCompose(t *testing.T) {
 	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{
 		To: []string{"lena@hartmann.example"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},
 		Subject: "Schlüssel für Freitag", Text: "Bis Freitag!",
-	}, "parent@x.example", nil, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
+	}, "parent@x.example", "", nil, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestAttachments(t *testing.T) {
 }
 
 func TestComposeWithFiles(t *testing.T) {
-	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{To: []string{"lena@hartmann.example"}, Subject: "Contract", Text: "Attached."}, "",
+	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{To: []string{"lena@hartmann.example"}, Subject: "Contract", Text: "Attached."}, "", "",
 		[]File{{Name: "Vertrag.pdf", Type: "application/pdf", Data: []byte("%PDF-1")}}, time.Now())
 	if err != nil {
 		t.Fatal(err)

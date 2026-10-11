@@ -13,6 +13,8 @@ const m: Message = {
 	snippet: "When can you pick them up?",
 	fromName: "Lena Hartmann",
 	fromAddr: "lena@hartmann.example",
+	to: ["mateo@nouvex.cc"],
+	cc: [],
 	sentAt: "2026-10-08T09:12:00",
 	flags: [],
 	size: 10,
@@ -37,5 +39,6 @@ test("filters", () => {
 	expect(matches(m, q("", ["after", "2026-10-09"]))).toBe(false);
 	expect(matches({ ...m, flags: ["\\Seen"] }, q("", ["is", "unread"]))).toBe(false);
 	expect(matches(m, q("", ["is", "starred"]))).toBe(false);
+	expect(matches(m, q("", ["to", "mateo"]))).toBe(true);
 	expect(matches(m, q("", ["to", "lena@hartmann.example"]))).toBe(false);
 });

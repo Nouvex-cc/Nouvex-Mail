@@ -1,0 +1,19 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "DraftSave",
+	"description": "Command: API asks the engine to store a draft in the account's Drafts folder, replacing its previous version. Without text and recipients it only deletes the draft.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"draftId": { "type": "string" },
+		"to": { "type": "array", "items": { "type": "string" } },
+		"cc": { "type": "array", "items": { "type": "string" } },
+		"bcc": { "type": "array", "items": { "type": "string" } },
+		"subject": { "type": "string" },
+		"text": { "type": "string" },
+		"inReplyTo": { "type": "string" },
+		"discard": { "type": "boolean", "description": "Delete the draft instead of storing it." }
+	},
+	"required": ["accountId", "draftId", "to", "cc", "bcc", "subject", "text"],
+	"additionalProperties": false
+}

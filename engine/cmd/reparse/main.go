@@ -33,10 +33,4 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("reparsed", "changed", n)
-	t, err := mail.BackfillThreads(ctx, pool, get)
-	if err != nil {
-		slog.Error("threads stopped", "done", t, "err", err)
-		os.Exit(1)
-	}
-	slog.Info("threads", "assigned", t)
 }

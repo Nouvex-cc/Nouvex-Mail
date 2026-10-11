@@ -79,11 +79,13 @@ export async function update(
 	if (!res.ok) await db.messages.put(m);
 }
 
-// Forgets everything synced from an account, after it was removed.
-export const forget = (accountId: string) =>
-	db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
+// Removes an account, then everything synced from it.
+export async function forget(accountId: string) {
+	await fetch(`/accounts/${accountId}`, { method: "DELETE" });
+	await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
 		const boxes = await db.mailboxes.where("accountId").equals(accountId).primaryKeys();
 		await db.messages.where("mailboxId").anyOf(boxes).delete();
 		await db.mailboxes.bulkDelete(boxes);
 		await db.cursor.delete(accountId);
 	});
+}

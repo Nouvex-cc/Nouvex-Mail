@@ -112,7 +112,7 @@ export function MessageRow({
 					className={action}
 					onClick={(e) => {
 						e.stopPropagation();
-						onClick?.();
+						onClick();
 					}}
 				>
 					{children}
@@ -233,7 +233,7 @@ export function MessageRow({
 							<SnoozePicker
 								open={snoozing}
 								onOpenChange={setSnoozing}
-								onSnooze={(until) => onSnooze?.(until)}
+								onSnooze={onSnooze}
 								trigger={
 									<button
 										type="button"

@@ -204,8 +204,8 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
@@ -225,6 +225,8 @@ type InsertMessageParams struct {
 	Attachments []byte
 	Refs        []string
 	ThreadID    string
+	ToAddrs     []string
+	CcAddrs     []string
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -244,6 +246,8 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Attachments,
 		arg.Refs,
 		arg.ThreadID,
+		arg.ToAddrs,
+		arg.CcAddrs,
 	)
 	if err != nil {
 		return 0, err
@@ -371,36 +375,6 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 	return items, nil
 }
 
-const listThreadless = `-- name: ListThreadless :many
-SELECT id, account_id, message_id FROM message WHERE thread_id = '' ORDER BY sent_at
-`
-
-type ListThreadlessRow struct {
-	ID        string
-	AccountID string
-	MessageID string
-}
-
-func (q *Queries) ListThreadless(ctx context.Context) ([]ListThreadlessRow, error) {
-	rows, err := q.db.Query(ctx, listThreadless)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListThreadlessRow
-	for rows.Next() {
-		var i ListThreadlessRow
-		if err := rows.Scan(&i.ID, &i.AccountID, &i.MessageID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const logChange = `-- name: LogChange :one
 WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING version)
 INSERT INTO change_log (account_id, version, entity, entity_id, op)
@@ -508,21 +482,6 @@ type SetSyncErrorParams struct {
 
 func (q *Queries) SetSyncError(ctx context.Context, arg SetSyncErrorParams) error {
 	_, err := q.db.Exec(ctx, setSyncError, arg.ID, arg.SyncError)
-	return err
-}
-
-const setThread = `-- name: SetThread :exec
-UPDATE message SET refs = $2, thread_id = $3 WHERE id = $1
-`
-
-type SetThreadParams struct {
-	ID       string
-	Refs     []string
-	ThreadID string
-}
-
-func (q *Queries) SetThread(ctx context.Context, arg SetThreadParams) error {
-	_, err := q.db.Exec(ctx, setThread, arg.ID, arg.Refs, arg.ThreadID)
 	return err
 }
 

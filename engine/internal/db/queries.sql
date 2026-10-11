@@ -23,8 +23,8 @@ DELETE FROM message WHERE mailbox_id = $1 RETURNING id;
 SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1;
 
 -- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 ON CONFLICT (mailbox_id, uid) DO NOTHING;
 
 -- name: LogChange :one
@@ -70,12 +70,6 @@ WHERE account_id = sqlc.arg(account_id) AND thread_id <> ''
 
 -- name: MergeThread :many
 UPDATE message SET thread_id = sqlc.arg(keep)::text WHERE account_id = sqlc.arg(account_id) AND thread_id = sqlc.arg(thread_id) RETURNING id;
-
--- name: ListThreadless :many
-SELECT id, account_id, message_id FROM message WHERE thread_id = '' ORDER BY sent_at;
-
--- name: SetThread :exec
-UPDATE message SET refs = $2, thread_id = $3 WHERE id = $1;
 
 -- name: AddJob :exec
 INSERT INTO scheduled (id, account_id, run_at, kind, payload) VALUES ($1, $2, $3, $4, $5);

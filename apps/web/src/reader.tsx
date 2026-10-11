@@ -80,6 +80,12 @@ export function Reader({
 	);
 }
 
+export async function body(m: Message) {
+	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
+	if (!res.ok) throw new Error(`body: ${res.status}`);
+	return ((await res.json()) as { html: string }).html;
+}
+
 // One message of the conversation; its body loads when it is first shown.
 function Entry({
 	message: m,
@@ -90,16 +96,8 @@ function Entry({
 	onWrite: (draft: Draft) => void;
 	defaultExpanded?: boolean;
 }) {
-	const body = useQuery({
-		queryKey: ["body", m.id],
-		queryFn: async () => {
-			const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
-			if (!res.ok) throw new Error(`body: ${res.status}`);
-			return ((await res.json()) as { html: string }).html;
-		},
-		staleTime: Number.POSITIVE_INFINITY,
-	});
-	const quoted = body.data === undefined ? undefined : text(body.data);
+	const html = useQuery({ queryKey: ["body", m.id], queryFn: () => body(m), staleTime: Number.POSITIVE_INFINITY });
+	const quoted = html.data === undefined ? undefined : text(html.data);
 
 	return (
 		<ThreadMessage
@@ -111,9 +109,9 @@ function Entry({
 			onReply={quoted === undefined ? undefined : () => onWrite(reply(m, quoted))}
 			onForward={quoted === undefined ? undefined : () => onWrite(forward(m, quoted))}
 		>
-			{body.data !== undefined ? (
+			{html.data !== undefined ? (
 				<>
-					<MailFrame html={body.data} />
+					<MailFrame html={html.data} />
 					{m.attachments.length > 0 && (
 						<AttachmentList className="mt-3">
 							{m.attachments.map((a, i) => (
@@ -127,7 +125,7 @@ function Entry({
 						</AttachmentList>
 					)}
 				</>
-			) : body.isError ? (
+			) : html.isError ? (
 				<p className="p-4 text-sm text-muted">This message couldn't be loaded.</p>
 			) : (
 				<Spinner />
@@ -137,7 +135,7 @@ function Entry({
 }
 
 // The mail as plain text for quoting. Block breaks of HTML mails get lost; plain text mails keep their lines.
-const text = (html: string) => new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ?? "";
+export const text = (html: string) => new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ?? "";
 
 const prefixed = (prefix: string, subject: string) =>
 	subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;

@@ -74,6 +74,8 @@ export const message = pgTable(
 		snippet: text("snippet").notNull().default(""),
 		fromName: text("from_name").notNull(),
 		fromAddr: text("from_addr").notNull(),
+		to: text("to_addrs").array().notNull().default([]),
+		cc: text("cc_addrs").array().notNull().default([]),
 		sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
 		flags: text("flags").array().notNull(),
 		size: integer("size").notNull(),

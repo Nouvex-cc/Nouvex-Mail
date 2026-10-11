@@ -13,6 +13,8 @@ export interface Message {
 	snippet: string;
 	fromName: string;
 	fromAddr: string;
+	to: string[];
+	cc: string[];
 	sentAt: string;
 	flags: string[];
 	size: number;

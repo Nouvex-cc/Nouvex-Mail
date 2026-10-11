@@ -274,7 +274,7 @@ func TestWatch(t *testing.T) {
 func TestSaveSent(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	raw, _ := Compose(mail.Address{Address: "lena@example.com"}, msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", nil, time.Now())
+	raw, _ := Compose(mail.Address{Address: "lena@example.com"}, msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", "", nil, time.Now())
 	// The test server has no Sent folder, so it gets created.
 	if err := SaveSent(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, raw); err != nil {
 		t.Fatal(err)
@@ -424,5 +424,53 @@ func TestSnooze(t *testing.T) {
 	sync()
 	if roleOf() != "inbox" {
 		t.Fatalf("in %q, not back in the INBOX", roleOf())
+	}
+}
+
+func TestDrafts(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	q := db.New(f.pool)
+	master := bytes.Repeat([]byte{7}, 32)
+	save := func(text string, discard bool) {
+		d := msg.DraftSave{AccountId: f.id, DraftId: "d1", To: []string{"a@x.example"}, Cc: []string{}, Bcc: []string{}, Subject: "Plan", Text: text}
+		if discard {
+			d.Discard = &discard
+		}
+		if err := SaveDraft(ctx, q, master, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acc, _ := q.GetAccount(ctx, f.id)
+	drafts := func() []string {
+		c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), "lena", "hunter2", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = c.Logout().Wait() }()
+		sel, err := c.Select("Drafts", nil).Wait()
+		if err != nil || sel.NumMessages == 0 {
+			return nil
+		}
+		whole := &imap.FetchItemBodySection{}
+		msgs, _ := c.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{BodySection: []*imap.FetchItemBodySection{whole}}).Collect()
+		var out []string
+		for _, m := range msgs {
+			_, snippet, _, _ := Content(m.FindBodySection(whole))
+			out = append(out, snippet)
+		}
+		if sel.NumMessages != uint32(len(out)) {
+			t.Fatalf("%d drafts", sel.NumMessages)
+		}
+		return out
+	}
+	save("first", false)
+	save("second", false)
+	if got := drafts(); !slices.Equal(got, []string{"second"}) {
+		t.Fatalf("drafts %v", got)
+	}
+	save("", true)
+	if got := drafts(); len(got) != 0 {
+		t.Fatalf("drafts %v after discard", got)
 	}
 }
