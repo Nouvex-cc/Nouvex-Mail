@@ -198,7 +198,7 @@ func TestUpdate(t *testing.T) {
 		ids[subject] = id
 	}
 	yes := true
-	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Read me"], Seen: &yes}); err != nil {
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Read me"], Seen: &yes, Flagged: &yes}); err != nil {
 		t.Fatal(err)
 	}
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Throw me away"], Trash: &yes}); err != nil {
@@ -232,7 +232,7 @@ func TestUpdate(t *testing.T) {
 		t.Fatal("trashed message not in Trash")
 	}
 	var flags []string
-	if err := f.pool.QueryRow(ctx, `SELECT flags FROM message WHERE id = $1`, ids["Read me"]).Scan(&flags); err != nil || !slices.Equal(flags, []string{`\Seen`}) {
+	if err := f.pool.QueryRow(ctx, `SELECT flags FROM message WHERE id = $1`, ids["Read me"]).Scan(&flags); err != nil || !slices.Equal(flags, []string{`\Flagged`, `\Seen`}) {
 		t.Fatalf("flags %v, %v", flags, err)
 	}
 	var left int

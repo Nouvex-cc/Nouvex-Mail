@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
-import { Archive, Clock, Paperclip, Trash2 } from "../../icons";
+import { Archive, Clock, Paperclip, Star, StarFilled, Trash2 } from "../../icons";
 import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Checkbox } from "../checkbox";
@@ -26,6 +26,8 @@ export type MessageRowProps = {
 	attachments?: number;
 	/** Messages in the conversation this row stands for, shown after the sender from two on. */
 	count?: number;
+	starred?: boolean;
+	onStar?: () => void;
 	onOpen?: () => void;
 	onArchive?: () => void;
 	onSnooze?: (until: Date) => void;
@@ -55,6 +57,8 @@ export function MessageRow({
 	selecting = false,
 	attachments = 0,
 	count = 1,
+	starred = false,
+	onStar,
 	onOpen,
 	onArchive,
 	onSnooze,
@@ -98,21 +102,23 @@ export function MessageRow({
 		});
 	};
 
-	const icon = (label: string, shortcut: string, children: ReactNode, onClick?: () => void) => (
-		<Tooltip content={label} shortcut={shortcut}>
-			<button
-				type="button"
-				aria-label={label}
-				className={action}
-				onClick={(e) => {
-					e.stopPropagation();
-					onClick?.();
-				}}
-			>
-				{children}
-			</button>
-		</Tooltip>
-	);
+	// Actions the app doesn't handle aren't offered.
+	const icon = (label: string, shortcut: string, children: ReactNode, onClick?: () => void) =>
+		onClick && (
+			<Tooltip content={label} shortcut={shortcut}>
+				<button
+					type="button"
+					aria-label={label}
+					className={action}
+					onClick={(e) => {
+						e.stopPropagation();
+						onClick?.();
+					}}
+				>
+					{children}
+				</button>
+			</Tooltip>
+		);
 
 	return (
 		<div
@@ -128,7 +134,8 @@ export function MessageRow({
 				const key = e.key.toLowerCase();
 				if (key === "enter") onOpen?.();
 				else if (key === "e") onArchive?.();
-				else if (key === "h") setSnoozing(true);
+				else if (key === "h" && onSnooze) setSnoozing(true);
+				else if (key === "s") onStar?.();
 				else if (key === "#") onDelete?.();
 				else return;
 				e.preventDefault();
@@ -195,6 +202,7 @@ export function MessageRow({
 						{snippet && <span className="text-muted"> · {snippet}</span>}
 					</span>
 				</span>
+				{starred && <StarFilled aria-label="Starred" className="size-4 shrink-0 text-muted" />}
 				{attachments > 0 && (
 					<Paperclip
 						aria-label={`${attachments} attachments`}
@@ -219,26 +227,29 @@ export function MessageRow({
 							snoozing && "pointer-events-auto opacity-100",
 						)}
 					>
+						{icon(starred ? "Unstar" : "Star", "S", starred ? <StarFilled /> : <Star strokeWidth={1.75} />, onStar)}
 						{icon("Archive", "E", <Archive strokeWidth={1.75} />, onArchive)}
-						<SnoozePicker
-							open={snoozing}
-							onOpenChange={setSnoozing}
-							onSnooze={(until) => onSnooze?.(until)}
-							trigger={
-								<button
-									type="button"
-									aria-label="Snooze"
-									title="Snooze (H)"
-									className={action}
-									onClick={(e) => {
-										e.stopPropagation();
-										setSnoozing(true);
-									}}
-								>
-									<Clock strokeWidth={1.75} />
-								</button>
-							}
-						/>
+						{onSnooze && (
+							<SnoozePicker
+								open={snoozing}
+								onOpenChange={setSnoozing}
+								onSnooze={(until) => onSnooze?.(until)}
+								trigger={
+									<button
+										type="button"
+										aria-label="Snooze"
+										title="Snooze (H)"
+										className={action}
+										onClick={(e) => {
+											e.stopPropagation();
+											setSnoozing(true);
+										}}
+									>
+										<Clock strokeWidth={1.75} />
+									</button>
+								}
+							/>
+						)}
 						{icon("Delete", "#", <Trash2 strokeWidth={1.75} />, onDelete)}
 					</span>
 				</span>

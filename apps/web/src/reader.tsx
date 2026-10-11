@@ -10,7 +10,7 @@ import {
 	Tooltip,
 	useShortcut,
 } from "@nouvex/ui";
-import { Archive, ChevronLeft, Mail, Trash2 } from "@nouvex/ui/icons";
+import { Archive, ChevronLeft, Mail, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Message } from "./db";
 import type { Draft } from "./write";
@@ -23,8 +23,12 @@ export function Reader({
 	onArchive,
 	onWrite,
 	onMarkUnread,
+	starred,
+	onStar,
 }: {
 	messages: Message[];
+	starred: boolean;
+	onStar: () => void;
 	onClose: () => void;
 	onTrash: () => void;
 	onArchive?: () => void;
@@ -43,6 +47,11 @@ export function Reader({
 					Inbox
 				</Button>
 				<div className="flex gap-1">
+					<Tooltip content={starred ? "Unstar" : "Star"}>
+						<Button variant="ghost" size="icon" aria-label={starred ? "Unstar" : "Star"} onClick={onStar}>
+							{starred ? <StarFilled /> : <Star strokeWidth={1.75} />}
+						</Button>
+					</Tooltip>
 					<Tooltip content="Mark unread">
 						<Button variant="ghost" size="icon" aria-label="Mark unread" onClick={onMarkUnread}>
 							<Mail strokeWidth={1.75} />

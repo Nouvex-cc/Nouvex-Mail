@@ -259,6 +259,9 @@ type MessageUpdate struct {
 	// Move the message to the archive folder.
 	Archive *bool `json:"archive,omitempty,omitzero"`
 
+	// Starred.
+	Flagged *bool `json:"flagged,omitempty,omitzero"`
+
 	// MessageId corresponds to the JSON schema field "messageId".
 	MessageId string `json:"messageId"`
 

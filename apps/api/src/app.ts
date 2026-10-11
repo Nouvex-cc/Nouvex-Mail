@@ -322,6 +322,7 @@ app.openapi(
 					"application/json": {
 						schema: z.object({
 							seen: z.boolean().optional(),
+							flagged: z.boolean().optional(),
 							trash: z.boolean().optional(),
 							archive: z.boolean().optional(),
 						}),
