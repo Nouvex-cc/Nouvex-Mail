@@ -229,6 +229,18 @@ function Inbox() {
 			void update(newest, { flagged: true });
 		}
 	};
+	// A reply or forward is written in its conversation, anything else in the dock.
+	const writer = (placement: "dock" | "reply") =>
+		draft && (
+			<Write
+				key={draft.draftId ?? `${draft.thread}-${draft.subject}`}
+				from={accounts.data?.find((a) => a.id === (draft.accountId ?? current)) ?? accounts.data?.[0]}
+				contacts={contacts}
+				draft={draft}
+				placement={placement}
+				onClose={() => setDraft(undefined)}
+			/>
+		);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts without a selection
 	useEffect(() => setSelected(new Set()), [shown.join(), query]);
@@ -316,7 +328,8 @@ function Inbox() {
 				<Reader
 					messages={reading}
 					onClose={() => setOpen(undefined)}
-					onWrite={setDraft}
+					onWrite={(d) => setDraft({ ...d, thread: open })}
+					composer={draft?.thread !== undefined && draft.thread === open && writer("reply")}
 					onMarkUnread={() => {
 						setOpen(undefined);
 						const last = reading.at(-1);
@@ -430,12 +443,7 @@ function Inbox() {
 				</div>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
-			<Write
-				from={accounts.data?.find((a) => a.id === (draft?.accountId ?? current)) ?? accounts.data?.[0]}
-				contacts={contacts}
-				draft={draft}
-				onClose={() => setDraft(undefined)}
-			/>
+			{draft?.thread === undefined && writer("dock")}
 		</AppShell>
 	);
 }

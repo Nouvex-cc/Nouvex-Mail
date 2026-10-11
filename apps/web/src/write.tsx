@@ -1,34 +1,45 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Composer, type Contact, Dialog, type OutgoingMessage, useToast } from "@nouvex/ui";
-import { useMemo, useRef } from "react";
+import { Button, Composer, type Contact, type OutgoingMessage, Tooltip, useToast } from "@nouvex/ui";
+import { ChevronsUpDown, X } from "@nouvex/ui/icons";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 
 // What the composer starts with: empty for a new message, filled in for a reply or forward, or a saved draft
-// (draftId) to continue.
+// (draftId) to continue. One started in a conversation (thread) is written there; the quoted message stays
+// folded under the text.
 export type Draft = {
 	accountId?: string;
 	to?: string[];
 	subject?: string;
 	body?: string;
+	quote?: string;
 	inReplyTo?: string;
 	draftId?: string;
+	thread?: string;
 };
 
 export const when = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
 
+/**
+ * The composer for one draft. In the dock it's a window in the bottom right that leaves the inbox usable and folds
+ * down to its title; in a conversation it takes the reply bar's place. Esc and the close button keep it as a draft.
+ */
 export function Write({
 	from,
 	contacts,
 	draft,
+	placement,
 	onClose,
 }: {
 	from?: { id: string; email: string; signature: string };
 	contacts: Contact[];
-	draft?: Draft;
+	draft: Draft;
+	placement: "dock" | "reply";
 	onClose: () => void;
 }) {
+	const [folded, setFolded] = useState(false);
 	const toast = useToast();
 	// Every edit is saved as a draft two seconds after typing stops; closing saves right away.
-	const draftId = useMemo(() => draft?.draftId ?? crypto.randomUUID(), [draft]);
+	const draftId = useMemo(() => draft.draftId ?? crypto.randomUUID(), [draft]);
 	const pending = useRef<{ timer: ReturnType<typeof setTimeout>; save: () => void }>(undefined);
 	const cancel = () => {
 		clearTimeout(pending.current?.timer);
@@ -51,7 +62,7 @@ export function Write({
 					bcc: m.bcc,
 					subject: m.subject,
 					text: m.body,
-					inReplyTo: draft?.inReplyTo,
+					inReplyTo: draft.inReplyTo,
 				}),
 			});
 		pending.current = { timer: setTimeout(flush, 2000), save };
@@ -86,7 +97,7 @@ export function Write({
 				bcc: m.bcc,
 				subject: m.subject,
 				text: m.body,
-				inReplyTo: draft?.inReplyTo,
+				inReplyTo: draft.inReplyTo,
 				draftId,
 				sendAt: m.sendAt?.toISOString(),
 				attachments: uploads,
@@ -97,24 +108,62 @@ export function Write({
 		onClose();
 	};
 
+	const title = placement === "reply" ? `Reply to ${draft.to?.join(", ") ?? ""}` : draft.subject || "New message";
 	return (
-		<Dialog.Root open={draft !== undefined} onOpenChange={(open) => open || close()}>
-			<Dialog.Popup className="max-w-2xl">
-				<Dialog.Title>New message</Dialog.Title>
-				<Dialog.Description>From {from?.email}</Dialog.Description>
+		// biome-ignore lint/a11y/noStaticElementInteractions: Esc closes from anywhere in the composer
+		<div
+			role="dialog"
+			aria-label={title}
+			onKeyDown={(e) => {
+				if (e.key !== "Escape") return;
+				// Only the composer closes, not the conversation behind it.
+				e.stopPropagation();
+				close();
+			}}
+			className={
+				placement === "dock"
+					? "fixed right-4 bottom-0 z-30 flex w-lg origin-bottom flex-col overflow-hidden rounded-t-xl border border-b-0 border-line bg-raised shadow-pop transition duration-200 ease-out starting:translate-y-4 starting:opacity-0"
+					: "flex max-h-120 origin-bottom flex-col overflow-hidden rounded-xl border border-line bg-raised shadow-pop transition duration-200 ease-out starting:scale-98 starting:opacity-0"
+			}
+		>
+			<div className="flex h-11 shrink-0 items-center gap-1 border-b border-line pr-1.5 pl-3">
+				<span className="flex-1 truncate font-medium">{title}</span>
+				{placement === "dock" && (
+					<Icon label={folded ? "Open" : "Fold down"} onClick={() => setFolded(!folded)}>
+						<ChevronsUpDown strokeWidth={1.75} />
+					</Icon>
+				)}
+				<Icon label="Close, keeps a draft" onClick={close}>
+					<X strokeWidth={1.75} />
+				</Icon>
+			</div>
+			<div className={folded ? "hidden" : placement === "dock" ? "flex h-120 flex-col" : "flex min-h-0 flex-col"}>
 				<Composer
+					variant="plain"
 					contacts={contacts}
-					defaultTo={draft?.to}
-					defaultSubject={draft?.subject}
+					from={placement === "dock" ? <span className="truncate">From {from?.email}</span> : undefined}
+					focus={placement === "reply" ? "body" : "to"}
+					compact={placement === "reply"}
+					defaultTo={draft.to}
+					defaultSubject={draft.subject}
 					// The signature goes above a quoted message, the way replies are written; a draft has it already.
-					defaultBody={
-						from?.signature && !draft?.draftId ? `\n\n-- \n${from.signature}${draft?.body ?? ""}` : draft?.body
-					}
+					defaultBody={from?.signature && !draft.draftId ? `\n\n-- \n${from.signature}${draft.body ?? ""}` : draft.body}
+					quote={draft.quote}
 					onSend={send}
 					onChange={change}
 					onDiscard={discard}
 				/>
-			</Dialog.Popup>
-		</Dialog.Root>
+			</div>
+		</div>
+	);
+}
+
+function Icon({ label, onClick, children }: { label: string; onClick(): void; children: ReactNode }) {
+	return (
+		<Tooltip content={label}>
+			<Button variant="ghost" size="icon-sm" aria-label={label} onClick={onClick}>
+				{children}
+			</Button>
+		</Tooltip>
 	);
 }

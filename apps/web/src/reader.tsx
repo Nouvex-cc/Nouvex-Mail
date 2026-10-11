@@ -12,6 +12,7 @@ import {
 } from "@nouvex/ui";
 import { Archive, ChevronLeft, Mail, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useAccounts } from "./accounts";
 import type { Message } from "./db";
 import type { Draft } from "./write";
@@ -28,6 +29,7 @@ export function Reader({
 	onMarkUnread,
 	starred,
 	onStar,
+	composer,
 }: {
 	messages: Message[];
 	starred: boolean;
@@ -37,6 +39,8 @@ export function Reader({
 	onArchive?: () => void;
 	onWrite: (draft: Draft) => void;
 	onMarkUnread: () => void;
+	/** A reply being written, in the reply bar's place. */
+	composer?: ReactNode;
 }) {
 	useShortcut("Escape", onClose);
 	const accounts = useAccounts();
@@ -91,6 +95,7 @@ export function Reader({
 					</Tooltip>
 				</div>
 			}
+			composer={composer}
 			reply={{
 				to: ours ? newest.to.join(", ") : newest.fromName || newest.fromAddr,
 				onReply: () => write(reply(newest, quoted ?? "", ours ? newest.to : [newest.fromAddr])),
@@ -160,12 +165,12 @@ const reply = (m: Message, body: string, to: string[]): Draft => ({
 	accountId: m.accountId,
 	to,
 	subject: prefixed("Re:", m.subject),
-	body: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
+	quote: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
 	inReplyTo: m.id,
 });
 
 const forward = (m: Message, body: string): Draft => ({
 	accountId: m.accountId,
 	subject: prefixed("Fwd:", m.subject),
-	body: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m)}\nDate: ${new Date(m.sentAt).toLocaleString()}\nSubject: ${m.subject}\n\n${body}`,
+	quote: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m)}\nDate: ${new Date(m.sentAt).toLocaleString()}\nSubject: ${m.subject}\n\n${body}`,
 });
