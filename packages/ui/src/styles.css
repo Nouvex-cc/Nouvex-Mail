@@ -368,8 +368,10 @@
 [data-tone="accent"],
 [data-tone="tinted"],
 [data-tone="frame"] {
-	--accent: light-dark(oklch(0.55 0.16 var(--hue)), oklch(0.72 0.13 var(--hue)));
-	--on-accent: light-dark(oklch(0.99 0.01 var(--hue)), oklch(0.18 0.03 var(--hue)));
+	/* Deep enough in light mode for white text on it (4.5:1 for every hue). */
+	--accent: light-dark(oklch(0.5 0.16 var(--hue)), oklch(0.72 0.13 var(--hue)));
+	/* Text on the accent: white on a deep one, ink on a light one (every hue in dark mode). */
+	--on-accent: oklch(from var(--accent) clamp(0.2, (0.66 - l) * 100, 0.99) 0.01 h);
 	--accent-soft: light-dark(oklch(0.93 0.04 var(--hue)), oklch(0.32 0.06 var(--hue)));
 	--accent-text: light-dark(oklch(0.42 0.14 var(--hue)), oklch(0.86 0.08 var(--hue)));
 }
@@ -379,19 +381,38 @@
 	--line: light-dark(oklch(0.9 0.02 var(--hue)), oklch(0.27 0.02 var(--hue)));
 }
 [data-tone="frame"] {
-	--sunken: light-dark(oklch(0.33 0.09 var(--hue)), oklch(0.24 0.07 var(--hue)));
+	--sunken: oklch(0.3 0.08 var(--hue));
 }
+/* The colored frame is dark in both modes, so it uses the dark tokens: every text, line and hover in it follows on
+   its own. Only the surfaces take on its hue. color is set again because inherited text color was computed above. */
 [data-tone="frame"] [data-frame] {
-	--ink: oklch(0.97 0.01 var(--hue));
-	--muted: oklch(0.83 0.04 var(--hue));
-	--faint: oklch(0.7 0.05 var(--hue));
-	--paper: light-dark(oklch(0.4 0.09 var(--hue)), oklch(0.3 0.07 var(--hue)));
-	--hover: light-dark(oklch(0.39 0.09 var(--hue)), oklch(0.3 0.07 var(--hue)));
-	--selected: light-dark(oklch(0.44 0.1 var(--hue)), oklch(0.34 0.08 var(--hue)));
-	--line: light-dark(oklch(0.42 0.09 var(--hue)), oklch(0.32 0.07 var(--hue)));
-	--accent: oklch(0.97 0.01 var(--hue));
-	--accent-soft: light-dark(oklch(0.46 0.1 var(--hue)), oklch(0.36 0.08 var(--hue)));
-	--accent-text: oklch(0.99 0 0);
+	color-scheme: dark;
+	color: var(--ink);
+	/* Secondary text keeps its distance from the frame's own lightness, so it reads on its lighter surfaces too. */
+	--muted: oklch(from var(--sunken) calc(l + 0.48) calc(c * 0.3) h);
+	--faint: oklch(from var(--sunken) calc(l + 0.4) calc(c * 0.3) h);
+	--paper: oklch(0.36 0.08 var(--hue));
+	--hover: oklch(0.35 0.08 var(--hue));
+	--selected: oklch(0.39 0.09 var(--hue));
+	--line: oklch(0.4 0.08 var(--hue));
+	--accent-soft: oklch(0.41 0.09 var(--hue));
+}
+
+/* The content panel over a backdrop: the backdrop picks dark or light text (data-backdrop), and the panel takes that
+   scheme, so all tokens in it follow. */
+@utility backdrop-host {
+	/* Secondary text a step closer to ink over a picture, which leaves the picture more room. */
+	&:has([data-backdrop]) {
+		--muted: light-dark(oklch(0.42 0.008 65), oklch(0.8 0.006 70));
+	}
+	&:has([data-backdrop="dark"]) {
+		color-scheme: dark;
+		color: var(--ink);
+	}
+	&:has([data-backdrop="light"]) {
+		color-scheme: light;
+		color: var(--ink);
+	}
 }
 
 /* A color sample for a hue, e.g. in theme settings. */

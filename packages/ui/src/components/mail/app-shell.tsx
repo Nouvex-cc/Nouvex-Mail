@@ -37,7 +37,7 @@ export function AppShell({
 			<div data-frame className="min-h-0">
 				{sidebar}
 			</div>
-			<ScrollArea.Root className="relative min-h-0 pr-2.5">
+			<ScrollArea.Root className="backdrop-host relative min-h-0 pr-2.5">
 				{backdrop && <div className="absolute inset-y-0 right-2.5 left-0 overflow-hidden rounded-t-xl">{backdrop}</div>}
 				<ScrollArea.Viewport
 					render={<main />}

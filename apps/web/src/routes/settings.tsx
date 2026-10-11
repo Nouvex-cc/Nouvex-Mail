@@ -133,6 +133,8 @@ function LookSettings() {
 	const toast = useToast();
 	const [look, setLook] = useState(storedLook);
 	const picker = useRef<HTMLInputElement>(null);
+	// How much of the image the backdrop lets through, after keeping text readable.
+	const [shown, setShown] = useState(1);
 	const change = (next: Partial<Look>) => {
 		const merged = { ...look, ...next };
 		setLook(merged);
@@ -197,8 +199,10 @@ function LookSettings() {
 
 			<div className="grid gap-3">
 				<h3 className="text-sm font-medium text-muted">Inbox background</h3>
-				<div className="relative h-36 overflow-hidden rounded-lg border border-line bg-paper">
-					{look.image && <Backdrop src={look.image} blur={look.blur} grain={look.grain} strength={look.strength} />}
+				<div className="backdrop-host relative h-36 overflow-hidden rounded-lg border border-line bg-paper">
+					{look.image && (
+						<Backdrop src={look.image} blur={look.blur} grain={look.grain} strength={look.strength} onFit={setShown} />
+					)}
 					<div className="relative grid gap-2 p-4">
 						{["Lena Hartmann", "Vivid Money", "Jonas Weber"].map((name, i) => (
 							<div key={name} className="flex gap-3 text-sm">
@@ -255,6 +259,11 @@ function LookSettings() {
 							onValueChange={(v) => change({ strength: v as number })}
 						/>
 					</div>
+				)}
+				{look.image && shown < look.strength - 0.02 && (
+					<p className="text-sm text-muted">
+						Shown at {Math.round(shown * 100)}% so text stays readable. More blur lets more of it through.
+					</p>
 				)}
 			</div>
 		</div>

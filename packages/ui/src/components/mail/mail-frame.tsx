@@ -9,9 +9,9 @@ import {
 	useMemo,
 	useRef,
 	useState,
-	useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
+import { useDark } from "../../dark";
 import { FileImage, Moon, Sun } from "../../icons";
 import { cn } from "../../lib";
 
@@ -51,24 +51,6 @@ function appFont() {
 		.join("\n");
 	font = { faces, stack };
 	return font;
-}
-
-// The app is dark with .dark on the root, or without .light when the system is dark.
-const darkQuery = typeof matchMedia === "undefined" ? undefined : matchMedia("(prefers-color-scheme: dark)");
-const isDark = () => {
-	const root = document.documentElement.classList;
-	return root.contains("dark") || (!root.contains("light") && !!darkQuery?.matches);
-};
-function useDark() {
-	return useSyncExternalStore((change) => {
-		darkQuery?.addEventListener("change", change);
-		const classes = new MutationObserver(change);
-		classes.observe(document.documentElement, { attributeFilter: ["class"] });
-		return () => {
-			darkQuery?.removeEventListener("change", change);
-			classes.disconnect();
-		};
-	}, isDark);
 }
 
 // Mails that bring their own dark design say so in their CSS.
