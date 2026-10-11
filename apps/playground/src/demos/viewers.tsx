@@ -548,6 +548,52 @@ function Conversation({ subject, messages }: { subject: string; messages: Msg[] 
 	);
 }
 
+/** 7. Mix: Letter's mail and reply field, in Cards' floating bar, under the slim bar of the denser takes. */
+function Mix({ subject, messages }: { subject: string; messages: Msg[] }) {
+	const m = last(messages);
+	return (
+		<div className="flex min-h-full flex-col">
+			<Bar subject={subject} />
+			<div className="flex-1 px-3 pt-2 pb-24">
+				<Earlier messages={messages} render={(e) => <Expandable key={e.date.getTime()} m={e} />} />
+				<section className="grid gap-5 px-3 pt-4">
+					<header className="flex items-start gap-3">
+						<Avatar name={m.from} />
+						<div className="grid min-w-0 flex-1">
+							<span className="font-medium">{m.from}</span>
+							<span className="truncate text-sm text-muted">to {m.to.join(", ")}</span>
+						</div>
+						<When date={m.date} />
+					</header>
+					<div className={m.html ? "" : "max-w-4xl"}>
+						<Body m={m} large />
+					</div>
+					<Files files={m.files} />
+				</section>
+			</div>
+			<div className="pointer-events-none sticky bottom-4 z-10 flex justify-center px-4">
+				<div className="pointer-events-auto flex w-full max-w-2xl items-center gap-1 rounded-xl border border-line bg-raised p-1.5 shadow-pop">
+					<button
+						type="button"
+						className="flex h-8 min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2"
+					>
+						<Reply strokeWidth={1.75} />
+						<span className="flex-1 truncate">Reply to {m.from}…</span>
+						<Kbd>R</Kbd>
+					</button>
+					<Button variant="ghost" size="sm">
+						Reply all
+					</Button>
+					<Button variant="ghost" size="sm">
+						<Forward strokeWidth={1.75} />
+						Forward
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 const viewers = [
 	["Letter", Letter],
 	["Wide", Wide],
@@ -555,10 +601,11 @@ const viewers = [
 	["Cards", Cards],
 	["Conversation", Conversation],
 	["Focus", Focus],
+	["Mix", Mix],
 ] as const;
 
 export function ViewersDemo() {
-	const [viewer, setViewer] = useState<string>("Letter");
+	const [viewer, setViewer] = useState<string>("Mix");
 	const [content, setContent] = useState("conversation");
 	const View = viewers.find(([name]) => name === viewer)?.[1] ?? Letter;
 	const mail = content === "newsletter" ? newsletter : conversation;
