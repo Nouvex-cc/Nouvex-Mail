@@ -6,9 +6,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { routeTree } from "./routeTree.gen";
 import "./index.css";
-import { applyTheme, storedTheme } from "./theme";
+import { applyLook, applyTheme, storedLook, storedTheme } from "./theme";
 
 applyTheme(storedTheme());
+applyLook(storedLook());
 
 const queryClient = new QueryClient();
 const router = createRouter({ routeTree, context: { queryClient } });

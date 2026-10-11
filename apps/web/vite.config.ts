@@ -11,6 +11,7 @@ export default defineConfig({
 		proxy: {
 			"/api": "http://localhost:3000",
 			"/accounts": "http://localhost:3000",
+			"/image": "http://localhost:3000",
 			"/ws": { target: "ws://localhost:3000", ws: true },
 		},
 	},

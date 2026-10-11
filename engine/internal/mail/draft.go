@@ -75,14 +75,25 @@ func DiscardDraft(ctx context.Context, q *db.Queries, master []byte, accountID, 
 }
 
 func removeDraft(c *imapclient.Client, drafts, id string) error {
-	if _, err := c.Select(drafts, nil).Wait(); err != nil {
+	sel, err := c.Select(drafts, nil).Wait()
+	if err != nil || sel.NumMessages == 0 {
 		return err
 	}
-	found, err := c.UIDSearch(&imap.SearchCriteria{Header: []imap.SearchCriteriaHeaderField{{Key: "Message-ID", Value: id}}}, nil).Wait()
+	// Read every draft's Message-ID instead of SEARCH: some servers (Purelymail) index a message a while after
+	// APPEND, so a draft saved seconds before sending wasn't found and stayed behind.
+	// ponytail: reads the envelopes of the whole Drafts folder; fine while it holds tens, not thousands.
+	var all imap.UIDSet
+	all.AddRange(1, 0)
+	msgs, err := c.Fetch(all, &imap.FetchOptions{UID: true, Envelope: true}).Collect()
 	if err != nil {
 		return err
 	}
-	uids := found.AllUIDs()
+	var uids []imap.UID
+	for _, m := range msgs {
+		if m.Envelope != nil && m.Envelope.MessageID == id {
+			uids = append(uids, m.UID)
+		}
+	}
 	if len(uids) == 0 {
 		return nil
 	}

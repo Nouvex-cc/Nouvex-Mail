@@ -12,13 +12,18 @@ const initials = (name: string) =>
 		.map((w) => w[0]?.toUpperCase())
 		.join("");
 
+// Every name keeps one hue, for themes that color people (see avatar-tone in styles.css).
+const hues = ["red", "orange", "green", "blue", "purple"];
+const hue = (name: string) => hues[[...name].reduce((n, c) => n + (c.codePointAt(0) ?? 0), 0) % hues.length];
+
 export type AvatarProps = { src?: string; name: string; size?: keyof typeof sizes; className?: string };
 
 export function Avatar({ src, name, size = "md", className }: AvatarProps) {
 	return (
 		<BaseAvatar.Root
+			data-label-color={hue(name)}
 			className={cn(
-				"inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-selected font-medium text-muted select-none",
+				"avatar-tone inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-selected font-medium text-muted select-none",
 				sizes[size],
 				className,
 			)}

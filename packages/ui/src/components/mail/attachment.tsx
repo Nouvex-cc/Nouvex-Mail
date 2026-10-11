@@ -105,7 +105,7 @@ export function AttachmentTile({ name, size, type, previewUrl, progress, onRemov
 					)}
 				>
 					<BaseProgress.Track className="h-0.5 w-full">
-						<BaseProgress.Indicator className="bg-ink transition-all duration-300 ease-out" />
+						<BaseProgress.Indicator className="bg-accent transition-all duration-300 ease-out" />
 					</BaseProgress.Track>
 				</BaseProgress.Root>
 			)}

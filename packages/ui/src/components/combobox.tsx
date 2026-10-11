@@ -42,11 +42,11 @@ export const Combobox = {
 	),
 	Popup: ({ className, children, ...props }: Styled<BaseCombobox.Popup.Props>) => (
 		<BaseCombobox.Portal>
-			<BaseCombobox.Positioner sideOffset={4} className="outline-none">
+			<BaseCombobox.Positioner sideOffset={4} className="z-50 outline-none">
 				<BaseCombobox.Popup
 					className={cn(
 						popup,
-						"relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1",
+						"relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1 data-empty:hidden",
 						className,
 					)}
 					{...props}

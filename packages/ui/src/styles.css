@@ -38,6 +38,12 @@
 	--label-blue: light-dark(oklch(0.6 0.1 250), oklch(0.7 0.09 250));
 	--label-purple: light-dark(oklch(0.58 0.1 300), oklch(0.68 0.09 300));
 	--shadow-color: light-dark(oklch(0.2 0.01 60), oklch(0 0 0));
+	/* The accent: what's on, chosen or new (primary buttons, the active folder, unread, checked controls). Ink
+	   unless a theme gives it a hue. */
+	--accent: var(--ink);
+	--on-accent: var(--on-ink);
+	--accent-soft: var(--selected);
+	--accent-text: var(--ink);
 }
 
 :root.light {
@@ -62,6 +68,10 @@
 	--color-line-strong: var(--line-strong);
 	--color-hover: var(--hover);
 	--color-selected: var(--selected);
+	--color-accent: var(--accent);
+	--color-on-accent: var(--on-accent);
+	--color-accent-soft: var(--accent-soft);
+	--color-accent-text: var(--accent-text);
 	--color-danger: var(--danger);
 	--color-positive: var(--positive);
 	--color-scrim: var(--scrim);
@@ -353,6 +363,90 @@
 	}
 }
 
+/* Themes: data-tone on the root (or any element) gives the accent a hue (--hue), tints the frame or colors it. They
+   only set tokens, so every component follows. */
+[data-tone="accent"],
+[data-tone="tinted"],
+[data-tone="frame"] {
+	/* Deep enough in light mode for white text on it (4.5:1 for every hue). */
+	--accent: light-dark(oklch(0.5 0.16 var(--hue)), oklch(0.72 0.13 var(--hue)));
+	/* Text on the accent: white on a deep one, ink on a light one (every hue in dark mode). */
+	--on-accent: oklch(from var(--accent) clamp(0.2, (0.66 - l) * 100, 0.99) 0.01 h);
+	--accent-soft: light-dark(oklch(0.93 0.04 var(--hue)), oklch(0.32 0.06 var(--hue)));
+	--accent-text: light-dark(oklch(0.42 0.14 var(--hue)), oklch(0.86 0.08 var(--hue)));
+}
+[data-tone="tinted"] {
+	--sunken: light-dark(oklch(0.955 0.018 var(--hue)), oklch(0.17 0.02 var(--hue)));
+	--hover: light-dark(oklch(0.94 0.022 var(--hue)), oklch(0.25 0.025 var(--hue)));
+	--line: light-dark(oklch(0.9 0.02 var(--hue)), oklch(0.27 0.02 var(--hue)));
+}
+[data-tone="frame"] {
+	--sunken: oklch(0.3 0.08 var(--hue));
+}
+/* The colored frame is dark in both modes, so it uses the dark tokens: every text, line and hover in it follows on
+   its own. Only the surfaces take on its hue. color is set again because inherited text color was computed above. */
+[data-tone="frame"] [data-frame] {
+	color-scheme: dark;
+	color: var(--ink);
+	/* Secondary text keeps its distance from the frame's own lightness, so it reads on its lighter surfaces too. */
+	--muted: oklch(from var(--sunken) calc(l + 0.48) calc(c * 0.3) h);
+	--faint: oklch(from var(--sunken) calc(l + 0.4) calc(c * 0.3) h);
+	--paper: oklch(0.36 0.08 var(--hue));
+	--hover: oklch(0.35 0.08 var(--hue));
+	--selected: oklch(0.39 0.09 var(--hue));
+	--line: oklch(0.4 0.08 var(--hue));
+	--accent-soft: oklch(0.41 0.09 var(--hue));
+}
+
+/* The content panel over a backdrop: the backdrop picks dark or light text (data-backdrop), and the panel takes that
+   scheme, so all tokens in it follow. */
+@utility backdrop-host {
+	/* Secondary text a step closer to ink over a picture, which leaves the picture more room. */
+	&:has([data-backdrop]) {
+		--muted: light-dark(oklch(0.42 0.008 65), oklch(0.8 0.006 70));
+	}
+	&:has([data-backdrop="dark"]) {
+		color-scheme: dark;
+		color: var(--ink);
+	}
+	&:has([data-backdrop="light"]) {
+		color-scheme: light;
+		color: var(--ink);
+	}
+}
+
+/* Backdrop: the picture blurred, zoomed past its edges and shown as strongly as it was measured to allow. */
+@utility backdrop-layer {
+	& > img {
+		filter: blur(var(--backdrop-blur));
+		scale: var(--backdrop-zoom);
+		opacity: var(--backdrop-shown);
+	}
+	& > .grain {
+		opacity: var(--backdrop-grain);
+	}
+}
+
+/* A color sample for a hue, e.g. in theme settings. */
+@utility hue-swatch {
+	background: light-dark(oklch(0.6 0.15 var(--hue)), oklch(0.7 0.13 var(--hue)));
+}
+
+/* Film grain over a background image: fine noise, its strength set through opacity. */
+@utility grain {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1.2 -0.2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+	background-size: 200px;
+	mix-blend-mode: overlay;
+}
+
+/* Avatars are neutral; a theme that colors people ([data-people="color"]) gives every name its label hue. */
+@utility avatar-tone {
+	[data-people="color"] & {
+		background: color-mix(in oklab, var(--label) 22%, var(--paper));
+		color: color-mix(in oklab, var(--label) 72%, var(--ink));
+	}
+}
+
 /* Mail labels: data-label-color picks the hue; chips tint their background with it, icons fill with it. */
 @utility label-chip {
 	background: color-mix(in oklab, var(--label, var(--label-gray)) 18%, var(--paper));
@@ -456,24 +550,6 @@
 	}
 }
 /* biome-ignore-end lint/complexity/noImportantStyles: see above */
-
-/* Behind a sticky bar: frosted glass, cut off by a hairline. A fade or a blur that fades out would look nicer, but
-   mail brings its own background, so a fade into the page color turns grey over light mail, and Chrome drops the
-   mask a fading blur needs over the scrolled mail frame. The bar needs `isolate` so this stays behind its content. */
-.progressive-blur {
-	position: absolute;
-	inset: 0;
-	z-index: -1;
-	pointer-events: none;
-	backdrop-filter: blur(20px) saturate(1.5);
-	background: color-mix(in oklch, var(--paper) 72%, transparent);
-	&[data-side="top"] {
-		border-bottom: 1px solid var(--line);
-	}
-	&[data-side="bottom"] {
-		border-top: 1px solid var(--line);
-	}
-}
 
 /* A status pill shows only its icon and opens to its text on hover or focus. */
 @utility status-pill {

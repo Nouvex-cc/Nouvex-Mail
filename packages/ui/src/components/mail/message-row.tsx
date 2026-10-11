@@ -29,6 +29,8 @@ export type MessageRowProps = {
 	starred?: boolean;
 	onStar?: () => void;
 	onOpen?: () => void;
+	/** The pointer or focus arrived, so the row is likely opened next: a chance to load what it shows. */
+	onPreload?: () => void;
 	onArchive?: () => void;
 	onSnooze?: (until: Date) => void;
 	onDelete?: () => void;
@@ -60,6 +62,7 @@ export function MessageRow({
 	starred = false,
 	onStar,
 	onOpen,
+	onPreload,
 	onArchive,
 	onSnooze,
 	onDelete,
@@ -127,8 +130,11 @@ export function MessageRow({
 			tabIndex={0}
 			aria-selected={selected}
 			aria-label={`${unread ? "Unread, " : ""}${from}${count > 1 ? `, ${count} messages` : ""}, ${subject}, ${formatMailDateLong(date)}`}
-			className="group relative touch-pan-y overflow-hidden rounded-md outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2"
+			// A hairline between rows, starting at the sender so the checkbox column stays open.
+			className="group relative touch-pan-y overflow-hidden rounded-md outline-none select-none after:absolute after:right-4 after:bottom-0 after:left-15 after:h-px after:bg-line last:after:hidden focus-visible:outline-2 focus-visible:-outline-offset-2"
 			onClick={() => onOpen?.()}
+			onPointerEnter={onPreload}
+			onFocus={onPreload}
 			onKeyDown={(e) => {
 				if (e.target !== e.currentTarget) return;
 				const key = e.key.toLowerCase();
@@ -163,13 +169,13 @@ export function MessageRow({
 				<div
 					className={cn(
 						"absolute inset-0 flex items-center px-4 text-on-ink [&_svg]:size-4",
-						dx < 0 ? "justify-end bg-positive" : "bg-ink",
+						dx < 0 ? "justify-end bg-positive" : "bg-accent",
 					)}
 				>
 					{dx < 0 ? <Archive strokeWidth={1.75} /> : <Clock strokeWidth={1.75} />}
 				</div>
 			)}
-			<div ref={content} className={cn("relative flex h-11 items-center gap-3 px-2", dx !== 0 && "bg-paper")}>
+			<div ref={content} className={cn("relative flex h-11 items-center gap-3 pr-4 pl-2", dx !== 0 && "bg-paper")}>
 				{/* The whole left edge, not just the checkbox: press to toggle, drag across rows to select them (MessageList). */}
 				<span data-select-handle className="absolute inset-y-0 left-0 z-10 w-12 touch-none" />
 				<span
@@ -180,8 +186,8 @@ export function MessageRow({
 				>
 					<Checkbox aria-hidden tabIndex={-1} checked={selected} className="pointer-events-none" />
 				</span>
-				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-ink", !unread && "invisible")} />
-				<span className={cn("flex w-40 shrink-0 items-baseline gap-1.5", unread && "font-semibold")}>
+				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-accent", !unread && "invisible")} />
+				<span className={cn("flex w-40 shrink-0 items-baseline gap-1.5", unread ? "font-semibold" : "text-muted")}>
 					<span className="truncate">
 						{email ? (
 							<SenderCard name={from} email={email} onWrite={onWrite} onShowMessages={onShowMessages}>
@@ -198,7 +204,7 @@ export function MessageRow({
 						<LabelChip key={l.name} {...l} />
 					))}
 					<span className="min-w-0 truncate">
-						<span className={cn(unread && "font-semibold")}>{subject}</span>
+						<span className={unread ? "font-semibold" : "text-muted"}>{subject}</span>
 						{snippet && <span className="text-muted"> · {snippet}</span>}
 					</span>
 				</span>
@@ -211,12 +217,12 @@ export function MessageRow({
 					/>
 				)}
 				{/* Date and actions share one slot and crossfade, so nothing around them moves. */}
-				<span className="relative grid w-24 shrink-0 justify-items-end">
+				<span className="relative grid min-w-24 shrink-0 justify-items-end">
 					<span
 						className={cn(
 							"col-start-1 row-start-1 self-center text-sm text-muted transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0",
 							snoozing && "opacity-0",
-							unread && "text-ink",
+							unread && "font-medium text-ink",
 						)}
 					>
 						{formatMailDate(date)}

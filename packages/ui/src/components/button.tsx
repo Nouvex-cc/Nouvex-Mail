@@ -6,7 +6,7 @@ import { cn, type Styled } from "../lib";
 import { TextMorph } from "./text-morph";
 
 const variants = {
-	primary: "bg-ink text-on-ink hover:opacity-90",
+	primary: "bg-accent text-on-accent hover:opacity-90",
 	secondary: "border border-line-strong bg-paper hover:bg-hover",
 	ghost: "hover:bg-hover",
 	danger: "bg-danger text-on-ink hover:opacity-90",

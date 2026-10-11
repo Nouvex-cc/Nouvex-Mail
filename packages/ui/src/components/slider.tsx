@@ -31,13 +31,13 @@ export function Slider({ label, showValue = false, className, ...props }: Slider
 				className="group flex h-6 w-full cursor-pointer touch-none items-center select-none data-disabled:cursor-default data-disabled:opacity-50"
 			>
 				<BaseSlider.Track className="relative h-1 w-full rounded-full bg-line-strong">
-					<BaseSlider.Indicator className="slider-glide rounded-full bg-ink" />
+					<BaseSlider.Indicator className="slider-glide rounded-full bg-accent" />
 					{Array.from({ length: thumbs }, (_, i) => (
 						<BaseSlider.Thumb
 							// biome-ignore lint/suspicious/noArrayIndexKey: one thumb per value, fixed count
 							key={i}
 							index={thumbs > 1 ? i : undefined}
-							className="slider-glide h-4 w-1 rounded-full bg-ink outline-none ring-2 ring-paper group-hover:scale-x-150 group-hover:scale-y-125 focus-visible:outline-2 focus-visible:outline-offset-2 data-dragging:scale-x-150 data-dragging:scale-y-125"
+							className="slider-glide h-4 w-1 rounded-full bg-accent outline-none ring-2 ring-paper group-hover:scale-x-150 group-hover:scale-y-125 focus-visible:outline-2 focus-visible:outline-offset-2 data-dragging:scale-x-150 data-dragging:scale-y-125"
 						/>
 					))}
 				</BaseSlider.Track>

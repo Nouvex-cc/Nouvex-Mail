@@ -2,8 +2,10 @@
 import {
 	AccountSwitcher,
 	AppShell,
+	Backdrop,
 	BulkBar,
 	Button,
+	Menu,
 	MessageList,
 	MessageRow,
 	SearchField,
@@ -17,6 +19,7 @@ import {
 	File,
 	Folder,
 	Inbox as InboxIcon,
+	LogOut,
 	PenLine,
 	Send,
 	Settings,
@@ -25,17 +28,18 @@ import {
 	Trash2,
 } from "@nouvex/ui/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
 import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
-import { auth } from "../auth";
-import { db, type Message } from "../db";
+import { auth, session } from "../auth";
+import { db, type Message, once } from "../db";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
 import { forget, listen, pull, update } from "../sync";
+import { storedLook } from "../theme";
 import { type Draft, Write, when } from "../write";
 
 const standard = [
@@ -54,9 +58,17 @@ const page = 100;
 const keyOf = (m: Message) => m.threadId || m.id;
 const key = (thread: Message[]) => (thread[0] ? keyOf(thread[0]) : "");
 
+// The folder and the open conversation live in the URL, so the browser's back button goes from a message to its
+// folder and from folder to folder, and a link to a conversation opens it.
+type Search = { folder?: string; thread?: string };
+
 export const Route = createFileRoute("/")({
+	validateSearch: (s: Record<string, unknown>): Search => ({
+		folder: typeof s.folder === "string" ? s.folder : undefined,
+		thread: typeof s.thread === "string" ? s.thread : undefined,
+	}),
 	beforeLoad: async () => {
-		const { data } = await auth.getSession();
+		const { data } = await session();
 		if (!data) throw redirect({ to: "/login" });
 		return { user: data.user };
 	},
@@ -67,8 +79,23 @@ function Inbox() {
 	const { user } = Route.useRouteContext();
 	const navigate = useNavigate();
 	const [current, setCurrent] = useState("all");
+	const search = Route.useSearch();
+	const router = useRouter();
 	// A role shows that folder of every account in view; the user's own folders are picked by id.
-	const [folder, setFolder] = useState("inbox");
+	const folder = search.folder ?? "inbox";
+	const setFolder = (f: string) => navigate({ to: "/", search: { folder: f === "inbox" ? undefined : f } });
+	const open = search.thread;
+	// Opening adds a history entry; closing goes back to it, unless the conversation was opened from a link.
+	const opened = useRef(false);
+	const setOpen = (thread?: string) => {
+		if (thread) {
+			opened.current = true;
+			navigate({ to: "/", search: { ...search, thread } });
+		} else if (opened.current) {
+			opened.current = false;
+			router.history.back();
+		} else navigate({ to: "/", search: { ...search, thread: undefined }, replace: true });
+	};
 	// While searching, every folder in view counts.
 	const [query, setQuery] = useState<SearchQuery>({ text: "", filters: [] });
 	const searching = query.text !== "" || query.filters.length > 0;
@@ -76,7 +103,6 @@ function Inbox() {
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
 	const queryClient = useQueryClient();
-	const [open, setOpen] = useState<string>();
 	const accounts = useAccounts();
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
 
@@ -160,7 +186,9 @@ function Inbox() {
 		async () =>
 			new Map(
 				await Promise.all(
-					threadIds.map(async (id) => [id, await db.messages.where("threadId").equals(id).count()] as const),
+					threadIds.map(
+						async (id) => [id, once(await db.messages.where("threadId").equals(id).toArray()).length] as const,
+					),
 				),
 			),
 		[threadIds.join()],
@@ -168,12 +196,18 @@ function Inbox() {
 	// The open conversation, from every folder: replies from Sent show up next to what they answer.
 	const reading = useLiveQuery(async () => {
 		if (!open) return undefined;
-		const thread = await db.messages.where("threadId").equals(open).sortBy("sentAt");
+		const thread = once(await db.messages.where("threadId").equals(open).sortBy("sentAt"), (m) =>
+			shown.includes(m.mailboxId),
+		);
 		// A message whose conversation hasn't arrived yet opens on its own.
 		return thread.length ? thread : db.messages.where("id").equals(open).toArray();
-	}, [open]);
+	}, [open, shown.join()]);
 	// Moving a conversation moves what of it is in the folder in view; Sent keeps its copies.
 	const sent = new Set(boxes.filter((b) => b.role === "sent").map((b) => b.id));
+	// Our drafts in a conversation aren't messages of it; the newest one is what Reply continues.
+	const drafts = new Set(boxes.filter((b) => b.role === "drafts").map((b) => b.id));
+	const conversation = reading?.filter((m) => !drafts.has(m.mailboxId));
+	const unsent = reading?.findLast((m) => drafts.has(m.mailboxId));
 	const inView = (thread: Message[]) =>
 		thread.filter((m) => shown.includes(m.mailboxId) && (folder === "sent" || !sent.has(m.mailboxId)));
 	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean; snoozeUntil?: string }) => {
@@ -182,13 +216,21 @@ function Inbox() {
 	};
 	// A draft opens in the composer. Ours carry their id in the Message-ID, so saving replaces them; a draft
 	// written elsewhere is continued as a new one.
-	const resume = async (m: Message) => {
+	const resume = async (m: Message, thread?: string) => {
 		const html = await queryClient.fetchQuery({ queryKey: ["body", m.id], queryFn: () => body(m) }).catch(() => "");
+		// The quoted message folds away again, from the line that introduces it.
+		const full = text(html);
+		// It answers the newest message of its conversation, so it stays in it and the reply is threaded.
+		const earlier = await db.messages.where("threadId").equals(m.threadId).sortBy("sentAt");
+		const at = full.search(/\n\s*On [^\n]+ wrote:\n/);
 		setDraft({
 			accountId: m.accountId,
 			to: m.to,
 			subject: m.subject,
-			body: text(html),
+			body: at < 0 ? full : full.slice(0, at),
+			quote: at < 0 ? undefined : full.slice(at),
+			inReplyTo: earlier.findLast((e) => !drafts.has(e.mailboxId))?.id,
+			thread,
 			draftId: /^draft-([0-9a-f-]{36})@/.exec(m.messageId)?.[1] ?? crypto.randomUUID(),
 		});
 	};
@@ -205,6 +247,19 @@ function Inbox() {
 			void update(newest, { flagged: true });
 		}
 	};
+	// A reply or forward is written in its conversation, anything else in the dock.
+	const writer = (placement: "dock" | "reply") =>
+		draft && (
+			<Write
+				key={draft.draftId ?? `${draft.thread}-${draft.subject}`}
+				from={accounts.data?.find((a) => a.id === (draft.accountId ?? current)) ?? accounts.data?.[0]}
+				contacts={contacts}
+				draft={draft}
+				placement={placement}
+				onClose={() => setDraft(undefined)}
+			/>
+		);
+	const [look] = useState(storedLook);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts without a selection
 	useEffect(() => setSelected(new Set()), [shown.join(), query]);
@@ -218,6 +273,12 @@ function Inbox() {
 
 	return (
 		<AppShell
+			// The background belongs to the list; a conversation is read on plain paper.
+			backdrop={
+				look.image && !conversation?.length ? (
+					<Backdrop src={look.image} blur={look.blur} grain={look.grain} strength={look.strength} />
+				) : undefined
+			}
 			className="h-screen"
 			logo={<span role="img" aria-label="Nouvex" className="logo" />}
 			sidebar={
@@ -265,14 +326,16 @@ function Inbox() {
 							))}
 						</Sidebar.Section>
 					)}
-					<Sidebar.Section title={user.email}>
-						<Sidebar.Item
-							label="Settings"
-							icon={<Settings strokeWidth={1.75} />}
-							onSelect={() => navigate({ to: "/settings" })}
-						/>
-						<Sidebar.Item label="Sign out" onSelect={() => auth.signOut().then(() => location.assign("/login"))} />
-					</Sidebar.Section>
+					<Sidebar.Profile name={user.name} email={user.email}>
+						<Menu.Item onClick={() => navigate({ to: "/settings" })}>
+							<Settings strokeWidth={1.75} />
+							Settings
+						</Menu.Item>
+						<Menu.Item onClick={() => auth.signOut().then(() => location.assign("/login"))}>
+							<LogOut strokeWidth={1.75} />
+							Sign out
+						</Menu.Item>
+					</Sidebar.Profile>
 				</Sidebar.Root>
 			}
 			header={
@@ -286,20 +349,23 @@ function Inbox() {
 				/>
 			}
 		>
-			{reading?.length ? (
+			{conversation?.length ? (
 				<Reader
-					messages={reading}
+					messages={conversation}
+					draft={unsent}
+					onResume={(m) => void resume(m, open)}
 					onClose={() => setOpen(undefined)}
-					onWrite={setDraft}
+					onWrite={(d) => setDraft({ ...d, thread: open })}
+					composer={draft?.thread !== undefined && draft.thread === open && writer("reply")}
 					onMarkUnread={() => {
 						setOpen(undefined);
-						const last = reading.at(-1);
+						const last = conversation.at(-1);
 						if (last) void update(last, { seen: false });
 					}}
-					starred={isStarred(reading)}
-					onStar={() => toggleStar(reading)}
-					onTrash={() => moveThread(reading, { trash: true })}
-					onArchive={folder === "archive" ? undefined : () => moveThread(reading, { archive: true })}
+					starred={isStarred(conversation)}
+					onStar={() => toggleStar(conversation)}
+					onTrash={() => moveThread(conversation, { trash: true })}
+					onArchive={folder === "archive" ? undefined : () => moveThread(conversation, { archive: true })}
 				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">
@@ -353,6 +419,14 @@ function Inbox() {
 										setOpen(key(thread));
 										markRead(thread);
 									}}
+									// The body is there by the time the click lands, so the mail shows at once.
+									onPreload={() =>
+										void queryClient.prefetchQuery({
+											queryKey: ["body", m.id],
+											queryFn: () => body(m),
+											staleTime: Number.POSITIVE_INFINITY,
+										})
+									}
 									onArchive={folder === "archive" ? undefined : () => moveThread(thread, { archive: true })}
 									onSnooze={
 										folder === "inbox"
@@ -396,12 +470,7 @@ function Inbox() {
 				</div>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
-			<Write
-				from={accounts.data?.find((a) => a.id === (draft?.accountId ?? current)) ?? accounts.data?.[0]}
-				contacts={contacts}
-				draft={draft}
-				onClose={() => setDraft(undefined)}
-			/>
+			{draft?.thread === undefined && writer("dock")}
 		</AppShell>
 	);
 }

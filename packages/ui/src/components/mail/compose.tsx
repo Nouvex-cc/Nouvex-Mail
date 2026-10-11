@@ -35,6 +35,16 @@ export type ComposerProps = {
 	onChange?(message: Omit<OutgoingMessage, "files" | "sendAt">): void;
 	/** After holding the discard button; the fields are cleared either way. */
 	onDiscard?(): void;
+	/** `card` brings its own surface; `plain` fills whatever it's placed in, with the send row at the bottom. */
+	variant?: "card" | "plain";
+	/** A row above the recipients, e.g. the account it's sent from. */
+	from?: React.ReactNode;
+	/** Where typing starts: the recipients for a new message, the text for a reply. */
+	focus?: "to" | "body";
+	/** Recipients and subject start as one line that opens on click, for replies where they're already right. */
+	compact?: boolean;
+	/** The message being answered: folded behind "•••" under the text and added to it when sending. */
+	quote?: string;
 };
 
 let nextId = 0;
@@ -43,8 +53,8 @@ const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
 
 const formatWhen = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
 
-// One recipient row: contacts as suggestions, anything else typed becomes a chip on Enter or comma
-// (marked when it doesn't look like an address).
+// One recipient row: up to five contacts as suggestions (all of them on request), anything else typed becomes a chip
+// on Enter, comma or leaving the field (marked when it doesn't look like an address).
 function Recipients({
 	label,
 	contacts,
@@ -61,6 +71,7 @@ function Recipients({
 	children?: React.ReactNode;
 }) {
 	const [input, setInput] = useState("");
+	const [all, setAll] = useState(false);
 	const names = new Map(contacts.map((c) => [c.email, c.name]));
 	const query = input.trim().toLowerCase();
 	const matches = (email: string) =>
@@ -69,7 +80,9 @@ function Recipients({
 		const email = raw.trim().replace(/,$/, "");
 		if (email && !value.includes(email)) onChange([...value, email]);
 		setInput("");
+		setAll(false);
 	};
+	const found = contacts.filter((c) => !value.includes(c.email) && matches(c.email)).length;
 
 	return (
 		<div className="flex items-start gap-2 border-b border-line px-3">
@@ -83,11 +96,18 @@ function Recipients({
 					setInput("");
 				}}
 				inputValue={input}
-				onInputValueChange={setInput}
+				onInputValueChange={(v, details) => {
+					// The list clears the field as it closes. Leaving it (Tab, a click elsewhere) turns what was typed into
+					// a chip, as Enter does; picking a suggestion (click, Enter on it) doesn't.
+					const left = details.event?.type === "focusout" || details.event?.type === "pointerdown";
+					if (v === "" && left) add(input);
+					else setInput(v);
+				}}
 				filter={(email: string) => matches(email)}
+				limit={all ? undefined : 5}
 				itemToStringLabel={(email: string) => names.get(email) ?? email}
 			>
-				<Combobox.Chips className="min-h-10 flex-1 rounded-none border-0 bg-transparent px-0 focus-within:border-0">
+				<Combobox.Chips className="min-h-10 flex-1 rounded-none border-0 bg-transparent px-0 focus-within:outline-0">
 					<Combobox.Value>
 						{(chosen: string[]) => (
 							<>
@@ -110,7 +130,6 @@ function Recipients({
 											add(input);
 										}
 									}}
-									onBlur={() => isEmail(input.trim()) && add(input)}
 								/>
 							</>
 						)}
@@ -125,6 +144,17 @@ function Recipients({
 							</Combobox.Item>
 						)}
 					</Combobox.List>
+					{!all && found > 5 && (
+						<button
+							type="button"
+							// Keeps the focus in the field, so leaving it doesn't turn the typed text into a chip.
+							onMouseDown={(e) => e.preventDefault()}
+							onClick={() => setAll(true)}
+							className="flex h-8 w-full items-center rounded-md px-2 text-left text-sm text-muted outline-none hover:bg-hover hover:text-ink"
+						>
+							Show all {found}
+						</button>
+					)}
 				</Combobox.Popup>
 			</Combobox.Root>
 			{children}
@@ -144,6 +174,11 @@ export function Composer({
 	onSend,
 	onChange,
 	onDiscard,
+	variant = "card",
+	from,
+	focus,
+	compact = false,
+	quote = "",
 }: ComposerProps) {
 	const [to, setTo] = useState(defaultTo);
 	const [cc, setCc] = useState<string[]>([]);
@@ -151,6 +186,8 @@ export function Composer({
 	const [showCc, setShowCc] = useState(false);
 	const [showBcc, setShowBcc] = useState(false);
 	const [subject, setSubject] = useState(defaultSubject);
+	const [details, setDetails] = useState(!compact);
+	const [showQuote, setShowQuote] = useState(false);
 	const [body, setBody] = useState(defaultBody);
 	const [files, setFiles] = useState<{ id: number; file: File; url?: string }[]>([]);
 	const [sendAt, setSendAt] = useState<Date>();
@@ -163,12 +200,22 @@ export function Composer({
 	// Reports edits only: what the composer opened with isn't a change, also when React runs effects twice.
 	const changed = useRef(onChange);
 	changed.current = onChange;
-	const opened = useRef(JSON.stringify({ to: defaultTo, cc: [], bcc: [], subject: defaultSubject, body: defaultBody }));
+	const opened = useRef(
+		JSON.stringify({ to: defaultTo, cc: [], bcc: [], subject: defaultSubject, body: defaultBody + quote }),
+	);
 	useEffect(() => {
-		const now = { to, cc, bcc, subject, body };
+		const now = { to, cc, bcc, subject, body: body + quote };
 		if (JSON.stringify(now) !== opened.current) changed.current?.(now);
-	}, [to, cc, bcc, subject, body]);
+	}, [to, cc, bcc, subject, body, quote]);
 	const bodyCaret = useCaret(bodyField);
+
+	// A reply starts above the quoted message.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only where the composer opens
+	useEffect(() => {
+		if (focus !== "body") return;
+		bodyField.current?.focus();
+		bodyField.current?.setSelectionRange(0, 0);
+	}, []);
 
 	// The body grows with its text instead of scrolling inside the composer.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the text changes
@@ -213,6 +260,8 @@ export function Composer({
 		setShowBcc(false);
 		setSubject(defaultSubject);
 		setBody(defaultBody);
+		setDetails(!compact);
+		setShowQuote(false);
 		for (const f of files) if (f.url) URL.revokeObjectURL(f.url);
 		setFiles([]);
 		setSendAt(undefined);
@@ -220,11 +269,12 @@ export function Composer({
 	};
 
 	const deliver = () => {
-		onSend({ to, cc, bcc, subject, body, files: files.map((f) => f.file), sendAt });
+		onSend({ to, cc, bcc, subject, body: body + quote, files: files.map((f) => f.file), sendAt });
 		setPhase("done");
 		timer.current = setTimeout(reset, 1500);
 	};
 
+	const names = new Map(contacts.map((c) => [c.email, c.name]));
 	const canSend = to.length > 0 && [...to, ...cc, ...bcc].every(isEmail);
 	const send = () => {
 		clearTimeout(timer.current);
@@ -240,7 +290,10 @@ export function Composer({
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: drop target and ⌘↵ shortcut for the whole composer
 		<div
-			className="relative grid rounded-lg border border-line bg-raised text-ink shadow-pop"
+			className={cn(
+				"relative text-ink",
+				variant === "card" ? "grid rounded-lg border border-line bg-raised shadow-pop" : "flex min-h-0 flex-1 flex-col",
+			)}
 			onKeyDown={(e) => {
 				if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && phase === "idle") {
 					e.preventDefault();
@@ -257,59 +310,91 @@ export function Composer({
 				attach(e.dataTransfer.files);
 			}}
 		>
-			<Recipients label="To" contacts={contacts} value={to} onChange={setTo}>
-				<div className="flex shrink-0 gap-1 pt-2">
-					{!showCc && (
-						<Button size="sm" variant="ghost" onClick={() => setShowCc(true)}>
-							Cc
-						</Button>
-					)}
-					{!showBcc && (
-						<Button size="sm" variant="ghost" onClick={() => setShowBcc(true)}>
-							Bcc
-						</Button>
-					)}
-				</div>
-			</Recipients>
-			<Collapsible.Root open={showCc}>
+			{from && <div className="flex h-10 items-center gap-2 border-b border-line px-3 text-sm text-muted">{from}</div>}
+			{!details && (
+				<button
+					type="button"
+					onClick={() => setDetails(true)}
+					className="flex h-10 items-center gap-2 border-b border-line px-3 text-left text-sm outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
+				>
+					<span className="w-8 shrink-0 text-muted">To</span>
+					<span className="shrink-0">{[...to, ...cc].map((e) => names.get(e) ?? e).join(", ")}</span>
+					<span className="min-w-0 flex-1 truncate text-muted">{subject}</span>
+				</button>
+			)}
+			<Collapsible.Root open={details}>
 				<Collapsible.Panel>
-					<Recipients label="Cc" contacts={contacts} value={cc} onChange={setCc} autoFocus />
-				</Collapsible.Panel>
-			</Collapsible.Root>
-			<Collapsible.Root open={showBcc}>
-				<Collapsible.Panel>
-					<Recipients label="Bcc" contacts={contacts} value={bcc} onChange={setBcc} autoFocus />
-				</Collapsible.Panel>
-			</Collapsible.Root>
+					<Recipients label="To" contacts={contacts} value={to} onChange={setTo} autoFocus={focus === "to"}>
+						<div className="flex shrink-0 gap-1 pt-2">
+							{!showCc && (
+								<Button size="sm" variant="ghost" onClick={() => setShowCc(true)}>
+									Cc
+								</Button>
+							)}
+							{!showBcc && (
+								<Button size="sm" variant="ghost" onClick={() => setShowBcc(true)}>
+									Bcc
+								</Button>
+							)}
+						</div>
+					</Recipients>
+					<Collapsible.Root open={showCc}>
+						<Collapsible.Panel>
+							<Recipients label="Cc" contacts={contacts} value={cc} onChange={setCc} autoFocus />
+						</Collapsible.Panel>
+					</Collapsible.Root>
+					<Collapsible.Root open={showBcc}>
+						<Collapsible.Panel>
+							<Recipients label="Bcc" contacts={contacts} value={bcc} onChange={setBcc} autoFocus />
+						</Collapsible.Panel>
+					</Collapsible.Root>
 
-			<div className="border-b border-line px-3">
-				{subjectCaret.wrap(
-					<input
-						ref={subjectCaret.ref}
-						value={subject}
-						onChange={(e) => setSubject(e.target.value)}
-						placeholder="Subject"
-						aria-label="Subject"
-						className={cn(
-							"h-10 w-full bg-transparent font-medium outline-none placeholder:text-faint",
-							subjectCaret.caretClass,
+					<div className="border-b border-line px-3">
+						{subjectCaret.wrap(
+							<input
+								ref={subjectCaret.ref}
+								value={subject}
+								onChange={(e) => setSubject(e.target.value)}
+								placeholder="Subject"
+								aria-label="Subject"
+								className={cn(
+									"h-10 w-full bg-transparent font-medium outline-none placeholder:text-faint",
+									subjectCaret.caretClass,
+								)}
+							/>,
 						)}
-					/>,
-				)}
-			</div>
+					</div>
+				</Collapsible.Panel>
+			</Collapsible.Root>
 
-			<div className="px-3 py-2">
+			<div className={cn("px-3 py-2", variant === "plain" && "min-h-0 flex-1 overflow-y-auto")}>
 				{bodyCaret.wrap(
 					<textarea
 						ref={bodyCaret.ref}
+						placeholder="Write something"
 						value={body}
 						onChange={(e) => setBody(e.target.value)}
 						aria-label="Message"
 						className={cn(
-							"block min-h-40 w-full resize-none bg-transparent text-lg leading-relaxed outline-none placeholder:text-faint",
+							"block w-full resize-none bg-transparent text-lg leading-relaxed outline-none placeholder:text-faint",
+							variant === "card" ? "min-h-40" : "min-h-24",
 							bodyCaret.caretClass,
 						)}
 					/>,
+				)}
+				{quote && (
+					<>
+						<button
+							type="button"
+							aria-label={showQuote ? "Hide quoted text" : "Show quoted text"}
+							aria-expanded={showQuote}
+							onClick={() => setShowQuote((q) => !q)}
+							className="inline-flex h-5 items-center rounded-full bg-hover px-2 text-xs text-muted outline-none transition-colors duration-100 hover:bg-selected hover:text-ink focus-visible:outline-2"
+						>
+							•••
+						</button>
+						{showQuote && <p className="mt-2 text-sm whitespace-pre-wrap text-muted">{quote.trim()}</p>}
+					</>
 				)}
 			</div>
 

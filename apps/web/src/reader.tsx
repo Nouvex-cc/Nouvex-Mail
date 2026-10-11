@@ -12,8 +12,12 @@ import {
 } from "@nouvex/ui";
 import { Archive, ChevronLeft, Mail, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { useAccounts } from "./accounts";
 import type { Message } from "./db";
 import type { Draft } from "./write";
+
+const image = (url: string) => `/image?url=${encodeURIComponent(url)}`;
 
 /** A conversation, oldest message first. The actions on top apply to all of it. */
 export function Reader({
@@ -25,6 +29,9 @@ export function Reader({
 	onMarkUnread,
 	starred,
 	onStar,
+	composer,
+	draft,
+	onResume,
 }: {
 	messages: Message[];
 	starred: boolean;
@@ -34,18 +41,40 @@ export function Reader({
 	onArchive?: () => void;
 	onWrite: (draft: Draft) => void;
 	onMarkUnread: () => void;
+	/** A reply being written, in the reply bar's place. */
+	composer?: ReactNode;
+	/** Our unsent reply to this conversation; Reply continues it instead of starting over. */
+	draft?: Message;
+	onResume: (draft: Message) => void;
 }) {
 	useShortcut("Escape", onClose);
-	const first = messages[0];
-	if (!first) return null;
+	const accounts = useAccounts();
+	const newest = messages.at(-1);
+	const html = useQuery({
+		queryKey: ["body", newest?.id],
+		queryFn: () => body(newest as Message),
+		enabled: !!newest,
+		staleTime: Number.POSITIVE_INFINITY,
+	});
+	if (!newest) return null;
+
+	// Replies answer the newest message. When that's one of ours, they go to whoever it went to.
+	const mine = new Set(accounts.data?.map((a) => a.email.toLowerCase()));
+	const ours = mine.has(newest.fromAddr.toLowerCase());
+	const quoted = html.data === undefined ? undefined : text(html.data);
+	const others = [...new Set([newest.fromAddr, ...newest.to, ...newest.cc])].filter((a) => !mine.has(a.toLowerCase()));
+	const write = (draft: Draft) => quoted !== undefined && onWrite(draft);
 
 	return (
-		<div className="grid content-start gap-3 p-4">
-			<div className="flex items-center justify-between">
+		<Thread
+			subject={newest.subject}
+			back={
 				<Button variant="ghost" size="sm" onClick={onClose}>
 					<ChevronLeft strokeWidth={1.75} />
 					Inbox
 				</Button>
+			}
+			actions={
 				<div className="flex gap-1">
 					<Tooltip content={starred ? "Unstar" : "Star"}>
 						<Button variant="ghost" size="icon" aria-label={starred ? "Unstar" : "Star"} onClick={onStar}>
@@ -70,13 +99,31 @@ export function Reader({
 						</Button>
 					</Tooltip>
 				</div>
-			</div>
-			<Thread subject={first.subject}>
-				{messages.map((m) => (
-					<Entry key={m.id} message={m} onWrite={onWrite} />
-				))}
-			</Thread>
-		</div>
+			}
+			composer={composer}
+			reply={{
+				to: ours ? newest.to.join(", ") : newest.fromName || newest.fromAddr,
+				drafted: !!draft,
+				onReply: () =>
+					draft ? onResume(draft) : write(reply(newest, quoted ?? "", ours ? newest.to : [newest.fromAddr])),
+				onReplyAll: others.length > 1 ? () => write(reply(newest, quoted ?? "", others)) : undefined,
+				onForward: () => write(forward(newest, quoted ?? "")),
+			}}
+		>
+			{messages.map((m) => (
+				<ThreadMessage
+					key={m.id}
+					from={m.fromName || m.fromAddr}
+					email={m.fromAddr}
+					to={[...m.to, ...m.cc]}
+					date={new Date(m.sentAt)}
+					snippet={m.snippet}
+					defaultExpanded={m.seen === 0}
+				>
+					<Entry message={m} />
+				</ThreadMessage>
+			))}
+		</Thread>
 	);
 }
 
@@ -86,51 +133,30 @@ export async function body(m: Message) {
 	return ((await res.json()) as { html: string }).html;
 }
 
-// One message of the conversation; its body loads when it is first shown.
-function Entry({
-	message: m,
-	onWrite,
-	defaultExpanded,
-}: {
-	message: Message;
-	onWrite: (draft: Draft) => void;
-	defaultExpanded?: boolean;
-}) {
+// The body of one message; it loads when the message is first shown.
+function Entry({ message: m }: { message: Message }) {
 	const html = useQuery({ queryKey: ["body", m.id], queryFn: () => body(m), staleTime: Number.POSITIVE_INFINITY });
-	const quoted = html.data === undefined ? undefined : text(html.data);
 
-	return (
-		<ThreadMessage
-			from={m.fromName || m.fromAddr}
-			email={m.fromAddr}
-			date={new Date(m.sentAt)}
-			snippet={m.snippet}
-			defaultExpanded={defaultExpanded ?? m.seen === 0}
-			onReply={quoted === undefined ? undefined : () => onWrite(reply(m, quoted))}
-			onForward={quoted === undefined ? undefined : () => onWrite(forward(m, quoted))}
-		>
-			{html.data !== undefined ? (
-				<>
-					<MailFrame html={html.data} />
-					{m.attachments.length > 0 && (
-						<AttachmentList className="mt-3">
-							{m.attachments.map((a, i) => (
-								<AttachmentTile
-									// biome-ignore lint/suspicious/noArrayIndexKey: attachments are addressed by position, the API too
-									key={i}
-									{...a}
-									onOpen={() => location.assign(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`)}
-								/>
-							))}
-						</AttachmentList>
-					)}
-				</>
-			) : html.isError ? (
-				<p className="p-4 text-sm text-muted">This message couldn't be loaded.</p>
-			) : (
-				<Spinner />
+	return html.data !== undefined ? (
+		<>
+			<MailFrame html={html.data} proxy={image} />
+			{m.attachments.length > 0 && (
+				<AttachmentList>
+					{m.attachments.map((a, i) => (
+						<AttachmentTile
+							// biome-ignore lint/suspicious/noArrayIndexKey: attachments are addressed by position, the API too
+							key={i}
+							{...a}
+							onOpen={() => location.assign(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`)}
+						/>
+					))}
+				</AttachmentList>
 			)}
-		</ThreadMessage>
+		</>
+	) : html.isError ? (
+		<p className="text-sm text-muted">This message couldn't be loaded.</p>
+	) : (
+		<Spinner />
 	);
 }
 
@@ -142,16 +168,16 @@ const prefixed = (prefix: string, subject: string) =>
 
 const sender = (m: Message) => (m.fromName ? `${m.fromName} <${m.fromAddr}>` : m.fromAddr);
 
-const reply = (m: Message, body: string): Draft => ({
+const reply = (m: Message, body: string, to: string[]): Draft => ({
 	accountId: m.accountId,
-	to: [m.fromAddr],
+	to,
 	subject: prefixed("Re:", m.subject),
-	body: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
+	quote: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
 	inReplyTo: m.id,
 });
 
 const forward = (m: Message, body: string): Draft => ({
 	accountId: m.accountId,
 	subject: prefixed("Fwd:", m.subject),
-	body: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m)}\nDate: ${new Date(m.sentAt).toLocaleString()}\nSubject: ${m.subject}\n\n${body}`,
+	quote: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m)}\nDate: ${new Date(m.sentAt).toLocaleString()}\nSubject: ${m.subject}\n\n${body}`,
 });

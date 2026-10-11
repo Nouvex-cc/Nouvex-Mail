@@ -191,7 +191,7 @@ export function Calendar({ className, classNames, month, defaultMonth, onMonthCh
 					day: "size-8 p-0 text-center",
 					day_button:
 						"inline-flex size-8 items-center justify-center rounded-md outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2",
-					selected: "[&>button]:bg-ink [&>button]:text-on-ink [&>button]:hover:bg-ink",
+					selected: "[&>button]:bg-accent [&>button]:text-on-accent [&>button]:hover:bg-accent",
 					today:
 						"relative font-semibold after:pointer-events-none after:absolute after:bottom-1 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-current",
 					outside: "text-faint",

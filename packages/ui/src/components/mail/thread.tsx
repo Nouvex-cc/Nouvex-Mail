@@ -6,8 +6,10 @@ import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Avatar } from "../avatar";
 import { Button } from "../button";
+import { Kbd } from "../kbd";
 import { Tooltip } from "../tooltip";
 import { FrameSlot } from "./mail-frame";
+import { useShortcut } from "./shortcuts";
 
 // Opens by growing a grid row and fading the body in from under the snippet; see fold-panel in styles.css.
 function Panel({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
@@ -28,13 +30,11 @@ export type ThreadMessageProps = {
 	snippet: string;
 	children: ReactNode;
 	defaultExpanded?: boolean;
-	onReply?(): void;
-	onForward?(): void;
 };
 
 /**
  * One message of a conversation. Collapsed it's a single row with the snippet; opened, the snippet crossfades into
- * the sender's address and recipients and the body unfolds below.
+ * the recipients and the body unfolds below.
  */
 export function ThreadMessage({
 	from,
@@ -44,72 +44,55 @@ export function ThreadMessage({
 	snippet,
 	children,
 	defaultExpanded = false,
-	onReply,
-	onForward,
 }: ThreadMessageProps) {
 	const [open, setOpen] = useState(defaultExpanded);
 	// The body mounts invisibly as soon as the pointer or focus arrives, so a mail frame has measured itself
 	// by the time the row is clicked and the message opens in one smooth motion.
 	const [ready, setReady] = useState(open);
 	const panelId = useId();
-	// Where the mail frame puts its status pills, next to Reply and Forward.
-	const [footer, setFooter] = useState<HTMLElement | null>(null);
+	// Where the mail frame puts its status pills, next to the date.
+	const [pills, setPills] = useState<HTMLElement | null>(null);
 
 	return (
 		<div data-open={open || undefined} className="group border-b border-line last:border-b-0">
-			<button
-				type="button"
-				aria-expanded={open}
-				aria-controls={panelId}
-				onPointerEnter={() => setReady(true)}
-				onFocus={() => setReady(true)}
-				onClick={() => {
-					setReady(true);
-					setOpen(!open);
-				}}
-				// Open, the header stays at the top while the mail scrolls under it.
-				className="isolate z-10 flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 group-data-open:sticky group-data-open:top-0"
-			>
-				{/* Frosted glass behind the sticky bar; see progressive-blur in styles.css. */}
-				{open && <div className="progressive-blur" data-side="top" aria-hidden />}
-				<Avatar name={from} />
-				<span className="grid min-w-0 flex-1">
-					<span className="truncate font-medium">{from}</span>
-					{/* Same line, two texts: the snippet when closed, address and recipients when open. */}
-					<span className="grid text-sm text-muted">
-						<span className="col-start-1 row-start-1 truncate transition-opacity duration-200 group-data-open:opacity-0">
-							{snippet}
-						</span>
-						<span className="col-start-1 row-start-1 truncate opacity-0 transition-opacity duration-200 group-data-open:opacity-100">
-							{[email, to?.length ? `to ${to.join(", ")}` : ""].filter(Boolean).join(" · ")}
+			<div className="flex items-start">
+				<button
+					type="button"
+					aria-expanded={open}
+					aria-controls={panelId}
+					onPointerEnter={() => setReady(true)}
+					onFocus={() => setReady(true)}
+					onClick={() => {
+						setReady(true);
+						setOpen(!open);
+					}}
+					className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-3 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2"
+				>
+					<Avatar name={from} />
+					<span className="grid min-w-0 flex-1">
+						<Tooltip content={email}>
+							<span className="justify-self-start truncate font-medium">{from}</span>
+						</Tooltip>
+						{/* Same line, two texts: the snippet when closed, the recipients when open. */}
+						<span className="grid text-sm text-muted">
+							<span className="col-start-1 row-start-1 truncate transition-opacity duration-200 group-data-open:opacity-0">
+								{snippet}
+							</span>
+							<span className="col-start-1 row-start-1 truncate opacity-0 transition-opacity duration-200 group-data-open:opacity-100">
+								{to?.length ? `to ${to.join(", ")}` : email}
+							</span>
 						</span>
 					</span>
-				</span>
-				<Tooltip content={formatMailDateLong(date)}>
-					<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{formatMailDate(date)}</span>
-				</Tooltip>
-			</button>
+					<Tooltip content={formatMailDateLong(date)}>
+						<span className="shrink-0 self-start pt-0.5 text-xs text-muted">{formatMailDate(date)}</span>
+					</Tooltip>
+				</button>
+				<div ref={setPills} className="flex gap-1.5 py-3 empty:hidden" />
+			</div>
 			<Panel open={open} id={panelId}>
 				{ready && (
-					<FrameSlot.Provider value={footer}>
-						{children}
-						{/* Stays at the bottom while the mail scrolls under it. */}
-						<div className="sticky bottom-0 isolate z-10 flex items-center gap-2 px-4 py-3">
-							<div className="progressive-blur" data-side="bottom" aria-hidden />
-							{onReply && (
-								<Button size="sm" onClick={onReply}>
-									<Reply strokeWidth={1.75} />
-									Reply
-								</Button>
-							)}
-							{onForward && (
-								<Button size="sm" onClick={onForward}>
-									<Forward strokeWidth={1.75} />
-									Forward
-								</Button>
-							)}
-							<div ref={setFooter} className="ml-auto flex gap-1.5" />
-						</div>
+					<FrameSlot.Provider value={pills}>
+						<div className="grid gap-4 px-3 pt-1 pb-6">{children}</div>
 					</FrameSlot.Provider>
 				)}
 			</Panel>
@@ -117,47 +100,121 @@ export function ThreadMessage({
 	);
 }
 
+export type ThreadReply = {
+	/** Who a reply goes to, for the field's placeholder. */
+	to: string;
+	/** A reply to this conversation is saved as a draft: the field continues it. */
+	drafted?: boolean;
+	onReply(): void;
+	onReplyAll?(): void;
+	onForward(): void;
+};
+
+// Floats at the bottom of the conversation while the mail scrolls under it.
+function Floating({ children }: { children: ReactNode }) {
+	return (
+		<div className="pointer-events-none sticky bottom-4 z-10 flex justify-center px-4">
+			<div className="pointer-events-auto w-full max-w-2xl">{children}</div>
+		</div>
+	);
+}
+
+// R, A and F do the same from anywhere in the conversation.
+function ReplyBar({ to, drafted, onReply, onReplyAll, onForward }: ThreadReply) {
+	useShortcut("r", onReply);
+	useShortcut("a", () => onReplyAll?.());
+	useShortcut("f", onForward);
+	return (
+		<Floating>
+			<div className="flex items-center gap-1 rounded-xl border border-line bg-raised p-1.5 shadow-pop">
+				<button
+					type="button"
+					onClick={onReply}
+					className="flex h-8 min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0"
+				>
+					<Reply strokeWidth={1.75} />
+					<span className="flex-1 truncate">
+						{drafted ? "Continue your reply to" : "Reply to"} {to}…
+					</span>
+					<Kbd>R</Kbd>
+				</button>
+				{onReplyAll && (
+					<Button variant="ghost" size="sm" onClick={onReplyAll}>
+						Reply all
+					</Button>
+				)}
+				<Button variant="ghost" size="sm" onClick={onForward}>
+					<Forward strokeWidth={1.75} />
+					Forward
+				</Button>
+			</div>
+		</Floating>
+	);
+}
+
 /**
- * A conversation: the newest message starts open; with more than four, the ones in the middle fold into a single
- * row that unfolds them in place.
+ * A conversation under one bar with the subject. The newest message starts open; the ones before it fold into a
+ * single row unless one of them starts open itself. Replies go out from a bar floating at the bottom.
  */
-export function Thread({ subject, children, className }: { subject: string; children: ReactNode; className?: string }) {
+export function Thread({
+	subject,
+	back,
+	actions,
+	reply,
+	composer,
+	children,
+	className,
+}: {
+	subject: string;
+	/** Left of the subject, e.g. a button back to the list. */
+	back?: ReactNode;
+	/** Right of the subject, for the whole conversation. */
+	actions?: ReactNode;
+	reply?: ThreadReply;
+	/** Takes the reply bar's place, e.g. the reply being written. */
+	composer?: ReactNode;
+	children: ReactNode;
+	className?: string;
+}) {
 	const [showAll, setShowAll] = useState(false);
 	const messages = Children.toArray(children).filter(isValidElement) as ReactElement<ThreadMessageProps>[];
-	const last = messages.length - 1;
-	const items = messages.map((m, i) =>
-		i === last && m.props.defaultExpanded === undefined ? cloneElement(m, { defaultExpanded: true }) : m,
-	);
-	const fold = items.length > 4;
-	const middle = fold ? items.slice(1, -2) : [];
+	const earlier = messages.slice(0, -1);
+	const newest = messages.at(-1);
+	const fold = earlier.length > 1 && !earlier.some((m) => m.props.defaultExpanded);
+	const senders = [...new Set(earlier.map((m) => m.props.from))];
 
 	return (
-		<section className={cn("grid", className)}>
-			<h2 className="px-4 pb-3 text-xl font-semibold text-balance">{subject}</h2>
-			{/* clip, not hidden: the open message's header and footer stick to the page while it scrolls. */}
-			<div className="overflow-clip rounded-lg border border-line">
-				{fold ? (
-					<>
-						{items[0]}
-						{!showAll && (
-							<button
-								type="button"
-								onClick={() => setShowAll(true)}
-								className="flex w-full items-center gap-3 border-b border-line px-4 py-2 text-left text-sm text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2"
-							>
-								<span className="h-px w-6 bg-line-strong" />
-								{middle.length} earlier {middle.length === 1 ? "message" : "messages"}
-							</button>
-						)}
-						<Panel open={showAll}>
-							<div className="border-b border-line">{middle}</div>
-						</Panel>
-						{items.slice(-2)}
-					</>
-				) : (
-					items
-				)}
+		<section className={cn("flex min-h-full flex-col", className)}>
+			<div className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-paper px-2">
+				{back}
+				<h2 className="min-w-0 flex-1 truncate font-semibold">{subject}</h2>
+				{actions}
 			</div>
+			<div className="flex-1 px-3 pt-2 pb-24">
+				{fold && !showAll && (
+					<button
+						type="button"
+						onClick={() => setShowAll(true)}
+						className="flex w-full items-center gap-3 rounded-md border-b border-line px-3 py-2 text-left text-sm text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2"
+					>
+						<span className="flex gap-1">
+							{senders.slice(0, 3).map((name) => (
+								<Avatar key={name} name={name} size="sm" />
+							))}
+						</span>
+						{earlier.length} earlier messages
+					</button>
+				)}
+				{fold ? (
+					<Panel open={showAll}>
+						<div className="border-b border-line">{earlier}</div>
+					</Panel>
+				) : (
+					earlier.length > 0 && <div className="border-b border-line">{earlier}</div>
+				)}
+				{newest && cloneElement(newest, { defaultExpanded: true })}
+			</div>
+			{composer ? <Floating>{composer}</Floating> : reply && <ReplyBar {...reply} />}
 		</section>
 	);
 }
