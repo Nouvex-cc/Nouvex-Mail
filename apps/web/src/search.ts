@@ -3,7 +3,6 @@ import type { SearchQuery } from "@nouvex/ui";
 import type { Message } from "./db";
 
 // Whether a message matches what the search field produced. Dates are YYYY-MM-DD in local time.
-// ponytail: "to:" matches nothing yet, recipients aren't stored.
 export function matches(m: Message, q: SearchQuery) {
 	const words = q.text.toLowerCase().split(/\s+/).filter(Boolean);
 	const haystack = `${m.subject} ${m.snippet} ${m.fromName} ${m.fromAddr}`.toLowerCase();
@@ -12,6 +11,7 @@ export function matches(m: Message, q: SearchQuery) {
 		words.every((w) => haystack.includes(w)) &&
 		q.filters.every(({ key, value }) => {
 			if (key === "from") return m.fromAddr.toLowerCase().includes(value.toLowerCase());
+			if (key === "to") return [...m.to, ...m.cc].some((a) => a.toLowerCase().includes(value.toLowerCase()));
 			if (key === "after") return day >= value;
 			if (key === "before") return day < value;
 			if (key === "is" && value === "unread") return !m.flags.includes("\\Seen");

@@ -31,6 +31,10 @@ export type ComposerProps = {
 	/** e.g. the quoted message when replying. */
 	defaultBody?: string;
 	onSend(message: OutgoingMessage): void;
+	/** Every edit, e.g. to save a draft; files and send time aren't part of a draft. */
+	onChange?(message: Omit<OutgoingMessage, "files" | "sendAt">): void;
+	/** After holding the discard button; the fields are cleared either way. */
+	onDiscard?(): void;
 };
 
 let nextId = 0;
@@ -132,7 +136,15 @@ function Recipients({
  * Writing a message. Send waits five seconds with an undo on the button itself; with a time chosen under
  * "Send later" it schedules instead. Files can be attached with the button or dropped anywhere on it.
  */
-export function Composer({ contacts, defaultTo = [], defaultSubject = "", defaultBody = "", onSend }: ComposerProps) {
+export function Composer({
+	contacts,
+	defaultTo = [],
+	defaultSubject = "",
+	defaultBody = "",
+	onSend,
+	onChange,
+	onDiscard,
+}: ComposerProps) {
 	const [to, setTo] = useState(defaultTo);
 	const [cc, setCc] = useState<string[]>([]);
 	const [bcc, setBcc] = useState<string[]>([]);
@@ -148,6 +160,14 @@ export function Composer({ contacts, defaultTo = [], defaultSubject = "", defaul
 	const picker = useRef<HTMLInputElement>(null);
 	const subjectCaret = useCaret<HTMLInputElement>();
 	const bodyField = useRef<HTMLTextAreaElement>(null);
+	// Reports edits only: what the composer opened with isn't a change, also when React runs effects twice.
+	const changed = useRef(onChange);
+	changed.current = onChange;
+	const opened = useRef(JSON.stringify({ to: defaultTo, cc: [], bcc: [], subject: defaultSubject, body: defaultBody }));
+	useEffect(() => {
+		const now = { to, cc, bcc, subject, body };
+		if (JSON.stringify(now) !== opened.current) changed.current?.(now);
+	}, [to, cc, bcc, subject, body]);
 	const bodyCaret = useCaret(bodyField);
 
 	// The body grows with its text instead of scrolling inside the composer.
@@ -372,6 +392,7 @@ export function Composer({ contacts, defaultTo = [], defaultSubject = "", defaul
 						onHoldComplete={() => {
 							clearTimeout(timer.current);
 							reset();
+							onDiscard?.();
 						}}
 					>
 						<Trash2 strokeWidth={1.75} />

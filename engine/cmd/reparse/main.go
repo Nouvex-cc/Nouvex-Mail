@@ -39,4 +39,10 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("threads", "assigned", t)
+	r, err := mail.BackfillRecipients(ctx, pool, get)
+	if err != nil {
+		slog.Error("recipients stopped", "done", r, "err", err)
+		os.Exit(1)
+	}
+	slog.Info("recipients", "read", r)
 }

@@ -210,6 +210,7 @@ func (s *syncer) folder(name, role string) error {
 					Flags:     flagStrings(m.Flags),
 					Size:      int32(m.RFC822Size),
 				}
+				row.ToAddrs, row.CcAddrs = addrs(m.Envelope.To), addrs(m.Envelope.Cc)
 				if len(m.Envelope.From) > 0 {
 					row.FromName, row.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
 				}
@@ -325,6 +326,14 @@ func role(b *imap.ListData) string {
 		}
 	}
 	return roleNames[strings.ToLower(b.Mailbox)]
+}
+
+func addrs(list []imap.Address) []string {
+	s := make([]string, len(list))
+	for i, a := range list {
+		s[i] = a.Addr()
+	}
+	return s
 }
 
 // flagStrings returns the flags sorted, so stored and fetched lists compare equal. \Recent is left out: it only

@@ -2,7 +2,7 @@
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
-import type { AccountCheck, AccountChecked, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
+import type { AccountCheck, AccountChecked, DraftSave, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
@@ -228,6 +228,8 @@ const Message = z.object({
 	snippet: z.string(),
 	fromName: z.string(),
 	fromAddr: z.string(),
+	to: z.array(z.string()),
+	cc: z.array(z.string()),
 	sentAt: z.iso.datetime({ offset: true }),
 	flags: z.array(z.string()),
 	size: z.int(),
@@ -298,8 +300,10 @@ app.openapi(
 				more: rows.length > limit,
 				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
-					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, ...m }) => ({
+					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, to, cc, ...m }) => ({
 						...m,
+						to: to ?? [],
+						cc: cc ?? [],
 						sentAt: sentAt.toISOString(),
 					})),
 					deleted: msgs.deleted,
@@ -411,6 +415,7 @@ app.openapi(
 							subject: z.string(),
 							text: z.string(),
 							inReplyTo: z.string().optional(),
+							draftId: z.uuid().optional(),
 							sendAt: z.iso.datetime().optional(),
 							attachments: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string() })).optional(),
 						}),
@@ -489,6 +494,52 @@ app.openapi(
 		// ponytail: uploads that never get sent stay in S3; a lifecycle rule on upload/ can expire them.
 		await s3.file(`upload/${c.req.valid("param").accountId}/${id}`).write(file);
 		return c.json({ id }, 201);
+	},
+);
+
+const Draft = z.object({
+	to: z.array(z.string()),
+	cc: z.array(z.string()).default([]),
+	bcc: z.array(z.string()).default([]),
+	subject: z.string(),
+	text: z.string(),
+	inReplyTo: z.string().optional(),
+});
+
+const draft = async (cmd: DraftSave) => {
+	const { js } = await nats();
+	await js.publish("cmd.draft.save", JSON.stringify(cmd));
+};
+
+app.openapi(
+	createRoute({
+		method: "put",
+		path: "/accounts/{accountId}/drafts/{draftId}",
+		operationId: "saveDraft",
+		description: "Stores the draft in the Drafts folder, replacing its previous version. The client picks the draftId.",
+		request: {
+			params: z.object({ accountId: z.string(), draftId: z.uuid() }),
+			body: { content: { "application/json": { schema: Draft } } },
+		},
+		responses: { 202: { description: "Saving" }, 404: { description: "No such account" } },
+	}),
+	async (c) => {
+		await draft({ ...c.req.valid("param"), ...c.req.valid("json") });
+		return c.body(null, 202);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/accounts/{accountId}/drafts/{draftId}",
+		operationId: "discardDraft",
+		request: { params: z.object({ accountId: z.string(), draftId: z.uuid() }) },
+		responses: { 202: { description: "Discarding" }, 404: { description: "No such account" } },
+	}),
+	async (c) => {
+		await draft({ ...c.req.valid("param"), to: [], cc: [], bcc: [], subject: "", text: "", discard: true });
+		return c.body(null, 202);
 	},
 );
 

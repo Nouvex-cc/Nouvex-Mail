@@ -88,7 +88,7 @@ func run() error {
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:        "engine",
-		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send"},
+		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save"},
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
@@ -142,6 +142,22 @@ func run() error {
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		if m.Subject() == "cmd.message.send" {
 			send(ctx, m, nc, js, db.New(pool), get, master)
+			return
+		}
+		if m.Subject() == "cmd.draft.save" {
+			var d msg.DraftSave
+			if err := json.Unmarshal(m.Data(), &d); err != nil {
+				_ = m.Term()
+				return
+			}
+			if err := mail.SaveDraft(ctx, db.New(pool), master, d); err != nil {
+				slog.Error("draft failed", "account", d.AccountId, "err", err)
+				_ = m.NakWithDelay(10 * time.Second)
+				return
+			}
+			_ = m.Ack()
+			sync, _ := json.Marshal(msg.MailboxSync{AccountId: d.AccountId})
+			_, _ = js.Publish(ctx, "cmd.mailbox.sync", sync)
 			return
 		}
 		var cmd msg.MailboxSync
@@ -252,10 +268,16 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 		slog.Error("send failed", "account", cmd.AccountId, "err", err)
 		e := err.Error()
 		ev.Error = &e
-	} else if err := mail.SaveSent(ctx, q, master, cmd.AccountId, raw); err != nil {
-		slog.Warn("saving to Sent failed", "account", cmd.AccountId, "err", err)
 	} else {
-		// So the copy shows up in Sent.
+		if cmd.DraftId != nil {
+			if err := mail.DiscardDraft(ctx, q, master, cmd.AccountId, *cmd.DraftId); err != nil {
+				slog.Warn("removing the draft failed", "account", cmd.AccountId, "err", err)
+			}
+		}
+		if err := mail.SaveSent(ctx, q, master, cmd.AccountId, raw); err != nil {
+			slog.Warn("saving to Sent failed", "account", cmd.AccountId, "err", err)
+		}
+		// So the copy shows up in Sent and the draft leaves Drafts.
 		sync, _ := json.Marshal(msg.MailboxSync{AccountId: cmd.AccountId})
 		_, _ = js.Publish(ctx, "cmd.mailbox.sync", sync)
 	}

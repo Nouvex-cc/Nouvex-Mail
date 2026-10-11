@@ -103,3 +103,43 @@ func BackfillThreads(ctx context.Context, pool *pgxpool.Pool, get Get) (int, err
 	}
 	return len(rows), nil
 }
+
+// Recipients returns the To and Cc addresses of a raw message.
+func Recipients(raw []byte) (to, cc []string) {
+	to, cc = []string{}, []string{}
+	mr, err := mail.CreateReader(bytes.NewReader(raw))
+	if err != nil {
+		return to, cc
+	}
+	defer func() { _ = mr.Close() }()
+	for field, out := range map[string]*[]string{"To": &to, "Cc": &cc} {
+		list, _ := mr.Header.AddressList(field)
+		for _, a := range list {
+			*out = append(*out, a.Address)
+		}
+	}
+	return to, cc
+}
+
+// BackfillRecipients reads To and Cc of messages synced before they were stored.
+func BackfillRecipients(ctx context.Context, pool *pgxpool.Pool, get Get) (int, error) {
+	q := db.New(pool)
+	rows, err := q.ListNoRecipients(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for i, r := range rows {
+		raw, err := get(ctx, "raw/"+r.ID+".eml")
+		if err != nil {
+			return i, err
+		}
+		to, cc := Recipients(raw)
+		if err := q.SetRecipients(ctx, db.SetRecipientsParams{ID: r.ID, ToAddrs: to, CcAddrs: cc}); err != nil {
+			return i, err
+		}
+		if _, err := q.LogChange(ctx, db.LogChangeParams{AccountID: r.AccountID, Entity: "message", EntityID: r.ID, Op: "upsert"}); err != nil {
+			return i, err
+		}
+	}
+	return len(rows), nil
+}

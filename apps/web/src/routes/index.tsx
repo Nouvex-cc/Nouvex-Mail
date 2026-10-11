@@ -32,7 +32,7 @@ import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db, type Message } from "../db";
-import { Reader } from "../reader";
+import { Reader, text } from "../reader";
 import { matches } from "../search";
 import { forget, listen, pull, update } from "../sync";
 import { type Draft, Write } from "../write";
@@ -173,6 +173,19 @@ function Inbox() {
 	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean; snoozeUntil?: string }) => {
 		setOpen(undefined);
 		for (const m of inView(thread)) void update(m, change);
+	};
+	// A draft opens in the composer. Ours carry their id in the Message-ID, so saving replaces them; a draft
+	// written elsewhere is continued as a new one.
+	const resume = async (m: Message) => {
+		const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
+		const html = res.ok ? ((await res.json()) as { html: string }).html : "";
+		setDraft({
+			accountId: m.accountId,
+			to: m.to,
+			subject: m.subject,
+			body: text(html),
+			draftId: /^draft-([0-9a-f-]{36})@/.exec(m.messageId)?.[1] ?? crypto.randomUUID(),
+		});
 	};
 	const markRead = (thread: Message[]) => {
 		for (const m of thread) if (m.seen === 0) void update(m, { seen: true });
@@ -333,6 +346,7 @@ function Inbox() {
 									selected={selected.has(key(thread))}
 									selecting={selected.size > 0}
 									onOpen={() => {
+										if (folder === "drafts") return void resume(m);
 										setOpen(key(thread));
 										markRead(thread);
 									}}

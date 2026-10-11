@@ -204,8 +204,8 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
@@ -225,6 +225,8 @@ type InsertMessageParams struct {
 	Attachments []byte
 	Refs        []string
 	ThreadID    string
+	ToAddrs     []string
+	CcAddrs     []string
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -244,6 +246,8 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Attachments,
 		arg.Refs,
 		arg.ThreadID,
+		arg.ToAddrs,
+		arg.CcAddrs,
 	)
 	if err != nil {
 		return 0, err
@@ -361,6 +365,35 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 			&i.UidValidity,
 			&i.Role,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNoRecipients = `-- name: ListNoRecipients :many
+SELECT id, account_id FROM message WHERE to_addrs IS NULL
+`
+
+type ListNoRecipientsRow struct {
+	ID        string
+	AccountID string
+}
+
+func (q *Queries) ListNoRecipients(ctx context.Context) ([]ListNoRecipientsRow, error) {
+	rows, err := q.db.Query(ctx, listNoRecipients)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNoRecipientsRow
+	for rows.Next() {
+		var i ListNoRecipientsRow
+		if err := rows.Scan(&i.ID, &i.AccountID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -494,6 +527,21 @@ type SetFlagsParams struct {
 
 func (q *Queries) SetFlags(ctx context.Context, arg SetFlagsParams) error {
 	_, err := q.db.Exec(ctx, setFlags, arg.ID, arg.Flags)
+	return err
+}
+
+const setRecipients = `-- name: SetRecipients :exec
+UPDATE message SET to_addrs = $2, cc_addrs = $3 WHERE id = $1
+`
+
+type SetRecipientsParams struct {
+	ID      string
+	ToAddrs []string
+	CcAddrs []string
+}
+
+func (q *Queries) SetRecipients(ctx context.Context, arg SetRecipientsParams) error {
+	_, err := q.db.Exec(ctx, setRecipients, arg.ID, arg.ToAddrs, arg.CcAddrs)
 	return err
 }
 

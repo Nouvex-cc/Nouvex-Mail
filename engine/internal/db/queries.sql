@@ -23,8 +23,8 @@ DELETE FROM message WHERE mailbox_id = $1 RETURNING id;
 SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1;
 
 -- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 ON CONFLICT (mailbox_id, uid) DO NOTHING;
 
 -- name: LogChange :one
@@ -90,3 +90,9 @@ RETURNING *;
 SELECT m.id FROM message m JOIN mailbox b ON b.id = m.mailbox_id
 WHERE m.account_id = $1 AND m.message_id = $2 AND b.role = $3
 LIMIT 1;
+
+-- name: ListNoRecipients :many
+SELECT id, account_id FROM message WHERE to_addrs IS NULL;
+
+-- name: SetRecipients :exec
+UPDATE message SET to_addrs = $2, cc_addrs = $3 WHERE id = $1;

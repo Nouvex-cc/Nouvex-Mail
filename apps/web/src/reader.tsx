@@ -137,7 +137,7 @@ function Entry({
 }
 
 // The mail as plain text for quoting. Block breaks of HTML mails get lost; plain text mails keep their lines.
-const text = (html: string) => new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ?? "";
+export const text = (html: string) => new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ?? "";
 
 const prefixed = (prefix: string, subject: string) =>
 	subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;

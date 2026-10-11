@@ -16,6 +16,10 @@ export interface MessageSend {
   subject: string;
   text: string;
   /**
+   * The draft this was written in; it is deleted once sent.
+   */
+  draftId?: string;
+  /**
    * Send then instead of now.
    */
   sendAt?: string;

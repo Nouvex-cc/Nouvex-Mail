@@ -74,6 +74,8 @@ type Message struct {
 	Attachments []byte
 	Refs        []string
 	ThreadID    string
+	ToAddrs     []string
+	CcAddrs     []string
 }
 
 type Passkey struct {
