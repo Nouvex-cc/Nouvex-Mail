@@ -91,7 +91,7 @@ const base = ({ faces, stack }: { faces: string; stack: string }, look: keyof ty
 	${faces}
 	${looks[look]}
 	body { margin: 0; padding: 16px 20px; font: 14px/1.55 ${stack}; overflow-wrap: anywhere; }
-	body > * { max-width: 72ch; }
+	body:not(.layout) > * { max-width: 72ch; }
 	img { max-width: 100%; height: auto; }
 	img[data-src] { display: none; }
 	a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
@@ -160,9 +160,15 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 		if (before && /^(on .+ wrote|am .+ schrieb .+):?\s*$/i.test(before.textContent?.trim() ?? ""))
 			before.setAttribute("data-nx-quote", "");
 	}
+	// Newsletters are built as one fixed-width table, usually 600px, meant to sit in the middle of the window.
+	// Plain mails keep reading from the left edge.
+	const layout = [...doc.querySelectorAll<HTMLElement>("table")].find((t) =>
+		/^\d+(px)?$/.test(t.getAttribute("width") || t.style.width || t.style.maxWidth),
+	);
+	layout?.style.setProperty("margin-inline", "auto");
 	// The parser moves a <style> that comes before any content into <head>; most HTML mail starts with one.
 	const styles = [...doc.head.querySelectorAll("style")].map((style) => style.outerHTML).join("");
-	return { body: styles + doc.body.innerHTML, blocked, quoted: !!quote };
+	return { body: styles + doc.body.innerHTML, blocked, quoted: !!quote, layout: !!layout };
 }
 
 /** Renders a mail in a sandboxed frame (no scripts) that grows with its content, so it never scrolls on its own. */
@@ -174,7 +180,7 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 	const [showQuote, setShowQuote] = useState(false);
 	const [ready, setReady] = useState(false);
 	const frame = useRef<HTMLIFrameElement>(null);
-	const { body, blocked, quoted } = useMemo(() => prepare(html, allow, proxy), [html, allow, proxy]);
+	const { body, blocked, quoted, layout } = useMemo(() => prepare(html, allow, proxy), [html, allow, proxy]);
 
 	// Follow the content's height; quotes toggle in place without reloading the frame.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a new body reloads the frame, so the observer reattaches
@@ -233,7 +239,7 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 				<iframe
 					ref={frame}
 					title="Message"
-					srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body>${body}</body></html>`}
+					srcDoc={`<!doctype html><html><head><meta charset="utf-8"><base target="_blank">${base(appFont(), look)}</head><body${layout ? ' class="layout"' : ""}>${body}</body></html>`}
 					sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
 					// The mail's own dark CSS only matches when the frame itself is dark.
 					className={cn(
