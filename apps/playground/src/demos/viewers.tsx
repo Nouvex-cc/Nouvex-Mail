@@ -263,138 +263,164 @@ function Letter({ subject, messages }: { subject: string; messages: Msg[] }) {
 	);
 }
 
-/** 2. Timeline: the conversation as a thread of avatars on a rail, newest at the bottom. */
-function Timeline({ subject, messages }: { subject: string; messages: Msg[] }) {
-	const [open, show] = useOpen(messages);
+// The denser takes share these: one bar for back, subject and actions, a one-line message header, and earlier
+// messages folded into a single row until asked for.
+
+function Bar({ subject, className }: { subject: string; className?: string }) {
 	return (
-		<div className="min-h-full">
-			<div className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-paper px-4 py-2">
-				<Back />
-				<h1 className="min-w-0 flex-1 truncate font-semibold">{subject}</h1>
-				<Actions />
-			</div>
-			<ol className="mx-auto grid max-w-3xl px-6 py-8">
-				{messages.map((m, i) => (
-					<li key={m.date.getTime()} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-4">
-						<div className="flex flex-col items-center">
-							<Avatar name={m.from} />
-							<div className="w-px flex-1 bg-line" />
-						</div>
-						<div className="grid gap-3 pb-8">
-							<button
-								type="button"
-								onClick={() => show(i)}
-								className="flex min-h-8 items-center gap-2 text-left outline-none"
-							>
-								<span className="font-medium">{m.from}</span>
-								<When date={m.date} />
-							</button>
-							{open.has(i) ? (
-								<>
-									<Body m={m} />
-									<Files files={m.files} />
-								</>
-							) : (
-								<button
-									type="button"
-									onClick={() => show(i)}
-									className="-mt-2 truncate text-left text-sm text-muted outline-none hover:text-ink"
-								>
-									{m.snippet}
-								</button>
-							)}
-						</div>
-					</li>
-				))}
-				<li className="grid grid-cols-[2rem_minmax(0,1fr)] gap-x-4">
-					<div className="flex size-8 items-center justify-center rounded-full border border-line-strong text-muted">
-						<Reply strokeWidth={1.75} />
-					</div>
-					<div className="flex items-center gap-2">
-						<Button size="sm" variant="primary">
-							Reply
-						</Button>
-						<Button size="sm">Reply all</Button>
-						<Button size="sm">Forward</Button>
-					</div>
-				</li>
-			</ol>
+		<div
+			className={`sticky top-0 z-10 flex h-12 items-center gap-2 border-b border-line px-2 ${className ?? "bg-paper"}`}
+		>
+			<Back />
+			<h1 className="min-w-0 flex-1 truncate font-semibold">{subject}</h1>
+			<Actions />
 		</div>
 	);
 }
 
-/** 3. Inspector: the mail gets the whole width, people, files and actions live in a quiet column on the right. */
-function Inspector({ subject, messages }: { subject: string; messages: Msg[] }) {
-	const [open, show] = useOpen(messages);
-	const files = messages.flatMap((m) => m.files ?? []);
+function Line({ m }: { m: Msg }) {
 	return (
-		<div className="grid min-h-full grid-cols-[minmax(0,1fr)_16rem]">
-			<div className="min-w-0">
-				<div className="sticky top-0 z-10 bg-paper px-4 py-2">
-					<Back />
-				</div>
-				<div className="px-8 pt-4 pb-16">
-					<h1 className="mb-6 text-xl font-semibold text-balance">{subject}</h1>
-					{messages.map((m, i) =>
-						open.has(i) ? (
-							<section key={m.date.getTime()} className="grid gap-4 border-t border-line py-5 first:border-t-0">
-								<header className="flex items-baseline gap-2">
-									<span className="font-medium">{m.from}</span>
-									<span className="min-w-0 flex-1 truncate text-sm text-muted">{m.email}</span>
-									<When date={m.date} />
-								</header>
-								<Body m={m} large />
-							</section>
-						) : (
-							<div key={m.date.getTime()} className="-mx-3 border-t border-line py-1 first:border-t-0">
-								<Folded m={m} onOpen={() => show(i)} />
-							</div>
-						),
-					)}
-				</div>
-			</div>
-			<aside className="sticky top-0 grid h-max content-start gap-6 border-l border-line px-4 py-4">
-				<div className="grid gap-1">
-					{[
-						["Reply", "R", Reply],
-						["Forward", "F", Forward],
-						["Archive", "E", Archive],
-						["Snooze", "H", Clock],
-						["Delete", "#", Trash2],
-					].map(([label, key, Icon]) => {
-						const I = Icon as typeof Reply;
-						return (
-							<Button key={label as string} variant="ghost" size="sm" className="justify-start">
-								<I strokeWidth={1.75} />
-								<span className="flex-1 text-left">{label as string}</span>
-								<Kbd>{key as string}</Kbd>
-							</Button>
-						);
-					})}
-				</div>
-				<div className="grid gap-3">
-					<h2 className="text-sm font-medium text-muted">People</h2>
-					{people(messages).map((m) => (
-						<div key={m.email} className="flex items-center gap-2">
-							<Avatar name={m.from} size="sm" />
-							<div className="grid min-w-0">
-								<span className="truncate text-sm">{m.from}</span>
-								<span className="truncate text-xs text-muted">{m.email}</span>
-							</div>
-						</div>
-					))}
-				</div>
-				{files.length > 0 && (
-					<div className="grid gap-3">
-						<h2 className="text-sm font-medium text-muted">Files</h2>
-						<div className="grid gap-2">
-							{files.map((f) => (
-								<AttachmentTile key={f.name} {...f} onOpen={() => {}} />
-							))}
-						</div>
+		<header className="flex min-w-0 items-center gap-2">
+			<Avatar name={m.from} size="sm" />
+			<span className="shrink-0 font-medium">{m.from}</span>
+			<span className="min-w-0 flex-1 truncate text-sm text-muted">
+				{m.email} to {m.to.join(", ")}
+			</span>
+			<When date={m.date} />
+		</header>
+	);
+}
+
+// Everything before the newest message as one row; opened, each is a one-line row that expands on click.
+function Earlier({ messages, render }: { messages: Msg[]; render(m: Msg, i: number): ReactNode }) {
+	const [all, setAll] = useState(false);
+	const earlier = messages.slice(0, -1);
+	if (earlier.length === 0) return null;
+	if (all) return <>{earlier.map(render)}</>;
+	return (
+		<button
+			type="button"
+			onClick={() => setAll(true)}
+			className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2"
+		>
+			<span className="flex gap-1">
+				{people(earlier).map((m) => (
+					<Avatar key={m.email} name={m.from} size="sm" />
+				))}
+			</span>
+			{earlier.length} earlier {earlier.length === 1 ? "message" : "messages"}
+		</button>
+	);
+}
+
+function Expandable({ m, className = "border-b border-line" }: { m: Msg; className?: string }) {
+	const [open, setOpen] = useState(false);
+	return open ? (
+		<section className={`grid gap-3 px-3 py-4 ${className}`}>
+			<Line m={m} />
+			<Body m={m} />
+		</section>
+	) : (
+		<div className={className}>
+			<Folded m={m} onOpen={() => setOpen(true)} />
+		</div>
+	);
+}
+
+function ReplyButtons() {
+	return (
+		<div className="flex items-center gap-2">
+			<Button size="sm">
+				<Reply strokeWidth={1.75} />
+				Reply
+			</Button>
+			<Button size="sm">Reply all</Button>
+			<Button size="sm">
+				<Forward strokeWidth={1.75} />
+				Forward
+			</Button>
+		</div>
+	);
+}
+
+/** 2. Wide: Letter without the narrow column. The newest mail starts right under the bar and gets the full width. */
+function Wide({ subject, messages }: { subject: string; messages: Msg[] }) {
+	const m = last(messages);
+	return (
+		<div className="min-h-full">
+			<Bar subject={subject} />
+			<div className="px-3 py-2">
+				<Earlier messages={messages} render={(e) => <Expandable key={e.date.getTime()} m={e} />} />
+				<section className="grid gap-4 px-3 pt-3 pb-6">
+					<Line m={m} />
+					<div className="max-w-4xl">
+						<Body m={m} large />
 					</div>
-				)}
-			</aside>
+					<Files files={m.files} />
+					<ReplyButtons />
+				</section>
+			</div>
+		</div>
+	);
+}
+
+/** 3. Sheet: Cards tightened up. One sheet edge to edge, a thin sunken margin, the replies inside it. */
+function Sheet({ subject, messages }: { subject: string; messages: Msg[] }) {
+	const m = last(messages);
+	return (
+		<div className="min-h-full bg-sunken">
+			<Bar subject={subject} className="bg-sunken" />
+			<div className="grid gap-2 p-2">
+				<Earlier
+					messages={messages}
+					render={(e) => (
+						<Expandable key={e.date.getTime()} m={e} className="rounded-lg border border-line bg-paper p-1" />
+					)}
+				/>
+				<section className="grid gap-4 rounded-lg border border-line bg-paper p-4">
+					<Line m={m} />
+					<div className="max-w-4xl">
+						<Body m={m} large />
+					</div>
+					<Files files={m.files} />
+					<div className="border-t border-line pt-3">
+						<ReplyButtons />
+					</div>
+				</section>
+			</div>
+		</div>
+	);
+}
+
+/** 6. Focus: the newest mail fills the panel, HTML edge to edge, and a one-line reply field is docked below. */
+function Focus({ subject, messages }: { subject: string; messages: Msg[] }) {
+	const m = last(messages);
+	return (
+		<div className="flex h-full flex-col">
+			<Bar subject={subject} />
+			<div className="min-h-0 flex-1 overflow-auto">
+				<div className="px-3 pt-2">
+					<Earlier messages={messages} render={(e) => <Expandable key={e.date.getTime()} m={e} />} />
+				</div>
+				<section className="grid gap-4 py-3">
+					<div className="px-6">
+						<Line m={m} />
+					</div>
+					<div className={m.html ? "" : "max-w-4xl px-6"}>
+						<Body m={m} large />
+					</div>
+					<div className="px-6">
+						<Files files={m.files} />
+					</div>
+				</section>
+			</div>
+			<div className="flex items-center gap-2 border-t border-line p-2">
+				<Input placeholder={`Reply to ${m.from}`} className="flex-1" />
+				<Button size="sm">
+					<Forward strokeWidth={1.75} />
+					Forward
+				</Button>
+			</div>
 		</div>
 	);
 }
@@ -524,10 +550,11 @@ function Conversation({ subject, messages }: { subject: string; messages: Msg[] 
 
 const viewers = [
 	["Letter", Letter],
-	["Timeline", Timeline],
-	["Inspector", Inspector],
+	["Wide", Wide],
+	["Sheet", Sheet],
 	["Cards", Cards],
 	["Conversation", Conversation],
+	["Focus", Focus],
 ] as const;
 
 export function ViewersDemo() {
