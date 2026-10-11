@@ -9,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/emersion/go-message/mail"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 )
@@ -23,13 +22,8 @@ func References(raw []byte) []string {
 	defer func() { _ = mr.Close() }()
 	refs, _ := mr.Header.MsgIDList("References")
 	parent, _ := mr.Header.MsgIDList("In-Reply-To")
-	slices.Sort(refs)
-	for _, id := range parent {
-		if _, found := slices.BinarySearch(refs, id); !found {
-			refs = append(refs, id)
-		}
-	}
-	if refs == nil {
+	refs = slices.Compact(slices.Sorted(slices.Values(append(refs, parent...))))
+	if len(refs) == 0 {
 		return []string{}
 	}
 	return refs
@@ -62,84 +56,4 @@ func thread(ctx context.Context, q *db.Queries, accountID, messageID string, ref
 		}
 	}
 	return keep, nil
-}
-
-// BackfillThreads gives messages synced before conversations existed their references and conversation, oldest
-// first so answers find what they answer.
-func BackfillThreads(ctx context.Context, pool *pgxpool.Pool, get Get) (int, error) {
-	rows, err := db.New(pool).ListThreadless(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for i, r := range rows {
-		raw, err := get(ctx, "raw/"+r.ID+".eml")
-		if err != nil {
-			return i, err
-		}
-		refs := References(raw)
-		tx, err := pool.Begin(ctx)
-		if err != nil {
-			return i, err
-		}
-		q := db.New(tx)
-		logChange := func(id string) error {
-			_, err := q.LogChange(ctx, db.LogChangeParams{AccountID: r.AccountID, Entity: "message", EntityID: id, Op: "upsert"})
-			return err
-		}
-		id, err := thread(ctx, q, r.AccountID, r.MessageID, refs, logChange)
-		if err == nil {
-			err = q.SetThread(ctx, db.SetThreadParams{ID: r.ID, Refs: refs, ThreadID: id})
-		}
-		if err == nil {
-			err = logChange(r.ID)
-		}
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return i, err
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return i, err
-		}
-	}
-	return len(rows), nil
-}
-
-// Recipients returns the To and Cc addresses of a raw message.
-func Recipients(raw []byte) (to, cc []string) {
-	to, cc = []string{}, []string{}
-	mr, err := mail.CreateReader(bytes.NewReader(raw))
-	if err != nil {
-		return to, cc
-	}
-	defer func() { _ = mr.Close() }()
-	for field, out := range map[string]*[]string{"To": &to, "Cc": &cc} {
-		list, _ := mr.Header.AddressList(field)
-		for _, a := range list {
-			*out = append(*out, a.Address)
-		}
-	}
-	return to, cc
-}
-
-// BackfillRecipients reads To and Cc of messages synced before they were stored.
-func BackfillRecipients(ctx context.Context, pool *pgxpool.Pool, get Get) (int, error) {
-	q := db.New(pool)
-	rows, err := q.ListNoRecipients(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for i, r := range rows {
-		raw, err := get(ctx, "raw/"+r.ID+".eml")
-		if err != nil {
-			return i, err
-		}
-		to, cc := Recipients(raw)
-		if err := q.SetRecipients(ctx, db.SetRecipientsParams{ID: r.ID, ToAddrs: to, CcAddrs: cc}); err != nil {
-			return i, err
-		}
-		if _, err := q.LogChange(ctx, db.LogChangeParams{AccountID: r.AccountID, Entity: "message", EntityID: r.ID, Op: "upsert"}); err != nil {
-			return i, err
-		}
-	}
-	return len(rows), nil
 }

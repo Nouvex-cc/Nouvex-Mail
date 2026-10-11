@@ -139,10 +139,3 @@ func TestReferences(t *testing.T) {
 		t.Fatal(got)
 	}
 }
-
-func TestRecipients(t *testing.T) {
-	to, cc := Recipients([]byte("From: a@x\r\nTo: Lena <lena@x.example>, jonas@x.example\r\nCc: c@x.example\r\n\r\nHi"))
-	if !slices.Equal(to, []string{"lena@x.example", "jonas@x.example"}) || !slices.Equal(cc, []string{"c@x.example"}) {
-		t.Fatal(to, cc)
-	}
-}

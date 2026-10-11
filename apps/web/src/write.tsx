@@ -13,6 +13,8 @@ export type Draft = {
 	draftId?: string;
 };
 
+export const when = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+
 export function Write({
 	from,
 	contacts,
@@ -28,14 +30,17 @@ export function Write({
 	// Every edit is saved as a draft two seconds after typing stops; closing saves right away.
 	const draftId = useMemo(() => draft?.draftId ?? crypto.randomUUID(), [draft]);
 	const pending = useRef<{ timer: ReturnType<typeof setTimeout>; save: () => void }>(undefined);
-	const flush = () => {
-		if (!pending.current) return;
-		clearTimeout(pending.current.timer);
-		pending.current.save();
+	const cancel = () => {
+		clearTimeout(pending.current?.timer);
 		pending.current = undefined;
 	};
+	const flush = () => {
+		const p = pending.current;
+		cancel();
+		p?.save();
+	};
 	const change = (m: Omit<OutgoingMessage, "files" | "sendAt">) => {
-		if (pending.current) clearTimeout(pending.current.timer);
+		cancel();
 		const save = () =>
 			void fetch(`/accounts/${from?.id}/drafts/${draftId}`, {
 				method: "PUT",
@@ -52,8 +57,7 @@ export function Write({
 		pending.current = { timer: setTimeout(flush, 2000), save };
 	};
 	const discard = () => {
-		if (pending.current) clearTimeout(pending.current.timer);
-		pending.current = undefined;
+		cancel();
 		void fetch(`/accounts/${from?.id}/drafts/${draftId}`, { method: "DELETE" });
 		onClose();
 	};
@@ -62,8 +66,7 @@ export function Write({
 		onClose();
 	};
 	const send = async (m: OutgoingMessage) => {
-		if (pending.current) clearTimeout(pending.current.timer);
-		pending.current = undefined;
+		cancel();
 		const uploads = await Promise.all(
 			m.files.map(async (file) => {
 				const form = new FormData();
@@ -90,11 +93,7 @@ export function Write({
 			}),
 		});
 		if (!res.ok) return toast.add({ title: "Couldn't send", description: "Check the recipients and try again." });
-		if (m.sendAt) {
-			toast.add({
-				title: `Scheduled for ${m.sendAt.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`,
-			});
-		}
+		if (m.sendAt) toast.add({ title: `Scheduled for ${when(m.sendAt)}` });
 		onClose();
 	};
 

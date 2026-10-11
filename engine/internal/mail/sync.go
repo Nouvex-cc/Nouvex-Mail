@@ -192,7 +192,7 @@ func (s *syncer) folder(name, role string) error {
 				return err
 			}
 			for _, m := range msgs {
-				if int64(m.UID) <= last || m.Envelope == nil {
+				if m.Envelope == nil {
 					continue
 				}
 				sent := m.Envelope.Date

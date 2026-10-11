@@ -95,7 +95,6 @@ function AccountSettings({ account: a, onChanged }: { account: Account; onChange
 					variant="danger"
 					hold={1200}
 					onHoldComplete={async () => {
-						await fetch(`/accounts/${a.id}`, { method: "DELETE" });
 						await forget(a.id);
 						onChanged();
 					}}

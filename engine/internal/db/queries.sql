@@ -71,12 +71,6 @@ WHERE account_id = sqlc.arg(account_id) AND thread_id <> ''
 -- name: MergeThread :many
 UPDATE message SET thread_id = sqlc.arg(keep)::text WHERE account_id = sqlc.arg(account_id) AND thread_id = sqlc.arg(thread_id) RETURNING id;
 
--- name: ListThreadless :many
-SELECT id, account_id, message_id FROM message WHERE thread_id = '' ORDER BY sent_at;
-
--- name: SetThread :exec
-UPDATE message SET refs = $2, thread_id = $3 WHERE id = $1;
-
 -- name: AddJob :exec
 INSERT INTO scheduled (id, account_id, run_at, kind, payload) VALUES ($1, $2, $3, $4, $5);
 
@@ -90,9 +84,3 @@ RETURNING *;
 SELECT m.id FROM message m JOIN mailbox b ON b.id = m.mailbox_id
 WHERE m.account_id = $1 AND m.message_id = $2 AND b.role = $3
 LIMIT 1;
-
--- name: ListNoRecipients :many
-SELECT id, account_id FROM message WHERE to_addrs IS NULL;
-
--- name: SetRecipients :exec
-UPDATE message SET to_addrs = $2, cc_addrs = $3 WHERE id = $1;

@@ -9,11 +9,6 @@ import { Button } from "../button";
 import { Tooltip } from "../tooltip";
 import { FrameSlot } from "./mail-frame";
 
-// Frosted glass behind a sticky bar; see progressive-blur in styles.css.
-function ProgressiveBlur({ side }: { side: "top" | "bottom" }) {
-	return <div className="progressive-blur" data-side={side} aria-hidden />;
-}
-
 // Opens by growing a grid row and fading the body in from under the snippet; see fold-panel in styles.css.
 function Panel({ open, id, children }: { open: boolean; id?: string; children: ReactNode }) {
 	return (
@@ -75,7 +70,8 @@ export function ThreadMessage({
 				// Open, the header stays at the top while the mail scrolls under it.
 				className="isolate z-10 flex w-full items-center gap-3 px-4 py-3 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-2 group-data-open:sticky group-data-open:top-0"
 			>
-				{open && <ProgressiveBlur side="top" />}
+				{/* Frosted glass behind the sticky bar; see progressive-blur in styles.css. */}
+				{open && <div className="progressive-blur" data-side="top" aria-hidden />}
 				<Avatar name={from} />
 				<span className="grid min-w-0 flex-1">
 					<span className="truncate font-medium">{from}</span>
@@ -95,11 +91,11 @@ export function ThreadMessage({
 			</button>
 			<Panel open={open} id={panelId}>
 				{ready && (
-					<FrameSlot.Provider value={{ node: footer }}>
+					<FrameSlot.Provider value={footer}>
 						{children}
 						{/* Stays at the bottom while the mail scrolls under it. */}
 						<div className="sticky bottom-0 isolate z-10 flex items-center gap-2 px-4 py-3">
-							<ProgressiveBlur side="bottom" />
+							<div className="progressive-blur" data-side="bottom" aria-hidden />
 							{onReply && (
 								<Button size="sm" onClick={onReply}>
 									<Reply strokeWidth={1.75} />

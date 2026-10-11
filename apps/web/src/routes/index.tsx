@@ -24,6 +24,7 @@ import {
 	Star,
 	Trash2,
 } from "@nouvex/ui/icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
@@ -32,10 +33,10 @@ import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db, type Message } from "../db";
-import { Reader, text } from "../reader";
+import { body, Reader, text } from "../reader";
 import { matches } from "../search";
 import { forget, listen, pull, update } from "../sync";
-import { type Draft, Write } from "../write";
+import { type Draft, Write, when } from "../write";
 
 const standard = [
 	{ role: "inbox", label: "Inbox", Icon: InboxIcon },
@@ -48,6 +49,10 @@ const standard = [
 ] as const;
 
 const page = 100;
+
+// Rows are conversations; the key is what selection and opening go by.
+const keyOf = (m: Message) => m.threadId || m.id;
+const key = (thread: Message[]) => (thread[0] ? keyOf(thread[0]) : "");
 
 export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
@@ -70,6 +75,7 @@ function Inbox() {
 	const [adding, setAdding] = useState(false);
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
+	const queryClient = useQueryClient();
 	const [open, setOpen] = useState<string>();
 	const accounts = useAccounts();
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
@@ -147,7 +153,7 @@ function Inbox() {
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
 	// One row per conversation, at its newest message in view.
-	const threads = [...Map.groupBy(messages ?? [], (m) => m.threadId || m.id).values()];
+	const threads = [...Map.groupBy(messages ?? [], keyOf).values()];
 	// The count covers the whole conversation, your replies in Sent included.
 	const threadIds = threads.map((t) => t[0]?.threadId ?? "").filter(Boolean);
 	const sizes = useLiveQuery(
@@ -177,8 +183,7 @@ function Inbox() {
 	// A draft opens in the composer. Ours carry their id in the Message-ID, so saving replaces them; a draft
 	// written elsewhere is continued as a new one.
 	const resume = async (m: Message) => {
-		const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
-		const html = res.ok ? ((await res.json()) as { html: string }).html : "";
+		const html = await queryClient.fetchQuery({ queryKey: ["body", m.id], queryFn: () => body(m) }).catch(() => "");
 		setDraft({
 			accountId: m.accountId,
 			to: m.to,
@@ -199,8 +204,6 @@ function Inbox() {
 			void update(newest, { flagged: true });
 		}
 	};
-	// Rows are conversations; the key is what selection and opening go by.
-	const key = (thread: Message[]) => thread[0]?.threadId || thread[0]?.id || "";
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts without a selection
 	useEffect(() => setSelected(new Set()), [shown.join(), query]);
@@ -316,7 +319,6 @@ function Inbox() {
 								variant="ghost"
 								size="sm"
 								onClick={async () => {
-									await fetch(`/accounts/${a.id}`, { method: "DELETE" });
 									await forget(a.id);
 									if (current === a.id) setCurrent("all");
 									void accounts.refetch();
@@ -332,7 +334,7 @@ function Inbox() {
 							const m = thread[0]!;
 							return (
 								<MessageRow
-									key={m.threadId || m.id}
+									key={keyOf(m)}
 									from={m.fromName || m.fromAddr}
 									email={m.fromAddr}
 									subject={m.subject}
@@ -356,7 +358,7 @@ function Inbox() {
 											? (until) => {
 													moveThread(thread, { snoozeUntil: until.toISOString() });
 													toast.add({
-														title: `Snoozed until ${until.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`,
+														title: `Snoozed until ${when(until)}`,
 													});
 												}
 											: undefined

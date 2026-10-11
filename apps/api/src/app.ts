@@ -300,10 +300,8 @@ app.openapi(
 				more: rows.length > limit,
 				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
-					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, to, cc, ...m }) => ({
+					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, ...m }) => ({
 						...m,
-						to: to ?? [],
-						cc: cc ?? [],
 						sentAt: sentAt.toISOString(),
 					})),
 					deleted: msgs.deleted,

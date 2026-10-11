@@ -375,65 +375,6 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 	return items, nil
 }
 
-const listNoRecipients = `-- name: ListNoRecipients :many
-SELECT id, account_id FROM message WHERE to_addrs IS NULL
-`
-
-type ListNoRecipientsRow struct {
-	ID        string
-	AccountID string
-}
-
-func (q *Queries) ListNoRecipients(ctx context.Context) ([]ListNoRecipientsRow, error) {
-	rows, err := q.db.Query(ctx, listNoRecipients)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListNoRecipientsRow
-	for rows.Next() {
-		var i ListNoRecipientsRow
-		if err := rows.Scan(&i.ID, &i.AccountID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listThreadless = `-- name: ListThreadless :many
-SELECT id, account_id, message_id FROM message WHERE thread_id = '' ORDER BY sent_at
-`
-
-type ListThreadlessRow struct {
-	ID        string
-	AccountID string
-	MessageID string
-}
-
-func (q *Queries) ListThreadless(ctx context.Context) ([]ListThreadlessRow, error) {
-	rows, err := q.db.Query(ctx, listThreadless)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListThreadlessRow
-	for rows.Next() {
-		var i ListThreadlessRow
-		if err := rows.Scan(&i.ID, &i.AccountID, &i.MessageID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const logChange = `-- name: LogChange :one
 WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING version)
 INSERT INTO change_log (account_id, version, entity, entity_id, op)
@@ -530,21 +471,6 @@ func (q *Queries) SetFlags(ctx context.Context, arg SetFlagsParams) error {
 	return err
 }
 
-const setRecipients = `-- name: SetRecipients :exec
-UPDATE message SET to_addrs = $2, cc_addrs = $3 WHERE id = $1
-`
-
-type SetRecipientsParams struct {
-	ID      string
-	ToAddrs []string
-	CcAddrs []string
-}
-
-func (q *Queries) SetRecipients(ctx context.Context, arg SetRecipientsParams) error {
-	_, err := q.db.Exec(ctx, setRecipients, arg.ID, arg.ToAddrs, arg.CcAddrs)
-	return err
-}
-
 const setSyncError = `-- name: SetSyncError :exec
 UPDATE mail_account SET sync_error = $2 WHERE id = $1
 `
@@ -556,21 +482,6 @@ type SetSyncErrorParams struct {
 
 func (q *Queries) SetSyncError(ctx context.Context, arg SetSyncErrorParams) error {
 	_, err := q.db.Exec(ctx, setSyncError, arg.ID, arg.SyncError)
-	return err
-}
-
-const setThread = `-- name: SetThread :exec
-UPDATE message SET refs = $2, thread_id = $3 WHERE id = $1
-`
-
-type SetThreadParams struct {
-	ID       string
-	Refs     []string
-	ThreadID string
-}
-
-func (q *Queries) SetThread(ctx context.Context, arg SetThreadParams) error {
-	_, err := q.db.Exec(ctx, setThread, arg.ID, arg.Refs, arg.ThreadID)
 	return err
 }
 

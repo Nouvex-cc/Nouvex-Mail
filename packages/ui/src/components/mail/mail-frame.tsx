@@ -25,7 +25,7 @@ export type MailFrameProps = {
  * Set by a ThreadMessage: the frame then sits flush in the message and puts its status pills into the message's
  * footer, next to Reply and Forward.
  */
-export const FrameSlot = createContext<{ node: HTMLElement | null } | undefined>(undefined);
+export const FrameSlot = createContext<HTMLElement | null | undefined>(undefined);
 
 const remote = /^https?:\/\//i;
 const cssUrl = /url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi;
@@ -229,7 +229,7 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 		<div className={cn("grid gap-2", className)}>
 			{/* In a message the mail sits flush; on its own it gets a border, outside the frame so it follows the app's
 			    theme, not the frame's. */}
-			<div className={slot ? undefined : "overflow-hidden rounded-lg border border-line"}>
+			<div className={slot !== undefined ? undefined : "overflow-hidden rounded-lg border border-line"}>
 				<iframe
 					ref={frame}
 					title="Message"
@@ -251,13 +251,13 @@ export function MailFrame({ html, proxy, className }: MailFrameProps) {
 					onClick={() => setShowQuote((s) => !s)}
 					className={cn(
 						"inline-flex h-5 w-fit items-center rounded-full bg-hover px-2 text-xs text-muted outline-none transition-colors duration-100 hover:bg-selected hover:text-ink focus-visible:outline-2",
-						slot && "mx-5",
+						slot !== undefined && "mx-5",
 					)}
 				>
 					•••
 				</button>
 			)}
-			{slot ? slot.node && createPortal(pills, slot.node) : <div className="flex gap-1.5">{pills}</div>}
+			{slot !== undefined ? slot && createPortal(pills, slot) : <div className="flex gap-1.5">{pills}</div>}
 		</div>
 	);
 }
