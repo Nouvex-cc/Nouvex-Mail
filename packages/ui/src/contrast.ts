@@ -8,7 +8,7 @@ const linear = (c: number) => {
 };
 
 /** Relative luminance (WCAG 2). */
-export const luminance = ([r, g, b]: Rgb) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+const luminance = ([r, g, b]: Rgb) => 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
 
 /** Contrast ratio between two colors, 1 to 21. */
 export function ratio(a: Rgb, b: Rgb) {

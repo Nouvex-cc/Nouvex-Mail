@@ -162,7 +162,6 @@ export function Thread({
 	actions,
 	reply,
 	composer,
-	after,
 	children,
 	className,
 }: {
@@ -174,8 +173,6 @@ export function Thread({
 	reply?: ThreadReply;
 	/** Takes the reply bar's place, e.g. the reply being written. */
 	composer?: ReactNode;
-	/** In the conversation after the newest message. */
-	after?: ReactNode;
 	children: ReactNode;
 	className?: string;
 }) {
@@ -216,7 +213,6 @@ export function Thread({
 					earlier.length > 0 && <div className="border-b border-line">{earlier}</div>
 				)}
 				{newest && cloneElement(newest, { defaultExpanded: true })}
-				{after}
 			</div>
 			{composer ? <Floating>{composer}</Floating> : reply && <ReplyBar {...reply} />}
 		</section>

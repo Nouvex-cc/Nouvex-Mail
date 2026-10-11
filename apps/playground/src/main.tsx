@@ -48,9 +48,7 @@ import {
 import { Archive, Bold, Clock, Forward, Italic, Reply, Trash2, Underline } from "@nouvex/ui/icons";
 import { type ReactNode, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ColorsDemo } from "./demos/colors";
 import { ComposerDemo } from "./demos/composer";
-import { ComposersDemo } from "./demos/composers";
 import { InboxDemo } from "./demos/inbox";
 import { NavigationDemo } from "./demos/navigation";
 import { ReadingDemo } from "./demos/reading";
@@ -559,30 +557,16 @@ function Mail() {
 }
 
 function App() {
-	const [page, setPage] = useState(location.hash.slice(1) || "components");
+	const [page, setPage] = useState("components");
 	return (
 		<>
 			<div className="mx-auto flex max-w-6xl px-6 pt-6">
 				<ToggleGroup value={[page]} onValueChange={(v) => v[0] && setPage(v[0])}>
 					<Toggle value="components">Components</Toggle>
 					<Toggle value="mail">Mail</Toggle>
-					<Toggle value="composer">Composer</Toggle>
-					<Toggle value="color">Color</Toggle>
 				</ToggleGroup>
 			</div>
-			{page === "color" ? (
-				<main className="mx-auto max-w-7xl px-6 py-6">
-					<ColorsDemo />
-				</main>
-			) : page === "composer" ? (
-				<main className="mx-auto max-w-7xl px-6 py-6">
-					<ComposersDemo />
-				</main>
-			) : page === "mail" ? (
-				<Mail />
-			) : (
-				<Components />
-			)}
+			{page === "mail" ? <Mail /> : <Components />}
 		</>
 	);
 }
