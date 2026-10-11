@@ -13,7 +13,7 @@ function DialogPopup({ className, ...props }: Styled<BaseDialog.Popup.Props>) {
 	return (
 		<BaseDialog.Portal>
 			<BaseDialog.Backdrop className={backdrop} />
-			<BaseDialog.Viewport className="fixed inset-0 z-50 grid place-items-center p-4">
+			<BaseDialog.Viewport className="fixed inset-0 z-50 grid place-items-center overflow-y-auto p-4">
 				<BaseDialog.Popup className={cn(dialogPopup, "grid max-w-md gap-3 p-5", className)} {...props} />
 			</BaseDialog.Viewport>
 		</BaseDialog.Portal>
