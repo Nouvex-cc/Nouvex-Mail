@@ -27,7 +27,7 @@ import {
 	Trash2,
 } from "@nouvex/ui/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
@@ -56,7 +56,15 @@ const page = 100;
 const keyOf = (m: Message) => m.threadId || m.id;
 const key = (thread: Message[]) => (thread[0] ? keyOf(thread[0]) : "");
 
+// The folder and the open conversation live in the URL, so the browser's back button goes from a message to its
+// folder and from folder to folder, and a link to a conversation opens it.
+type Search = { folder?: string; thread?: string };
+
 export const Route = createFileRoute("/")({
+	validateSearch: (s: Record<string, unknown>): Search => ({
+		folder: typeof s.folder === "string" ? s.folder : undefined,
+		thread: typeof s.thread === "string" ? s.thread : undefined,
+	}),
 	beforeLoad: async () => {
 		const { data } = await auth.getSession();
 		if (!data) throw redirect({ to: "/login" });
@@ -69,8 +77,23 @@ function Inbox() {
 	const { user } = Route.useRouteContext();
 	const navigate = useNavigate();
 	const [current, setCurrent] = useState("all");
+	const search = Route.useSearch();
+	const router = useRouter();
 	// A role shows that folder of every account in view; the user's own folders are picked by id.
-	const [folder, setFolder] = useState("inbox");
+	const folder = search.folder ?? "inbox";
+	const setFolder = (f: string) => navigate({ to: "/", search: { folder: f === "inbox" ? undefined : f } });
+	const open = search.thread;
+	// Opening adds a history entry; closing goes back to it, unless the conversation was opened from a link.
+	const opened = useRef(false);
+	const setOpen = (thread?: string) => {
+		if (thread) {
+			opened.current = true;
+			navigate({ to: "/", search: { ...search, thread } });
+		} else if (opened.current) {
+			opened.current = false;
+			router.history.back();
+		} else navigate({ to: "/", search: { ...search, thread: undefined }, replace: true });
+	};
 	// While searching, every folder in view counts.
 	const [query, setQuery] = useState<SearchQuery>({ text: "", filters: [] });
 	const searching = query.text !== "" || query.filters.length > 0;
@@ -78,7 +101,6 @@ function Inbox() {
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
 	const queryClient = useQueryClient();
-	const [open, setOpen] = useState<string>();
 	const accounts = useAccounts();
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
 
