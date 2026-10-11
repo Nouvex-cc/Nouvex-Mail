@@ -108,7 +108,8 @@ export function Write({
 		onClose();
 	};
 
-	const title = placement === "reply" ? `Reply to ${draft.to?.join(", ") ?? ""}` : draft.subject || "New message";
+	const named = (draft.to ?? []).map((a) => contacts.find((c) => c.email === a)?.name || a);
+	const title = placement === "reply" ? `Reply to ${named.join(", ")}` : draft.subject || "New message";
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: Esc closes from anywhere in the composer
 		<div
