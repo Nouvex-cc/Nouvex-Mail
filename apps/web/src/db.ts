@@ -30,6 +30,18 @@ export const starred = (flags: string[]): 0 | 1 => (flags.includes("\\Flagged") 
 /** What the app derives from flags, for storing a message as the server describes it. */
 export const local = (flags: string[]) => ({ flags, seen: seen(flags), starred: starred(flags) });
 
+// The same mail can sit in several places, e.g. your copy in Sent and the one another of your accounts received. It
+// counts once, as the copy prefer picks where there is one.
+export const once = (thread: Message[], prefer: (m: Message) => boolean = () => false) => {
+	const kept = new Map<string, Message>();
+	for (const m of thread) {
+		const id = m.messageId || m.id;
+		const had = kept.get(id);
+		if (!had || (prefer(m) && !prefer(had))) kept.set(id, m);
+	}
+	return [...kept.values()];
+};
+
 export interface Mailbox {
 	id: string;
 	accountId: string;

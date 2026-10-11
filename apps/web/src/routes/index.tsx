@@ -34,7 +34,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth, session } from "../auth";
-import { db, type Message } from "../db";
+import { db, type Message, once } from "../db";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
 import { forget, listen, pull, update } from "../sync";
@@ -184,7 +184,9 @@ function Inbox() {
 		async () =>
 			new Map(
 				await Promise.all(
-					threadIds.map(async (id) => [id, await db.messages.where("threadId").equals(id).count()] as const),
+					threadIds.map(
+						async (id) => [id, once(await db.messages.where("threadId").equals(id).toArray()).length] as const,
+					),
 				),
 			),
 		[threadIds.join()],
@@ -192,10 +194,12 @@ function Inbox() {
 	// The open conversation, from every folder: replies from Sent show up next to what they answer.
 	const reading = useLiveQuery(async () => {
 		if (!open) return undefined;
-		const thread = await db.messages.where("threadId").equals(open).sortBy("sentAt");
+		const thread = once(await db.messages.where("threadId").equals(open).sortBy("sentAt"), (m) =>
+			shown.includes(m.mailboxId),
+		);
 		// A message whose conversation hasn't arrived yet opens on its own.
 		return thread.length ? thread : db.messages.where("id").equals(open).toArray();
-	}, [open]);
+	}, [open, shown.join()]);
 	// Moving a conversation moves what of it is in the folder in view; Sent keeps its copies.
 	const sent = new Set(boxes.filter((b) => b.role === "sent").map((b) => b.id));
 	// Our drafts in a conversation aren't messages of it; the newest one is what Reply continues.
