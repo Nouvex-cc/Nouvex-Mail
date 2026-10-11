@@ -296,3 +296,30 @@ func TestSyncInBatches(t *testing.T) {
 		t.Fatalf("version %d, %v, saves %v", v, err, saves)
 	}
 }
+
+func TestReparse(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	stored := map[string][]byte{}
+	put := func(_ context.Context, key string, data []byte, _ string) error {
+		stored[key] = data
+		return nil
+	}
+	get := func(_ context.Context, key string) ([]byte, error) { return stored[key], nil }
+	f.add("Read me again")
+	if _, err := Sync(ctx, f.pool, put, bytes.Repeat([]byte{7}, 32), f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
+	}
+	// As if an older engine couldn't read it.
+	var id string
+	_ = f.pool.QueryRow(ctx, `UPDATE message SET snippet = '' WHERE account_id = $1 RETURNING id`, f.id).Scan(&id)
+	stored["body/"+id+".html"] = nil
+	if n, err := Reparse(ctx, f.pool, put, get, f.id); err != nil || n != 1 {
+		t.Fatalf("%d %v", n, err)
+	}
+	var snippet string
+	_ = f.pool.QueryRow(ctx, `SELECT snippet FROM message WHERE id = $1`, id).Scan(&snippet)
+	if snippet != "Hi" || !bytes.Contains(stored["body/"+id+".html"], []byte("Hi")) {
+		t.Fatalf("%q %q", snippet, stored["body/"+id+".html"])
+	}
+}

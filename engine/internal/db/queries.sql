@@ -53,3 +53,9 @@ SELECT message_id FROM message WHERE id = $1 AND account_id = $2;
 
 -- name: SetSyncError :exec
 UPDATE mail_account SET sync_error = $2 WHERE id = $1;
+
+-- name: ListContent :many
+SELECT id, account_id, snippet, attachments FROM message WHERE sqlc.arg(account_id)::text = '' OR account_id = sqlc.arg(account_id);
+
+-- name: SetContent :exec
+UPDATE message SET snippet = $2, attachments = $3 WHERE id = $1;

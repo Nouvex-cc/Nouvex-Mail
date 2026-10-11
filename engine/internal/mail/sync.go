@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -214,7 +215,10 @@ func (s *syncer) folder(name, role string) error {
 				}
 				raw := m.FindBodySection(whole)
 				// An unparsable message still shows up, just without a body to read.
-				body, snippet, files, _ := Content(raw)
+				body, snippet, files, err := Content(raw)
+				if err != nil {
+					slog.Warn("can't read message", "id", row.ID, "err", err)
+				}
 				row.Snippet = snippet
 				if files == nil {
 					files = []File{}
