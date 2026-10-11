@@ -77,7 +77,7 @@ func (q *Queries) DeleteMessage(ctx context.Context, id string) error {
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at FROM mail_account WHERE id = $1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error FROM mail_account WHERE id = $1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
@@ -95,6 +95,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.Secret,
 		&i.Version,
 		&i.CreatedAt,
+		&i.SyncError,
 	)
 	return i, err
 }
@@ -334,6 +335,20 @@ type SetFlagsParams struct {
 
 func (q *Queries) SetFlags(ctx context.Context, arg SetFlagsParams) error {
 	_, err := q.db.Exec(ctx, setFlags, arg.ID, arg.Flags)
+	return err
+}
+
+const setSyncError = `-- name: SetSyncError :exec
+UPDATE mail_account SET sync_error = $2 WHERE id = $1
+`
+
+type SetSyncErrorParams struct {
+	ID        string
+	SyncError pgtype.Text
+}
+
+func (q *Queries) SetSyncError(ctx context.Context, arg SetSyncErrorParams) error {
+	_, err := q.db.Exec(ctx, setSyncError, arg.ID, arg.SyncError)
 	return err
 }
 

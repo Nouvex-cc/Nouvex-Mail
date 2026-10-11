@@ -1,11 +1,12 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"title": "MailboxSynced",
-	"description": "Event: engine finished syncing an account.",
+	"description": "Event: engine saved new data for an account, or a sync failed.",
 	"type": "object",
 	"properties": {
 		"accountId": { "type": "string" },
-		"version": { "type": "integer" }
+		"version": { "type": "integer" },
+		"error": { "type": "string", "description": "Set when the sync failed; version is then the last good one." }
 	},
 	"required": ["accountId", "version"],
 	"additionalProperties": false

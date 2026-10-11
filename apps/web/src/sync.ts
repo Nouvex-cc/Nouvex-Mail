@@ -39,13 +39,16 @@ type Event =
 	| { subject: "evt.mailbox.synced"; data: MailboxSynced }
 	| { subject: "evt.message.sent"; data: MessageSent };
 
-// The engine announces finished syncs and sends over the socket; only events for our accounts count.
-export function listen(accountIds: string[], onSent: (e: MessageSent) => void) {
+// The engine announces saved syncs, failed syncs and sends over the socket; only events for our accounts count.
+export function listen(accountIds: string[], onSent: (e: MessageSent) => void, onSynced: (e: MailboxSynced) => void) {
 	const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws`);
 	ws.onmessage = (e) => {
 		const ev = JSON.parse(e.data) as Event;
 		if (!accountIds.includes(ev.data.accountId)) return;
-		if (ev.subject === "evt.mailbox.synced") void pull(ev.data.accountId);
+		if (ev.subject === "evt.mailbox.synced") {
+			if (!ev.data.error) void pull(ev.data.accountId);
+			onSynced(ev.data);
+		}
 		if (ev.subject === "evt.message.sent") onSent(ev.data);
 	};
 	return () => ws.close();
@@ -66,3 +69,12 @@ export async function update(m: Message, change: { seen?: boolean; trash?: boole
 	});
 	if (!res.ok) await db.messages.put(m);
 }
+
+// Forgets everything synced from an account, after it was removed.
+export const forget = (accountId: string) =>
+	db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
+		const boxes = await db.mailboxes.where("accountId").equals(accountId).primaryKeys();
+		await db.messages.where("mailboxId").anyOf(boxes).delete();
+		await db.mailboxes.bulkDelete(boxes);
+		await db.cursor.delete(accountId);
+	});

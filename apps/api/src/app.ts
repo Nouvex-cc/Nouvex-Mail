@@ -2,7 +2,7 @@
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
-import type { MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
+import type { AccountCheck, AccountChecked, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
 import { and, asc, eq, gt, inArray } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
@@ -67,14 +67,18 @@ app.openapi(
 		responses: {
 			200: {
 				description: "The user's mail accounts",
-				content: { "application/json": { schema: z.array(z.object({ id: z.string(), email: z.string() })) } },
+				content: {
+					"application/json": {
+						schema: z.array(z.object({ id: z.string(), email: z.string(), syncError: z.string().nullable() })),
+					},
+				},
 			},
 		},
 	}),
 	async (c) =>
 		c.json(
 			await db
-				.select({ id: mailAccount.id, email: mailAccount.email })
+				.select({ id: mailAccount.id, email: mailAccount.email, syncError: mailAccount.syncError })
 				.from(mailAccount)
 				.where(eq(mailAccount.userId, c.get("userId")))
 				.orderBy(mailAccount.createdAt),
@@ -109,14 +113,43 @@ app.openapi(
 				description: "Account added, first sync queued",
 				content: { "application/json": { schema: z.object({ id: z.string() }) } },
 			},
+			422: {
+				description: "The mail server didn't accept these settings",
+				content: { "application/json": { schema: z.object({ error: z.string() }) } },
+			},
 		},
 	}),
 	async (c) => {
 		const { password, ...rest } = c.req.valid("json");
+		const secret = await seal(password);
+		// The engine tries both logins first, so wrong settings are caught here instead of failing quietly later.
+		const check: AccountCheck = { ...rest, secret: secret.toString("base64") };
+		const { nc } = await nats();
+		const reply = await nc.request("rpc.account.check", JSON.stringify(check), { timeout: 65_000 });
+		const { error } = reply.json<AccountChecked>();
+		if (error) return c.json({ error }, 422);
 		const id = crypto.randomUUID();
-		await db.insert(mailAccount).values({ ...rest, id, userId: c.get("userId"), secret: await seal(password) });
+		await db.insert(mailAccount).values({ ...rest, id, userId: c.get("userId"), secret });
 		await sync(id);
 		return c.json({ id }, 201);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/accounts/{accountId}",
+		operationId: "deleteAccount",
+		description: "Removes the account and everything synced from it. The mail server is not touched.",
+		request: { params: z.object({ accountId: z.string() }) },
+		responses: { 204: { description: "Removed" }, 404: { description: "No such account" } },
+	}),
+	async (c) => {
+		// ponytail: its bodies and attachments stay in S3; a cleanup job can remove raw/, body/ and att/ of gone ids.
+		const { accountId } = c.req.valid("param");
+		await db.delete(mailAccount).where(eq(mailAccount.id, accountId));
+		await db.delete(changeLog).where(eq(changeLog.accountId, accountId));
+		return c.body(null, 204);
 	},
 );
 

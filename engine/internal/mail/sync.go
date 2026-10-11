@@ -25,8 +25,9 @@ import (
 type Put func(ctx context.Context, key string, data []byte, contentType string) error
 
 // Sync brings every folder of the account up to date and returns the account's version afterwards. Each new
-// message is stored whole as raw/<id>.eml and the part to show as body/<id>.html.
-func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accountID string) (int64, error) {
+// message is stored whole as raw/<id>.eml and the part to show as body/<id>.html. Work is saved folder by folder
+// and in batches of new messages; progress is called with the version after each save.
+func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accountID string, progress func(version int64)) (int64, error) {
 	acc, err := db.New(pool).GetAccount(ctx, accountID)
 	if err != nil {
 		return 0, err
@@ -45,12 +46,11 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 		return 0, err
 	}
 
-	tx, err := pool.Begin(ctx)
-	if err != nil {
+	s := &syncer{ctx: ctx, pool: pool, c: c, put: put, progress: progress, acc: acc}
+	if err := s.begin(); err != nil {
 		return 0, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	s := &syncer{ctx: ctx, c: c, q: db.New(tx), put: put, acc: acc}
+	defer func() { _ = s.tx.Rollback(ctx) }()
 
 	listed := map[string]bool{}
 	for _, b := range boxes {
@@ -85,15 +85,33 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 			return 0, err
 		}
 	}
-	return s.acc.Version, tx.Commit(ctx)
+	return s.acc.Version, s.tx.Commit(ctx)
 }
 
 type syncer struct {
-	ctx context.Context
-	c   *imapclient.Client
-	q   *db.Queries
-	put Put
-	acc db.MailAccount
+	ctx      context.Context
+	pool     *pgxpool.Pool
+	tx       pgx.Tx
+	q        *db.Queries
+	c        *imapclient.Client
+	put      Put
+	progress func(version int64)
+	acc      db.MailAccount
+}
+
+func (s *syncer) begin() (err error) {
+	s.tx, err = s.pool.Begin(s.ctx)
+	s.q = db.New(s.tx)
+	return err
+}
+
+// commit saves what is done so far, so a dropped connection later doesn't lose it, and reports the new version.
+func (s *syncer) commit() error {
+	if err := s.tx.Commit(s.ctx); err != nil {
+		return err
+	}
+	s.progress(s.acc.Version)
+	return s.begin()
 }
 
 func (s *syncer) log(entity, id, op string) (err error) {
@@ -114,17 +132,17 @@ func (s *syncer) clear(boxID string) error {
 
 // ponytail: new messages by UID and a full flag scan per folder; CONDSTORE/QRESYNC once folders get big.
 func (s *syncer) folder(name, role string) error {
-	ctx, q := s.ctx, s.q
+	ctx := s.ctx
 	sel, err := s.c.Select(name, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
 		return err
 	}
 
-	box, err := q.GetMailbox(ctx, db.GetMailboxParams{AccountID: s.acc.ID, Name: name})
+	box, err := s.q.GetMailbox(ctx, db.GetMailboxParams{AccountID: s.acc.ID, Name: name})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		box = db.Mailbox{ID: rand.Text(), AccountID: s.acc.ID, Name: name, Role: role, UidValidity: int64(sel.UIDValidity)}
-		err = q.CreateMailbox(ctx, db.CreateMailboxParams{ID: box.ID, AccountID: box.AccountID, Name: name, Role: role, UidValidity: box.UidValidity})
+		err = s.q.CreateMailbox(ctx, db.CreateMailboxParams{ID: box.ID, AccountID: box.AccountID, Name: name, Role: role, UidValidity: box.UidValidity})
 		if err == nil {
 			err = s.log("mailbox", box.ID, "upsert")
 		}
@@ -135,7 +153,7 @@ func (s *syncer) folder(name, role string) error {
 			err = s.clear(box.ID)
 		}
 		if err == nil {
-			err = q.UpdateMailbox(ctx, db.UpdateMailboxParams{ID: box.ID, Role: role, UidValidity: int64(sel.UIDValidity)})
+			err = s.q.UpdateMailbox(ctx, db.UpdateMailboxParams{ID: box.ID, Role: role, UidValidity: int64(sel.UIDValidity)})
 		}
 		if err == nil {
 			err = s.log("mailbox", box.ID, "upsert")
@@ -145,71 +163,86 @@ func (s *syncer) folder(name, role string) error {
 		return err
 	}
 
-	last, err := q.MaxUID(ctx, box.ID)
+	last, err := s.q.MaxUID(ctx, box.ID)
 	if err != nil {
 		return err
 	}
 	if sel.NumMessages > 0 {
 		var uids imap.UIDSet
 		uids.AddRange(imap.UID(last+1), 0)
-		// ponytail: collects the whole batch in memory, stream it once first syncs of big mailboxes matter.
-		whole := &imap.FetchItemBodySection{Peek: true}
-		msgs, err := s.c.Fetch(uids, &imap.FetchOptions{
-			UID: true, Envelope: true, Flags: true, RFC822Size: true, InternalDate: true,
-			BodySection: []*imap.FetchItemBodySection{whole},
-		}).Collect()
+		found, err := s.c.Fetch(uids, &imap.FetchOptions{UID: true}).Collect()
 		if err != nil {
 			return err
 		}
-		for _, m := range msgs {
-			if int64(m.UID) <= last || m.Envelope == nil {
-				continue
+		var fresh []imap.UID
+		for _, m := range found {
+			if int64(m.UID) > last {
+				fresh = append(fresh, m.UID)
 			}
-			sent := m.Envelope.Date
-			if sent.IsZero() {
-				sent = m.InternalDate
-			}
-			row := db.InsertMessageParams{
-				ID:        rand.Text(),
-				AccountID: s.acc.ID,
-				MailboxID: box.ID,
-				Uid:       int64(m.UID),
-				MessageID: m.Envelope.MessageID,
-				Subject:   m.Envelope.Subject,
-				SentAt:    pgtype.Timestamptz{Time: sent, Valid: true},
-				Flags:     flagStrings(m.Flags),
-				Size:      int32(m.RFC822Size),
-			}
-			if len(m.Envelope.From) > 0 {
-				row.FromName, row.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
-			}
-			raw := m.FindBodySection(whole)
-			// An unparsable message still shows up, just without a body to read.
-			body, snippet, files, _ := Content(raw)
-			row.Snippet = snippet
-			if files == nil {
-				files = []File{}
-			}
-			if row.Attachments, err = json.Marshal(files); err != nil {
+		}
+		// In small batches, each saved right away: a dropped connection costs one batch, not the whole first sync.
+		whole := &imap.FetchItemBodySection{Peek: true}
+		for batch := range slices.Chunk(fresh, 50) {
+			msgs, err := s.c.Fetch(imap.UIDSetNum(batch...), &imap.FetchOptions{
+				UID: true, Envelope: true, Flags: true, RFC822Size: true, InternalDate: true,
+				BodySection: []*imap.FetchItemBodySection{whole},
+			}).Collect()
+			if err != nil {
 				return err
 			}
-			for i, f := range files {
-				if err := s.put(ctx, fmt.Sprintf("att/%s/%d", row.ID, i), f.Data, f.Type); err != nil {
+			for _, m := range msgs {
+				if int64(m.UID) <= last || m.Envelope == nil {
+					continue
+				}
+				sent := m.Envelope.Date
+				if sent.IsZero() {
+					sent = m.InternalDate
+				}
+				row := db.InsertMessageParams{
+					ID:        rand.Text(),
+					AccountID: s.acc.ID,
+					MailboxID: box.ID,
+					Uid:       int64(m.UID),
+					MessageID: m.Envelope.MessageID,
+					Subject:   m.Envelope.Subject,
+					SentAt:    pgtype.Timestamptz{Time: sent, Valid: true},
+					Flags:     flagStrings(m.Flags),
+					Size:      int32(m.RFC822Size),
+				}
+				if len(m.Envelope.From) > 0 {
+					row.FromName, row.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
+				}
+				raw := m.FindBodySection(whole)
+				// An unparsable message still shows up, just without a body to read.
+				body, snippet, files, _ := Content(raw)
+				row.Snippet = snippet
+				if files == nil {
+					files = []File{}
+				}
+				if row.Attachments, err = json.Marshal(files); err != nil {
+					return err
+				}
+				for i, f := range files {
+					if err := s.put(ctx, fmt.Sprintf("att/%s/%d", row.ID, i), f.Data, f.Type); err != nil {
+						return err
+					}
+				}
+				if err := s.put(ctx, "raw/"+row.ID+".eml", raw, "message/rfc822"); err != nil {
+					return err
+				}
+				if err := s.put(ctx, "body/"+row.ID+".html", []byte(body), "text/html; charset=utf-8"); err != nil {
+					return err
+				}
+				if n, err := s.q.InsertMessage(ctx, row); err != nil {
+					return err
+				} else if n == 0 {
+					continue
+				}
+				if err := s.log("message", row.ID, "upsert"); err != nil {
 					return err
 				}
 			}
-			if err := s.put(ctx, "raw/"+row.ID+".eml", raw, "message/rfc822"); err != nil {
-				return err
-			}
-			if err := s.put(ctx, "body/"+row.ID+".html", []byte(body), "text/html; charset=utf-8"); err != nil {
-				return err
-			}
-			if n, err := q.InsertMessage(ctx, row); err != nil {
-				return err
-			} else if n == 0 {
-				continue
-			}
-			if err := s.log("message", row.ID, "upsert"); err != nil {
+			if err := s.commit(); err != nil {
 				return err
 			}
 		}
@@ -228,7 +261,7 @@ func (s *syncer) folder(name, role string) error {
 			server[int64(m.UID)] = flagStrings(m.Flags)
 		}
 	}
-	stored, err := q.ListFlags(ctx, box.ID)
+	stored, err := s.q.ListFlags(ctx, box.ID)
 	if err != nil {
 		return err
 	}
@@ -238,9 +271,9 @@ func (s *syncer) folder(name, role string) error {
 		switch {
 		case !ok:
 			op = "delete"
-			err = q.DeleteMessage(ctx, r.ID)
+			err = s.q.DeleteMessage(ctx, r.ID)
 		case !slices.Equal(flags, r.Flags):
-			err = q.SetFlags(ctx, db.SetFlagsParams{ID: r.ID, Flags: flags})
+			err = s.q.SetFlags(ctx, db.SetFlagsParams{ID: r.ID, Flags: flags})
 		default:
 			continue
 		}
@@ -251,7 +284,7 @@ func (s *syncer) folder(name, role string) error {
 			return err
 		}
 	}
-	return nil
+	return s.commit()
 }
 
 var roles = map[imap.MailboxAttr]string{

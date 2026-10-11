@@ -45,6 +45,7 @@ type MailAccount struct {
 	Secret    []byte
 	Version   int64
 	CreatedAt pgtype.Timestamptz
+	SyncError pgtype.Text
 }
 
 type Mailbox struct {

@@ -19,6 +19,7 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -75,7 +76,8 @@ func run() error {
 	}
 	defer pool.Close()
 
-	nc, err := nats.Connect(cmp.Or(os.Getenv("NATS_URL"), nats.DefaultURL))
+	// Reconnect forever; the default gives up after two minutes, e.g. while the laptop sleeps.
+	nc, err := nats.Connect(cmp.Or(os.Getenv("NATS_URL"), nats.DefaultURL), nats.MaxReconnects(-1))
 	if err != nil {
 		return err
 	}
@@ -94,9 +96,21 @@ func run() error {
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
+		// A first sync of a big mailbox takes a while; redelivering it meanwhile would start a second one.
+		AckWait: 15 * time.Minute,
 	})
 	if err != nil {
 		return err
+	}
+
+	// The account shows why it isn't syncing until a sync works again.
+	failed := func(id string, err error) {
+		q := db.New(pool)
+		_ = q.SetSyncError(ctx, db.SetSyncErrorParams{ID: id, SyncError: pgtype.Text{String: err.Error(), Valid: true}})
+		acc, _ := q.GetAccount(ctx, id)
+		e := err.Error()
+		ev, _ := json.Marshal(msg.MailboxSynced{AccountId: id, Version: int(acc.Version), Error: &e})
+		_ = nc.Publish("evt.mailbox.synced", ev)
 	}
 
 	// Every account gets an IDLE watcher that queues a sync when new mail arrives.
@@ -115,7 +129,7 @@ func run() error {
 				if _, err := js.Publish(ctx, "cmd.mailbox.sync", cmd); err != nil {
 					slog.Error("queue sync", "account", id, "err", err)
 				}
-			})
+			}, func(err error) { failed(id, err) })
 			mu.Lock()
 			delete(watched, id)
 			mu.Unlock()
@@ -159,12 +173,18 @@ func run() error {
 				return
 			}
 		}
-		v, err := mail.Sync(ctx, pool, put, master, cmd.AccountId)
+		// Every saved batch goes out right away, so clients fill up during a long first sync.
+		v, err := mail.Sync(ctx, pool, put, master, cmd.AccountId, func(v int64) {
+			ev, _ := json.Marshal(msg.MailboxSynced{AccountId: cmd.AccountId, Version: int(v)})
+			_ = nc.Publish("evt.mailbox.synced", ev)
+		})
 		if err != nil {
 			slog.Error("sync failed", "account", cmd.AccountId, "err", err)
+			failed(cmd.AccountId, err)
 			_ = m.NakWithDelay(time.Minute)
 			return
 		}
+		_ = db.New(pool).SetSyncError(ctx, db.SetSyncErrorParams{ID: cmd.AccountId})
 		ev, _ := json.Marshal(msg.MailboxSynced{AccountId: cmd.AccountId, Version: int(v)})
 		if err := nc.Publish("evt.mailbox.synced", ev); err != nil {
 			_ = m.Nak()
@@ -178,6 +198,28 @@ func run() error {
 		return err
 	}
 	defer cc.Stop()
+
+	// Settings are checked before an account is saved; slow servers mustn't hold up other checks.
+	check, err := nc.Subscribe("rpc.account.check", func(m *nats.Msg) {
+		go func() {
+			var req msg.AccountCheck
+			res := msg.AccountChecked{}
+			err := json.Unmarshal(m.Data, &req)
+			if err == nil {
+				err = mail.Check(master, req)
+			}
+			if err != nil {
+				e := err.Error()
+				res.Error = &e
+			}
+			b, _ := json.Marshal(res)
+			_ = m.Respond(b)
+		}()
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = check.Unsubscribe() }()
 
 	slog.Info("engine running")
 	<-ctx.Done()

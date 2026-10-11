@@ -50,3 +50,6 @@ DELETE FROM message WHERE id = $1;
 
 -- name: GetMessageID :one
 SELECT message_id FROM message WHERE id = $1 AND account_id = $2;
+
+-- name: SetSyncError :exec
+UPDATE mail_account SET sync_error = $2 WHERE id = $1;

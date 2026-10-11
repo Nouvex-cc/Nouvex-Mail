@@ -20,13 +20,15 @@ import (
 // once after every (re)connect to catch up on what came in meanwhile. It returns when ctx ends or the account is
 // deleted.
 // ponytail: one connection per account and IDLE only; servers without IDLE need polling, many accounts a pool.
-func Watch(ctx context.Context, q *db.Queries, master []byte, accountID string, changed func()) {
+// failed hears why a connection broke or couldn't be made, e.g. a wrong password.
+func Watch(ctx context.Context, q *db.Queries, master []byte, accountID string, changed func(), failed func(error)) {
 	for {
 		err := watch(ctx, q, master, accountID, changed)
 		if ctx.Err() != nil || errors.Is(err, pgx.ErrNoRows) {
 			return
 		}
 		slog.Warn("watch dropped", "account", accountID, "err", err)
+		failed(err)
 		select {
 		case <-ctx.Done():
 			return
