@@ -16,6 +16,7 @@ export * from "./components/kbd";
 export * from "./components/mail/account-switcher";
 export * from "./components/mail/app-shell";
 export * from "./components/mail/attachment";
+export * from "./components/mail/backdrop";
 export * from "./components/mail/bulk-bar";
 export * from "./components/mail/compose";
 export * from "./components/mail/label";

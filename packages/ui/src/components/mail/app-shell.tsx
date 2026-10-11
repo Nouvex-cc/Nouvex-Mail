@@ -12,12 +12,15 @@ export function AppShell({
 	logo,
 	sidebar,
 	header,
+	backdrop,
 	children,
 	className,
 }: {
 	logo?: ReactNode;
 	sidebar: ReactNode;
 	header: ReactNode;
+	/** Behind the content panel and fixed while it scrolls, e.g. a <Backdrop>; the panel turns see-through. */
+	backdrop?: ReactNode;
 	children: ReactNode;
 	className?: string;
 }) {
@@ -35,9 +38,13 @@ export function AppShell({
 				{sidebar}
 			</div>
 			<ScrollArea.Root className="relative min-h-0 pr-2.5">
+				{backdrop && <div className="absolute inset-y-0 right-2.5 left-0 overflow-hidden rounded-t-xl">{backdrop}</div>}
 				<ScrollArea.Viewport
 					render={<main />}
-					className="h-full overscroll-contain rounded-t-xl border-x border-t border-line bg-paper outline-none"
+					className={cn(
+						"relative h-full overscroll-contain rounded-t-xl border-x border-t border-line outline-none",
+						!backdrop && "bg-paper",
+					)}
 				>
 					{children}
 				</ScrollArea.Viewport>

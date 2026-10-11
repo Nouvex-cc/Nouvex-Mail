@@ -16,7 +16,7 @@ Nouvex should feel like a tool you're glad to open because it works, not because
 
 ## Palette
 
-Warm neutrals, never pure black or white. The accent is ink, same as the logo. Color only appears when it means something.
+Warm neutrals, never pure black or white. The accent is ink, same as the logo, unless the user picks a theme in Settings: then one hue marks what's on, chosen or new (`accent`, `accent-soft`, `accent-text`), the frame around the content can take on a breath of it (Tinted) or be it (Frame), and people can keep a color in their avatar. Themes only set tokens (`data-tone` and `--hue` on the root), so components never know which one is active. The inbox list can sit on a picture the user chooses, blurred, with grain and as faint as they like; conversations are always read on plain paper.
 
 | Token | Use |
 |---|---|

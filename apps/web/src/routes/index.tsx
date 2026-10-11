@@ -2,6 +2,7 @@
 import {
 	AccountSwitcher,
 	AppShell,
+	Backdrop,
 	BulkBar,
 	Button,
 	Menu,
@@ -38,6 +39,7 @@ import { db, type Message, once } from "../db";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
 import { forget, listen, pull, update } from "../sync";
+import { storedLook } from "../theme";
 import { type Draft, Write, when } from "../write";
 
 const standard = [
@@ -257,6 +259,7 @@ function Inbox() {
 				onClose={() => setDraft(undefined)}
 			/>
 		);
+	const [look] = useState(storedLook);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts without a selection
 	useEffect(() => setSelected(new Set()), [shown.join(), query]);
@@ -270,6 +273,12 @@ function Inbox() {
 
 	return (
 		<AppShell
+			// The background belongs to the list; a conversation is read on plain paper.
+			backdrop={
+				look.image && !conversation?.length ? (
+					<Backdrop src={look.image} blur={look.blur} grain={look.grain} strength={look.strength} />
+				) : undefined
+			}
 			className="h-screen"
 			logo={<span role="img" aria-label="Nouvex" className="logo" />}
 			sidebar={
