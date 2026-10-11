@@ -69,7 +69,15 @@ app.openapi(
 				description: "The user's mail accounts",
 				content: {
 					"application/json": {
-						schema: z.array(z.object({ id: z.string(), email: z.string(), syncError: z.string().nullable() })),
+						schema: z.array(
+							z.object({
+								id: z.string(),
+								email: z.string(),
+								displayName: z.string(),
+								signature: z.string(),
+								syncError: z.string().nullable(),
+							}),
+						),
 					},
 				},
 			},
@@ -78,7 +86,13 @@ app.openapi(
 	async (c) =>
 		c.json(
 			await db
-				.select({ id: mailAccount.id, email: mailAccount.email, syncError: mailAccount.syncError })
+				.select({
+					id: mailAccount.id,
+					email: mailAccount.email,
+					displayName: mailAccount.displayName,
+					signature: mailAccount.signature,
+					syncError: mailAccount.syncError,
+				})
 				.from(mailAccount)
 				.where(eq(mailAccount.userId, c.get("userId")))
 				.orderBy(mailAccount.createdAt),
@@ -132,6 +146,38 @@ app.openapi(
 		await db.insert(mailAccount).values({ ...rest, id, userId: c.get("userId"), secret });
 		await sync(id);
 		return c.json({ id }, 201);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "patch",
+		path: "/accounts/{accountId}",
+		operationId: "updateAccount",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							displayName: z.string().max(200).optional(),
+							signature: z.string().max(5000).optional(),
+						}),
+					},
+				},
+			},
+		},
+		responses: { 204: { description: "Saved" }, 404: { description: "No such account" } },
+	}),
+	async (c) => {
+		const change = c.req.valid("json");
+		if (Object.keys(change).length) {
+			await db
+				.update(mailAccount)
+				.set(change)
+				.where(eq(mailAccount.id, c.req.valid("param").accountId));
+		}
+		return c.body(null, 204);
 	},
 );
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-message/mail"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 )
@@ -54,7 +55,7 @@ func TestBody(t *testing.T) {
 }
 
 func TestCompose(t *testing.T) {
-	raw, err := Compose("mateo@nouvex.cc", msg.MessageSend{
+	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{
 		To: []string{"lena@hartmann.example"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},
 		Subject: "Schlüssel für Freitag", Text: "Bis Freitag!",
 	}, "parent@x.example", nil, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
@@ -66,7 +67,7 @@ func TestCompose(t *testing.T) {
 		t.Fatal("bcc leaked into the headers")
 	}
 	h, err := Parse(strings.NewReader(s))
-	if err != nil || h.Subject != "Schlüssel für Freitag" || h.From != "<mateo@nouvex.cc>" {
+	if err != nil || h.Subject != "Schlüssel für Freitag" || h.From != `"Mateo Coerdts" <mateo@nouvex.cc>` {
 		t.Fatalf("%+v %v", h, err)
 	}
 	for _, want := range []string{"To: <lena@hartmann.example>", "Cc: <jonas@weber.example>", "Message-Id: <", "@nouvex.cc>", "In-Reply-To: <parent@x.example>", "References: <parent@x.example>", "Bis Freitag!"} {
@@ -94,7 +95,7 @@ func TestAttachments(t *testing.T) {
 }
 
 func TestComposeWithFiles(t *testing.T) {
-	raw, err := Compose("mateo@nouvex.cc", msg.MessageSend{To: []string{"lena@hartmann.example"}, Subject: "Contract", Text: "Attached."}, "",
+	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{To: []string{"lena@hartmann.example"}, Subject: "Contract", Text: "Attached."}, "",
 		[]File{{Name: "Vertrag.pdf", Type: "application/pdf", Data: []byte("%PDF-1")}}, time.Now())
 	if err != nil {
 		t.Fatal(err)

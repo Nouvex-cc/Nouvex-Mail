@@ -34,18 +34,20 @@ type ChangeLog struct {
 }
 
 type MailAccount struct {
-	ID        string
-	UserID    string
-	Email     string
-	ImapHost  string
-	ImapPort  int32
-	SmtpHost  string
-	SmtpPort  int32
-	Username  string
-	Secret    []byte
-	Version   int64
-	CreatedAt pgtype.Timestamptz
-	SyncError pgtype.Text
+	ID          string
+	UserID      string
+	Email       string
+	ImapHost    string
+	ImapPort    int32
+	SmtpHost    string
+	SmtpPort    int32
+	Username    string
+	Secret      []byte
+	Version     int64
+	CreatedAt   pgtype.Timestamptz
+	SyncError   pgtype.Text
+	DisplayName string
+	Signature   string
 }
 
 type Mailbox struct {

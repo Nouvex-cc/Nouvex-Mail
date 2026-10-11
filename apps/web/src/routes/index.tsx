@@ -11,12 +11,23 @@ import {
 	Sidebar,
 	useToast,
 } from "@nouvex/ui";
-import { Archive, File, Folder, Inbox as InboxIcon, PenLine, Send, ShieldAlert, Star, Trash2 } from "@nouvex/ui/icons";
-import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import {
+	Archive,
+	File,
+	Folder,
+	Inbox as InboxIcon,
+	PenLine,
+	Send,
+	Settings,
+	ShieldAlert,
+	Star,
+	Trash2,
+} from "@nouvex/ui/icons";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
+import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth } from "../auth";
 import { db, type Message } from "../db";
@@ -47,6 +58,7 @@ export const Route = createFileRoute("/")({
 
 function Inbox() {
 	const { user } = Route.useRouteContext();
+	const navigate = useNavigate();
 	const [current, setCurrent] = useState("all");
 	// A role shows that folder of every account in view; the user's own folders are picked by id.
 	const [folder, setFolder] = useState("inbox");
@@ -57,11 +69,7 @@ function Inbox() {
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
 	const [open, setOpen] = useState<string>();
-	const accounts = useQuery({
-		queryKey: ["accounts"],
-		queryFn: async () =>
-			(await fetch("/accounts")).json() as Promise<{ id: string; email: string; syncError: string | null }[]>,
-	});
+	const accounts = useAccounts();
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
 
 	useEffect(() => {
@@ -239,6 +247,11 @@ function Inbox() {
 						</Sidebar.Section>
 					)}
 					<Sidebar.Section title={user.email}>
+						<Sidebar.Item
+							label="Settings"
+							icon={<Settings strokeWidth={1.75} />}
+							onSelect={() => navigate({ to: "/settings" })}
+						/>
 						<Sidebar.Item label="Sign out" onSelect={() => auth.signOut().then(() => location.assign("/login"))} />
 					</Sidebar.Section>
 				</Sidebar.Root>

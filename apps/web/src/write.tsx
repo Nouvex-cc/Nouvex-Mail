@@ -10,7 +10,7 @@ export function Write({
 	draft,
 	onClose,
 }: {
-	from?: { id: string; email: string };
+	from?: { id: string; email: string; signature: string };
 	contacts: Contact[];
 	draft?: Draft;
 	onClose: () => void;
@@ -55,7 +55,8 @@ export function Write({
 					contacts={contacts}
 					defaultTo={draft?.to}
 					defaultSubject={draft?.subject}
-					defaultBody={draft?.body}
+					// The signature goes above a quoted message, the way replies are written.
+					defaultBody={from?.signature ? `\n\n-- \n${from.signature}${draft?.body ?? ""}` : draft?.body}
 					onSend={send}
 				/>
 			</Dialog.Popup>

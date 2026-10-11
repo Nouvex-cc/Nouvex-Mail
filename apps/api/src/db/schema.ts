@@ -24,6 +24,9 @@ export const mailAccount = pgTable("mail_account", {
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
 	email: text("email").notNull(),
+	// What recipients see next to the address, and what new messages end with.
+	displayName: text("display_name").notNull().default(""),
+	signature: text("signature").notNull().default(""),
 	imapHost: text("imap_host").notNull(),
 	imapPort: integer("imap_port").notNull(),
 	smtpHost: text("smtp_host").notNull(),

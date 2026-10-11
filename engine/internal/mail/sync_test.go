@@ -22,6 +22,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapserver"
 	"github.com/emersion/go-imap/v2/imapserver/imapmemserver"
+	"github.com/emersion/go-message/mail"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
@@ -272,7 +273,7 @@ func TestWatch(t *testing.T) {
 func TestSaveSent(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	raw, _ := Compose("lena@example.com", msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", nil, time.Now())
+	raw, _ := Compose(mail.Address{Address: "lena@example.com"}, msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", nil, time.Now())
 	// The test server has no Sent folder, so it gets created.
 	if err := SaveSent(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, raw); err != nil {
 		t.Fatal(err)

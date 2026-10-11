@@ -36,6 +36,7 @@ const used: Record<string, string> = {
 	Reply: "corner-up-left-line",
 	Search: "search-line",
 	Send: "send-plane-line",
+	Settings: "settings-3-line",
 	ShieldAlert: "forbid-circle-line",
 	Star: "star-line",
 	StarFilled: "star-fill",
