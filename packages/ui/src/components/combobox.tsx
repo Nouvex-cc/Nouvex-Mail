@@ -46,7 +46,7 @@ export const Combobox = {
 				<BaseCombobox.Popup
 					className={cn(
 						popup,
-						"relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1",
+						"relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) overflow-y-auto overscroll-contain p-1 data-empty:hidden",
 						className,
 					)}
 					{...props}

@@ -53,8 +53,8 @@ const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
 
 const formatWhen = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
 
-// One recipient row: contacts as suggestions, anything else typed becomes a chip on Enter or comma
-// (marked when it doesn't look like an address).
+// One recipient row: up to five contacts as suggestions (all of them on request), anything else typed becomes a chip
+// on Enter, comma or leaving the field (marked when it doesn't look like an address).
 function Recipients({
 	label,
 	contacts,
@@ -71,6 +71,7 @@ function Recipients({
 	children?: React.ReactNode;
 }) {
 	const [input, setInput] = useState("");
+	const [all, setAll] = useState(false);
 	const names = new Map(contacts.map((c) => [c.email, c.name]));
 	const query = input.trim().toLowerCase();
 	const matches = (email: string) =>
@@ -79,7 +80,9 @@ function Recipients({
 		const email = raw.trim().replace(/,$/, "");
 		if (email && !value.includes(email)) onChange([...value, email]);
 		setInput("");
+		setAll(false);
 	};
+	const found = contacts.filter((c) => !value.includes(c.email) && matches(c.email)).length;
 
 	return (
 		<div className="flex items-start gap-2 border-b border-line px-3">
@@ -93,8 +96,15 @@ function Recipients({
 					setInput("");
 				}}
 				inputValue={input}
-				onInputValueChange={setInput}
+				onInputValueChange={(v, details) => {
+					// The list clears the field as it closes. Leaving it (Tab, a click elsewhere) turns what was typed into
+					// a chip, as Enter does; picking a suggestion (click, Enter on it) doesn't.
+					const left = details.event?.type === "focusout" || details.event?.type === "pointerdown";
+					if (v === "" && left) add(input);
+					else setInput(v);
+				}}
 				filter={(email: string) => matches(email)}
+				limit={all ? undefined : 5}
 				itemToStringLabel={(email: string) => names.get(email) ?? email}
 			>
 				<Combobox.Chips className="min-h-10 flex-1 rounded-none border-0 bg-transparent px-0 focus-within:outline-0">
@@ -120,7 +130,6 @@ function Recipients({
 											add(input);
 										}
 									}}
-									onBlur={() => isEmail(input.trim()) && add(input)}
 								/>
 							</>
 						)}
@@ -135,6 +144,17 @@ function Recipients({
 							</Combobox.Item>
 						)}
 					</Combobox.List>
+					{!all && found > 5 && (
+						<button
+							type="button"
+							// Keeps the focus in the field, so leaving it doesn't turn the typed text into a chip.
+							onMouseDown={(e) => e.preventDefault()}
+							onClick={() => setAll(true)}
+							className="flex h-8 w-full items-center rounded-md px-2 text-left text-sm text-muted outline-none hover:bg-hover hover:text-ink"
+						>
+							Show all {found}
+						</button>
+					)}
 				</Combobox.Popup>
 			</Combobox.Root>
 			{children}

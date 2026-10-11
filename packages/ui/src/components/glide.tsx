@@ -53,7 +53,8 @@ export function useGlide<T extends HTMLElement>() {
 			}
 			for (const c of box.children) {
 				const old = positions.get(c);
-				if (!(c instanceof HTMLElement) || ghost(c) || !old) continue;
+				// A text field just moves: gliding it reads as the row swaying when a chip pops in where it was.
+				if (!(c instanceof HTMLElement) || ghost(c) || !old || c.tagName === "INPUT") continue;
 				const now = place(c, origin);
 				const dx = old.x - now.x;
 				const dy = old.y - now.y;

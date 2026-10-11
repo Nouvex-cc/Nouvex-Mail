@@ -43,6 +43,13 @@ const contacts: Contact[] = [
 	{ name: "Jonas Weber", email: "jonas@weber.example" },
 	{ name: "Mira Okafor", email: "mira@okafor.example" },
 	{ name: "Paul Schneider", email: "paul@schneider.example" },
+	{ name: "Sofia Rossi", email: "sofia@rossi.example" },
+	{ name: "Anna Becker", email: "anna@becker.example" },
+	{ name: "Clara Hoffmann", email: "clara@hoffmann.example" },
+	{ name: "David Wagner", email: "david@wagner.example" },
+	{ name: "Hannah Schulz", email: "hannah@schulz.example" },
+	{ name: "Laura Fischer", email: "laura@fischer.example" },
+	{ name: "Marta Keller", email: "marta@keller.example" },
 ];
 
 const inbox = [
