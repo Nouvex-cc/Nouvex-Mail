@@ -27,6 +27,7 @@ const used: Record<string, string> = {
 	Inbox: "inbox-line",
 	Italic: "italic-line",
 	Layers: "layers-line",
+	LogOut: "exit-line",
 	Mail: "mail-line",
 	MailOpen: "mail-open-line",
 	Moon: "moon-line",

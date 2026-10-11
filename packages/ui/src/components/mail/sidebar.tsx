@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { KeyboardEvent, ReactNode } from "react";
+import { ChevronsUpDown } from "../../icons";
 import { cn } from "../../lib";
 import { Collapsible } from "../accordion";
+import { Avatar } from "../avatar";
 import { Highlight } from "../highlight";
+import { Menu } from "../menu";
 import { Tooltip } from "../tooltip";
 import { type LabelColor, LabelIcon } from "./label";
 
@@ -99,4 +102,28 @@ function Label({ color, ...props }: Omit<SidebarItemProps, "icon"> & { color: La
 	return <Item {...props} icon={<LabelIcon color={color} />} />;
 }
 
-export const Sidebar = { Root, Section, Item, Label };
+/**
+ * The signed-in person at the bottom of the sidebar, opening a menu above it; pass Menu.Items as children
+ * (settings, sign out).
+ */
+function Profile({ name, email, children }: { name: string; email: string; children: ReactNode }) {
+	return (
+		<Menu.Root>
+			<Menu.Trigger className="mt-auto flex h-12 w-full shrink-0 items-center justify-between gap-2 rounded-md px-2 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30 data-popup-open:bg-hover">
+				<span className="flex min-w-0 items-center gap-2.5">
+					<Avatar name={name} />
+					<span className="grid min-w-0">
+						<span className="truncate text-sm font-medium">{name}</span>
+						<span className="truncate text-xs text-muted">{email}</span>
+					</span>
+				</span>
+				<ChevronsUpDown strokeWidth={1.75} className="size-4 shrink-0 text-muted" />
+			</Menu.Trigger>
+			<Menu.Popup side="top" className="w-(--anchor-width)">
+				{children}
+			</Menu.Popup>
+		</Menu.Root>
+	);
+}
+
+export const Sidebar = { Root, Section, Item, Label, Profile };

@@ -4,6 +4,7 @@ import {
 	AppShell,
 	BulkBar,
 	Button,
+	Menu,
 	MessageList,
 	MessageRow,
 	SearchField,
@@ -17,6 +18,7 @@ import {
 	File,
 	Folder,
 	Inbox as InboxIcon,
+	LogOut,
 	PenLine,
 	Send,
 	Settings,
@@ -265,14 +267,16 @@ function Inbox() {
 							))}
 						</Sidebar.Section>
 					)}
-					<Sidebar.Section title={user.email}>
-						<Sidebar.Item
-							label="Settings"
-							icon={<Settings strokeWidth={1.75} />}
-							onSelect={() => navigate({ to: "/settings" })}
-						/>
-						<Sidebar.Item label="Sign out" onSelect={() => auth.signOut().then(() => location.assign("/login"))} />
-					</Sidebar.Section>
+					<Sidebar.Profile name={user.name} email={user.email}>
+						<Menu.Item onClick={() => navigate({ to: "/settings" })}>
+							<Settings strokeWidth={1.75} />
+							Settings
+						</Menu.Item>
+						<Menu.Item onClick={() => auth.signOut().then(() => location.assign("/login"))}>
+							<LogOut strokeWidth={1.75} />
+							Sign out
+						</Menu.Item>
+					</Sidebar.Profile>
 				</Sidebar.Root>
 			}
 			header={

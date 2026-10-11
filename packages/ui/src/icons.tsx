@@ -224,6 +224,17 @@ export const Layers = icon(
 		/>
 	</>,
 );
+export const LogOut = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			d="M12 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5m0-8h7.5M17 9.172L19.828 12L17 14.828"
+		/>
+	</>,
+);
 export const Mail = icon(
 	<>
 		<path
