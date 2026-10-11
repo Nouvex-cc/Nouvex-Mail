@@ -198,6 +198,10 @@ function Inbox() {
 	}, [open]);
 	// Moving a conversation moves what of it is in the folder in view; Sent keeps its copies.
 	const sent = new Set(boxes.filter((b) => b.role === "sent").map((b) => b.id));
+	// Our drafts in a conversation aren't messages of it; the newest one is what Reply continues.
+	const drafts = new Set(boxes.filter((b) => b.role === "drafts").map((b) => b.id));
+	const conversation = reading?.filter((m) => !drafts.has(m.mailboxId));
+	const unsent = reading?.findLast((m) => drafts.has(m.mailboxId));
 	const inView = (thread: Message[]) =>
 		thread.filter((m) => shown.includes(m.mailboxId) && (folder === "sent" || !sent.has(m.mailboxId)));
 	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean; snoozeUntil?: string }) => {
@@ -206,13 +210,21 @@ function Inbox() {
 	};
 	// A draft opens in the composer. Ours carry their id in the Message-ID, so saving replaces them; a draft
 	// written elsewhere is continued as a new one.
-	const resume = async (m: Message) => {
+	const resume = async (m: Message, thread?: string) => {
 		const html = await queryClient.fetchQuery({ queryKey: ["body", m.id], queryFn: () => body(m) }).catch(() => "");
+		// The quoted message folds away again, from the line that introduces it.
+		const full = text(html);
+		// It answers the newest message of its conversation, so it stays in it and the reply is threaded.
+		const earlier = await db.messages.where("threadId").equals(m.threadId).sortBy("sentAt");
+		const at = full.search(/\n\s*On [^\n]+ wrote:\n/);
 		setDraft({
 			accountId: m.accountId,
 			to: m.to,
 			subject: m.subject,
-			body: text(html),
+			body: at < 0 ? full : full.slice(0, at),
+			quote: at < 0 ? undefined : full.slice(at),
+			inReplyTo: earlier.findLast((e) => !drafts.has(e.mailboxId))?.id,
+			thread,
 			draftId: /^draft-([0-9a-f-]{36})@/.exec(m.messageId)?.[1] ?? crypto.randomUUID(),
 		});
 	};
@@ -324,21 +336,23 @@ function Inbox() {
 				/>
 			}
 		>
-			{reading?.length ? (
+			{conversation?.length ? (
 				<Reader
-					messages={reading}
+					messages={conversation}
+					draft={unsent}
+					onResume={(m) => void resume(m, open)}
 					onClose={() => setOpen(undefined)}
 					onWrite={(d) => setDraft({ ...d, thread: open })}
 					composer={draft?.thread !== undefined && draft.thread === open && writer("reply")}
 					onMarkUnread={() => {
 						setOpen(undefined);
-						const last = reading.at(-1);
+						const last = conversation.at(-1);
 						if (last) void update(last, { seen: false });
 					}}
-					starred={isStarred(reading)}
-					onStar={() => toggleStar(reading)}
-					onTrash={() => moveThread(reading, { trash: true })}
-					onArchive={folder === "archive" ? undefined : () => moveThread(reading, { archive: true })}
+					starred={isStarred(conversation)}
+					onStar={() => toggleStar(conversation)}
+					onTrash={() => moveThread(conversation, { trash: true })}
+					onArchive={folder === "archive" ? undefined : () => moveThread(conversation, { archive: true })}
 				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">

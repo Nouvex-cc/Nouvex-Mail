@@ -103,6 +103,8 @@ export function ThreadMessage({
 export type ThreadReply = {
 	/** Who a reply goes to, for the field's placeholder. */
 	to: string;
+	/** A reply to this conversation is saved as a draft: the field continues it. */
+	drafted?: boolean;
 	onReply(): void;
 	onReplyAll?(): void;
 	onForward(): void;
@@ -118,7 +120,7 @@ function Floating({ children }: { children: ReactNode }) {
 }
 
 // R, A and F do the same from anywhere in the conversation.
-function ReplyBar({ to, onReply, onReplyAll, onForward }: ThreadReply) {
+function ReplyBar({ to, drafted, onReply, onReplyAll, onForward }: ThreadReply) {
 	useShortcut("r", onReply);
 	useShortcut("a", () => onReplyAll?.());
 	useShortcut("f", onForward);
@@ -131,7 +133,9 @@ function ReplyBar({ to, onReply, onReplyAll, onForward }: ThreadReply) {
 					className="flex h-8 min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0"
 				>
 					<Reply strokeWidth={1.75} />
-					<span className="flex-1 truncate">Reply to {to}…</span>
+					<span className="flex-1 truncate">
+						{drafted ? "Continue your reply to" : "Reply to"} {to}…
+					</span>
 					<Kbd>R</Kbd>
 				</button>
 				{onReplyAll && (

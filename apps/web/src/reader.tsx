@@ -30,6 +30,8 @@ export function Reader({
 	starred,
 	onStar,
 	composer,
+	draft,
+	onResume,
 }: {
 	messages: Message[];
 	starred: boolean;
@@ -41,6 +43,9 @@ export function Reader({
 	onMarkUnread: () => void;
 	/** A reply being written, in the reply bar's place. */
 	composer?: ReactNode;
+	/** Our unsent reply to this conversation; Reply continues it instead of starting over. */
+	draft?: Message;
+	onResume: (draft: Message) => void;
 }) {
 	useShortcut("Escape", onClose);
 	const accounts = useAccounts();
@@ -98,7 +103,9 @@ export function Reader({
 			composer={composer}
 			reply={{
 				to: ours ? newest.to.join(", ") : newest.fromName || newest.fromAddr,
-				onReply: () => write(reply(newest, quoted ?? "", ours ? newest.to : [newest.fromAddr])),
+				drafted: !!draft,
+				onReply: () =>
+					draft ? onResume(draft) : write(reply(newest, quoted ?? "", ours ? newest.to : [newest.fromAddr])),
 				onReplyAll: others.length > 1 ? () => write(reply(newest, quoted ?? "", others)) : undefined,
 				onForward: () => write(forward(newest, quoted ?? "")),
 			}}
