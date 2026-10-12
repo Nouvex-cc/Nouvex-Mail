@@ -4,12 +4,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
 import type { AccountCheck, AccountChecked, DraftSave, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
-import { and, asc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
-import { changeLog, mailAccount, mailbox, message } from "./db/schema";
+import { changeLog, mailAccount, mailbox, message, userPrefs } from "./db/schema";
 import { fetchImage } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
@@ -25,6 +25,13 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 app.use("/image", async (c, next) => {
 	const session = await auth.api.getSession({ headers: c.req.raw.headers });
 	if (!session) return c.body(null, 401);
+	await next();
+});
+
+app.use("/prefs", async (c, next) => {
+	const session = await auth.api.getSession({ headers: c.req.raw.headers });
+	if (!session) return c.body(null, 401);
+	c.set("userId", session.user.id);
 	await next();
 });
 
@@ -153,6 +160,62 @@ app.openapi(
 		await db.insert(mailAccount).values({ ...rest, id, userId: c.get("userId"), secret });
 		await sync(id);
 		return c.json({ id }, 201);
+	},
+);
+
+// Only settings the clients know about; anything else is refused instead of piling up.
+export const Prefs = z
+	.object({
+		markRead: z.enum(["instant", "delay", "never"]),
+		remoteImages: z.enum(["always", "ask"]),
+		afterArchive: z.enum(["next", "previous", "list"]),
+		undoSend: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(20), z.literal(30)]),
+		replyDefault: z.enum(["reply", "all"]),
+	})
+	.partial()
+	.strict();
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/prefs",
+		operationId: "getPrefs",
+		responses: {
+			200: {
+				description: "What the user changed; anything missing is at its default",
+				content: { "application/json": { schema: Prefs } },
+			},
+		},
+	}),
+	async (c) => {
+		const [row] = await db
+			.select()
+			.from(userPrefs)
+			.where(eq(userPrefs.userId, c.get("userId")));
+		// Keys dropped from Prefs since they were stored don't reach the clients.
+		return c.json(Prefs.strip().parse(row?.prefs ?? {}), 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "patch",
+		path: "/prefs",
+		operationId: "updatePrefs",
+		request: { body: { content: { "application/json": { schema: Prefs } } } },
+		responses: { 204: { description: "Saved" } },
+	}),
+	async (c) => {
+		const change = c.req.valid("json");
+		// Through text: bun-sql would bind the object as a JSON string, and jsonb would keep it as one.
+		await db
+			.insert(userPrefs)
+			.values({ userId: c.get("userId"), prefs: sql`${JSON.stringify(change)}::text::jsonb` })
+			.onConflictDoUpdate({
+				target: userPrefs.userId,
+				set: { prefs: sql`${userPrefs.prefs} || excluded.prefs`, updatedAt: new Date() },
+			});
+		return c.body(null, 204);
 	},
 );
 

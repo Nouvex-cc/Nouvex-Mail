@@ -40,6 +40,15 @@ export const mailAccount = pgTable("mail_account", {
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Settings that follow the user to every device; what's only right for one screen stays in that browser.
+export const userPrefs = pgTable("user_prefs", {
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	prefs: jsonb("prefs").notNull().default({}),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const mailbox = pgTable(
 	"mailbox",
 	{

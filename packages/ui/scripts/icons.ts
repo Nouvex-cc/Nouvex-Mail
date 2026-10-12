@@ -6,6 +6,7 @@ import { icons } from "@iconify-json/mingcute";
 const used: Record<string, string> = {
 	Archive: "archive-line",
 	Bold: "bold-line",
+	BookOpen: "book-2-line",
 	CalendarDays: "calendar-line",
 	Check: "check-line",
 	ChevronLeft: "left-line",
@@ -30,6 +31,7 @@ const used: Record<string, string> = {
 	LogOut: "exit-line",
 	Mail: "mail-line",
 	MailOpen: "mail-open-line",
+	Keyboard: "keyboard-line",
 	Moon: "moon-line",
 	Palette: "palette-line",
 	Paperclip: "attachment-line",

@@ -45,6 +45,8 @@ export type ComposerProps = {
 	compact?: boolean;
 	/** The message being answered: folded behind "•••" under the text and added to it when sending. */
 	quote?: string;
+	/** Seconds a sent message can still be taken back; 0 sends at once. */
+	undo?: number;
 };
 
 let nextId = 0;
@@ -179,6 +181,7 @@ export function Composer({
 	focus,
 	compact = false,
 	quote = "",
+	undo = 5,
 }: ComposerProps) {
 	const [to, setTo] = useState(defaultTo);
 	const [cc, setCc] = useState<string[]>([]);
@@ -280,9 +283,9 @@ export function Composer({
 		clearTimeout(timer.current);
 		if (phase === "undo") return setPhase("idle");
 		if (phase !== "idle" || !canSend) return;
-		if (sendAt) return deliver();
+		if (sendAt || !undo) return deliver();
 		setPhase("undo");
-		timer.current = setTimeout(deliver, 5000);
+		timer.current = setTimeout(deliver, undo * 1000);
 	};
 
 	const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -417,7 +420,7 @@ export function Composer({
 				<Button
 					variant="primary"
 					disabled={!canSend && phase === "idle"}
-					countdown={phase === "undo" ? 5000 : undefined}
+					countdown={phase === "undo" ? undo * 1000 : undefined}
 					success={phase === "done" && (sendAt ? "Scheduled" : "Sent")}
 					labels={["Undo", "Sent", "Schedule", "Scheduled"]}
 					onClick={send}

@@ -41,6 +41,17 @@ export const Bold = icon(
 		/>
 	</>,
 );
+export const BookOpen = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			d="m19 17l-.553 1.106a2 2 0 0 0 0 1.788L19 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1zm0 4H7.01a2 2 0 1 1 0-4H19m0 0h-2m-7-9h4"
+		/>
+	</>,
+);
 export const CalendarDays = icon(
 	<>
 		<path
@@ -250,6 +261,17 @@ export const MailOpen = icon(
 			fill="none"
 			stroke="currentColor"
 			d="m3 9.01l8.723 5.805a.5.5 0 0 0 .554 0L21 9.01m-9.555-5.64l-8 5.333A1 1 0 0 0 3 9.535V19a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V9.535a1 1 0 0 0-.445-.832l-8-5.333a1 1 0 0 0-1.11 0Z"
+		/>
+	</>,
+);
+export const Keyboard = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			d="M7 9h1m3.5 0h1M16 9h1M7 12h1m3.5 0h1m3.5 0h1M7 15h10M4 19h16a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1"
 		/>
 	</>,
 );

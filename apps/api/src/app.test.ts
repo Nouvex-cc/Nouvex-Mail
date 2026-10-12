@@ -129,3 +129,29 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 		await db.delete(user).where(eq(user.id, me.id));
 	}
 });
+
+test.skipIf(!process.env.DATABASE_URL)("prefs merge per key and refuse unknown ones", async () => {
+	const { auth } = await import("./auth");
+	const res = await auth.api.signUpEmail({
+		body: { name: "Lena", email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
+		asResponse: true,
+	});
+	const cookie = res.headers.getSetCookie().join("; ");
+	const patch = (body: unknown) =>
+		app.request("/prefs", {
+			method: "PATCH",
+			headers: { cookie, "content-type": "application/json" },
+			body: JSON.stringify(body),
+		});
+
+	expect(await (await app.request("/prefs", { headers: { cookie } })).json()).toEqual({});
+	expect((await patch({ undoSend: 10 })).status).toBe(204);
+	expect((await patch({ markRead: "never" })).status).toBe(204);
+	expect((await patch({ undoSend: 7 })).status).toBe(400);
+	expect((await patch({ nope: true })).status).toBe(400);
+	expect(await (await app.request("/prefs", { headers: { cookie } })).json()).toEqual({
+		undoSend: 10,
+		markRead: "never",
+	});
+	expect((await app.request("/prefs")).status).toBe(401);
+});

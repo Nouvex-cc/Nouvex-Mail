@@ -132,6 +132,12 @@ type User struct {
 	TwoFactorEnabled pgtype.Bool
 }
 
+type UserPref struct {
+	UserID    string
+	Prefs     []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
 type Verification struct {
 	ID         string
 	Identifier string

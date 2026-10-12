@@ -19,6 +19,8 @@ export type MailFrameProps = {
 	html: string;
 	/** Routes remote images through the image proxy. With one they load right away, without one only on request. */
 	proxy?(url: string): string;
+	/** Hides remote images until asked, even with a proxy. */
+	ask?: boolean;
 	className?: string;
 };
 
@@ -156,12 +158,12 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 }
 
 /** Renders a mail in a sandboxed frame (no scripts) that grows with its content, so it never scrolls on its own. */
-export function MailFrame({ html, proxy, className }: MailFrameProps) {
+export function MailFrame({ html, proxy, ask, className }: MailFrameProps) {
 	const dark = useDark();
 	const [original, setOriginal] = useState(false);
 	const look = !dark || original ? "light" : ownDark.test(html) ? "own" : "flipped";
 	// Through a proxy remote images can't reveal the reader, so they load right away.
-	const [allow, setAllow] = useState(proxy !== undefined);
+	const [allow, setAllow] = useState(proxy !== undefined && !ask);
 	const [showQuote, setShowQuote] = useState(false);
 	const [ready, setReady] = useState(false);
 	const frame = useRef<HTMLIFrameElement>(null);

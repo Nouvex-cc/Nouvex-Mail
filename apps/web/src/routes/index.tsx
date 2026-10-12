@@ -12,6 +12,7 @@ import {
 	type SearchQuery,
 	Sidebar,
 	useShortcut,
+	useShortcutsDialog,
 	useToast,
 } from "@nouvex/ui";
 import {
@@ -37,8 +38,10 @@ import { useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth, session } from "../auth";
 import { db, type Message, once } from "../db";
+import { usePref } from "../prefs";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
+import { shortcuts } from "../shortcuts";
 import { forget, listen, pull, update } from "../sync";
 import { storedLook } from "../theme";
 import { type Draft, Write, when } from "../write";
@@ -80,6 +83,7 @@ function Inbox() {
 	const { user } = Route.useRouteContext();
 	const navigate = useNavigate();
 	useShortcut("mod+,", () => navigate({ to: "/settings" }));
+	const shortcutsDialog = useShortcutsDialog(shortcuts);
 	const [current, setCurrent] = useState("all");
 	const search = Route.useSearch();
 	const router = useRouter();
@@ -89,6 +93,10 @@ function Inbox() {
 	const open = search.thread;
 	// Opening adds a history entry; closing goes back to it, unless the conversation was opened from a link.
 	const opened = useRef(false);
+	const openNow = useRef(open);
+	openNow.current = open;
+	const [markWhen] = usePref("markRead");
+	const [afterArchive] = usePref("afterArchive");
 	const setOpen = (thread?: string) => {
 		if (thread) {
 			opened.current = true;
@@ -216,6 +224,14 @@ function Inbox() {
 		setOpen(undefined);
 		for (const m of inView(thread)) void update(m, change);
 	};
+	// From an open conversation the reader moves on to its neighbour in the list, if the user wants that.
+	const moveOpen = (thread: Message[], change: { trash?: boolean; archive?: boolean }) => {
+		const at = threads.findIndex((t) => key(t) === open);
+		const next = afterArchive === "list" ? undefined : threads[afterArchive === "next" ? at + 1 : at - 1];
+		if (!next) return moveThread(thread, change);
+		for (const m of inView(thread)) void update(m, change);
+		show(next, true);
+	};
 	// A draft opens in the composer. Ours carry their id in the Message-ID, so saving replaces them; a draft
 	// written elsewhere is continued as a new one.
 	const resume = async (m: Message, thread?: string) => {
@@ -238,6 +254,13 @@ function Inbox() {
 	};
 	const markRead = (thread: Message[]) => {
 		for (const m of thread) if (m.seen === 0) void update(m, { seen: true });
+	};
+	const show = (thread: Message[], replace = false) => {
+		const k = key(thread);
+		if (replace) navigate({ to: "/", search: { ...search, thread: k }, replace: true });
+		else setOpen(k);
+		if (markWhen === "instant") markRead(thread);
+		else if (markWhen === "delay") setTimeout(() => openNow.current === k && markRead(thread), 2000);
 	};
 	// A conversation is starred when any of its messages is; starring marks the newest.
 	const isStarred = (thread: Message[]) => thread.some((m) => m.starred === 1);
@@ -366,8 +389,8 @@ function Inbox() {
 					}}
 					starred={isStarred(conversation)}
 					onStar={() => toggleStar(conversation)}
-					onTrash={() => moveThread(conversation, { trash: true })}
-					onArchive={folder === "archive" ? undefined : () => moveThread(conversation, { archive: true })}
+					onTrash={() => moveOpen(conversation, { trash: true })}
+					onArchive={folder === "archive" ? undefined : () => moveOpen(conversation, { archive: true })}
 				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">
@@ -418,8 +441,7 @@ function Inbox() {
 									selecting={selected.size > 0}
 									onOpen={() => {
 										if (folder === "drafts") return void resume(m);
-										setOpen(key(thread));
-										markRead(thread);
+										show(thread);
 									}}
 									// The body is there by the time the click lands, so the mail shows at once.
 									onPreload={() =>
@@ -472,6 +494,7 @@ function Inbox() {
 				</div>
 			)}
 			<AddAccount open={adding} onOpenChange={setAdding} onAdded={() => accounts.refetch()} />
+			{shortcutsDialog}
 			{draft?.thread === undefined && writer("dock")}
 		</AppShell>
 	);
