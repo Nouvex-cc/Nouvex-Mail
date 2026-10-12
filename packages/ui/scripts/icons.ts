@@ -41,6 +41,7 @@ const used: Record<string, string> = {
 	Search: "search-line",
 	Send: "send-plane-line",
 	Settings: "settings-3-line",
+	Shield: "shield-line",
 	ShieldAlert: "forbid-circle-line",
 	Star: "star-line",
 	StarFilled: "star-fill",

@@ -361,6 +361,16 @@ export const Settings = icon(
 		<path fill="none" stroke="currentColor" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
 	</>,
 );
+export const Shield = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			d="M9 12h6m-3 3V9M8.422 19.211l3.354 1.677a.5.5 0 0 0 .448 0l3.354-1.677A8 8 0 0 0 20 12.056V6.693a1 1 0 0 0-.649-.936l-7-2.625a1 1 0 0 0-.702 0l-7 2.625A1 1 0 0 0 4 6.693v5.363a8 8 0 0 0 4.422 7.155Z"
+		/>
+	</>,
+);
 export const ShieldAlert = icon(
 	<>
 		<path
