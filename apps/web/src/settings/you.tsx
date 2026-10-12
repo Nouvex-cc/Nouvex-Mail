@@ -253,28 +253,23 @@ function BackupCodes({ codes }: { codes: string[] }) {
 	);
 }
 
-// Enough to tell devices apart: the browser and the system it runs on.
+// Enough to tell devices apart: the browser and the system it runs on. Edge says Chrome too, Chrome says Safari.
+const browsers = [
+	[/Edg\//, "Edge"],
+	[/Firefox\//, "Firefox"],
+	[/Chrome\//, "Chrome"],
+	[/Safari\//, "Safari"],
+] as const;
+const systems = [
+	[/iPhone|iPad/, "iOS"],
+	[/Mac OS X/, "macOS"],
+	[/Android/, "Android"],
+	[/Windows/, "Windows"],
+	[/Linux/, "Linux"],
+] as const;
 function device(agent = "") {
-	const browser = /Edg\//.test(agent)
-		? "Edge"
-		: /Firefox\//.test(agent)
-			? "Firefox"
-			: /Chrome\//.test(agent)
-				? "Chrome"
-				: /Safari\//.test(agent)
-					? "Safari"
-					: "Browser";
-	const system = /iPhone|iPad/.test(agent)
-		? "iOS"
-		: /Mac OS X/.test(agent)
-			? "macOS"
-			: /Android/.test(agent)
-				? "Android"
-				: /Windows/.test(agent)
-					? "Windows"
-					: /Linux/.test(agent)
-						? "Linux"
-						: "";
+	const browser = browsers.find(([r]) => r.test(agent))?.[1] ?? "Browser";
+	const system = systems.find(([r]) => r.test(agent))?.[1];
 	return system ? `${browser} on ${system}` : browser;
 }
 

@@ -5,6 +5,7 @@ import type { Subscription } from "@nats-io/transport-node";
 import type { AccountCheck, AccountChecked, DraftSave, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import type { MiddlewareHandler } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
@@ -28,19 +29,14 @@ app.use("/image", async (c, next) => {
 	await next();
 });
 
-app.use("/prefs", async (c, next) => {
+const signedIn: MiddlewareHandler<Env> = async (c, next) => {
 	const session = await auth.api.getSession({ headers: c.req.raw.headers });
 	if (!session) return c.body(null, 401);
 	c.set("userId", session.user.id);
 	await next();
-});
-
-app.use("/accounts/*", async (c, next) => {
-	const session = await auth.api.getSession({ headers: c.req.raw.headers });
-	if (!session) return c.body(null, 401);
-	c.set("userId", session.user.id);
-	await next();
-});
+};
+app.use("/prefs", signedIn);
+app.use("/accounts/*", signedIn);
 
 // Someone else's account answers like a missing one.
 app.use("/accounts/:accountId/*", async (c, next) => {

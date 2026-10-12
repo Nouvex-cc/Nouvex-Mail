@@ -39,15 +39,6 @@ func Watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 
 var errArchived = errors.New("archived")
 
-// gone tells a watcher to stop: the account was removed or archived.
-func gone(ctx context.Context, q *db.Queries, accountID string) error {
-	acc, err := q.GetAccount(ctx, accountID)
-	if err == nil && acc.ArchivedAt.Valid {
-		return errArchived
-	}
-	return err
-}
-
 func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, changed func()) error {
 	acc, err := q.GetAccount(ctx, accountID)
 	if err != nil {
@@ -103,7 +94,11 @@ func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 		case <-news:
 			changed()
 		case <-check.C:
-			if err := gone(ctx, q, accountID); err != nil {
+			now, err := q.GetAccount(ctx, accountID)
+			if err == nil && now.ArchivedAt.Valid {
+				err = errArchived
+			}
+			if err != nil {
 				_ = idle.Close()
 				<-done
 				return err
