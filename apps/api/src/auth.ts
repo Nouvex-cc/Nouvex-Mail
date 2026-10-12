@@ -5,9 +5,13 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { twoFactor } from "better-auth/plugins";
 import { db } from "./db";
 
+const web = process.env.WEB_ORIGIN ?? "http://localhost:5173";
+
 export const auth = betterAuth({
+	appName: "Nouvex",
 	database: drizzleAdapter(db, { provider: "pg" }),
 	emailAndPassword: { enabled: true },
-	trustedOrigins: [process.env.WEB_ORIGIN ?? "http://localhost:5173"],
-	plugins: [passkey(), twoFactor()],
+	user: { deleteUser: { enabled: true } },
+	trustedOrigins: [web],
+	plugins: [passkey({ rpName: "Nouvex", rpID: new URL(web).hostname, origin: web }), twoFactor()],
 });

@@ -46,12 +46,13 @@ function Section({
 			<Collapsible.Root defaultOpen>
 				<Collapsible.Trigger className="text-xs font-medium text-muted">{title}</Collapsible.Trigger>
 				<Collapsible.Panel>
-					<div className="grid gap-px pt-0.5">{children}</div>
+					<div className="grid grid-cols-1 gap-px pt-0.5">{children}</div>
 				</Collapsible.Panel>
 			</Collapsible.Root>
 		);
 	return (
-		<div className="grid gap-px">
+		// One column that can't grow, so long names truncate instead of widening the sidebar.
+		<div className="grid grid-cols-1 gap-px">
 			{title && <div className="px-2 py-1 text-xs font-medium text-muted">{title}</div>}
 			{children}
 		</div>

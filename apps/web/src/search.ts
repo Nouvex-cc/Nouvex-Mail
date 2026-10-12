@@ -17,6 +17,8 @@ export function matches(m: Message, q: SearchQuery) {
 			if (key === "is" && value === "unread") return !m.flags.includes("\\Seen");
 			if (key === "is" && value === "starred") return m.flags.includes("\\Flagged");
 			if (key === "has" && value === "attachment") return m.attachments.length > 0;
+			// Which accounts are searched, not something about the message.
+			if (key === "in") return true;
 			return false;
 		})
 	);

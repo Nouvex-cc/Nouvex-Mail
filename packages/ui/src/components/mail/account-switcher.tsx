@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Fragment, type ReactNode, useRef, useState } from "react";
-import { Check, ChevronsUpDown, Layers, Plus } from "../../icons";
+import { Archive, Check, ChevronRight, ChevronsUpDown, Layers, Plus } from "../../icons";
 import { cn, item as itemClass } from "../../lib";
 import { Avatar } from "../avatar";
 import { Select } from "../select";
@@ -34,17 +34,24 @@ function Identity({ picture, name, detail }: { picture: ReactNode; name: string;
 	);
 }
 
+/**
+ * Picks one account or all of them. Archived accounts wait behind a row at the end, like archived chats, and fold
+ * out under it.
+ */
 export function AccountSwitcher({
 	accounts,
+	archived = [],
 	current,
 	onChange,
 	onAddAccount,
 }: {
 	accounts: Account[];
+	archived?: Account[];
 	current: string | "all";
 	onChange: (id: string | "all") => void;
 	onAddAccount?: () => void;
 }) {
+	const [unfolded, setUnfolded] = useState(false);
 	const entries = [
 		{
 			id: "all",
@@ -118,6 +125,36 @@ export function AccountSwitcher({
 						{i === 0 && <Select.Separator className="my-0" />}
 					</Fragment>
 				))}
+				{archived.length > 0 && (
+					<>
+						<Select.Separator className="my-0" />
+						<button
+							type="button"
+							aria-expanded={unfolded}
+							onClick={() => setUnfolded(!unfolded)}
+							className={cn(itemClass, "h-10 w-full gap-2.5 rounded-none text-muted hover:bg-hover hover:text-ink")}
+						>
+							<span className="grid size-8 place-items-center">
+								<Archive strokeWidth={1.75} />
+							</span>
+							<span className="flex-1 text-left">Archived</span>
+							<span className="text-xs tabular-nums">{archived.length}</span>
+							<ChevronRight
+								strokeWidth={1.75}
+								className={cn("transition-transform duration-150 ease-out", unfolded && "rotate-90")}
+							/>
+						</button>
+						{unfolded &&
+							archived.map((a) => (
+								<BaseSelect.Item key={a.id} value={a.id} className={cn(itemClass, "h-12 justify-between rounded-none")}>
+									<BaseSelect.ItemText className="min-w-0">
+										<Identity name={a.name} detail={a.email} picture={<Avatar src={a.avatarUrl} name={a.name} />} />
+									</BaseSelect.ItemText>
+									<End unread={a.unread} />
+								</BaseSelect.Item>
+							))}
+					</>
+				)}
 				{onAddAccount && (
 					<>
 						<Select.Separator className="my-0" />

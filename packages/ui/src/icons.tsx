@@ -41,6 +41,17 @@ export const Bold = icon(
 		/>
 	</>,
 );
+export const BookOpen = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			d="m19 17l-.553 1.106a2 2 0 0 0 0 1.788L19 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1zm0 4H7.01a2 2 0 1 1 0-4H19m0 0h-2m-7-9h4"
+		/>
+	</>,
+);
 export const CalendarDays = icon(
 	<>
 		<path
@@ -253,6 +264,17 @@ export const MailOpen = icon(
 		/>
 	</>,
 );
+export const Keyboard = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			d="M7 9h1m3.5 0h1M16 9h1M7 12h1m3.5 0h1m3.5 0h1M7 15h10M4 19h16a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1"
+		/>
+	</>,
+);
 export const Moon = icon(
 	<>
 		<path
@@ -337,6 +359,16 @@ export const Settings = icon(
 			d="M17.947 5.545a.51.51 0 0 0-.171-.447a9 9 0 0 0-2.684-1.551a.51.51 0 0 0-.473.075c-.761.548-1.658.88-2.619.88c-.96 0-1.858-.332-2.62-.88a.51.51 0 0 0-.473-.075a9 9 0 0 0-2.683 1.552a.51.51 0 0 0-.171.446c.093.933-.068 1.875-.548 2.706c-.48.832-1.215 1.443-2.07 1.828a.51.51 0 0 0-.302.373a9 9 0 0 0 0 3.098a.51.51 0 0 0 .301.373c.856.386 1.59.997 2.07 1.828s.642 1.773.549 2.706a.51.51 0 0 0 .171.447a9 9 0 0 0 2.683 1.552c.16.058.336.024.474-.075c.761-.549 1.659-.88 2.619-.88s1.858.331 2.62.88a.51.51 0 0 0 .473.075a9 9 0 0 0 2.683-1.552a.51.51 0 0 0 .171-.447c-.093-.933.068-1.875.548-2.706s1.215-1.442 2.07-1.828a.51.51 0 0 0 .302-.373a9 9 0 0 0 0-3.098a.51.51 0 0 0-.301-.373c-.856-.385-1.59-.996-2.07-1.828c-.48-.83-.642-1.773-.549-2.706Z"
 		/>
 		<path fill="none" stroke="currentColor" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
+	</>,
+);
+export const Shield = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			d="M9 12h6m-3 3V9M8.422 19.211l3.354 1.677a.5.5 0 0 0 .448 0l3.354-1.677A8 8 0 0 0 20 12.056V6.693a1 1 0 0 0-.649-.936l-7-2.625a1 1 0 0 0-.702 0l-7 2.625A1 1 0 0 0 4 6.693v5.363a8 8 0 0 0 4.422 7.155Z"
+		/>
 	</>,
 );
 export const ShieldAlert = icon(

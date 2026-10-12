@@ -2,6 +2,7 @@
 import { Button, Composer, type Contact, type OutgoingMessage, Tooltip, useToast } from "@nouvex/ui";
 import { ChevronsUpDown, X } from "@nouvex/ui/icons";
 import { type ReactNode, useMemo, useRef, useState } from "react";
+import { usePref } from "./prefs";
 
 // What the composer starts with: empty for a new message, filled in for a reply or forward, or a saved draft
 // (draftId) to continue. One started in a conversation (thread) is written there; the quoted message stays
@@ -36,6 +37,7 @@ export function Write({
 	placement: "dock" | "reply";
 	onClose: () => void;
 }) {
+	const [undo] = usePref("undoSend");
 	const [folded, setFolded] = useState(false);
 	const toast = useToast();
 	// Every edit is saved as a draft two seconds after typing stops; closing saves right away.
@@ -150,6 +152,7 @@ export function Write({
 					// The signature goes above a quoted message, the way replies are written; a draft has it already.
 					defaultBody={from?.signature && !draft.draftId ? `\n\n-- \n${from.signature}${draft.body ?? ""}` : draft.body}
 					quote={draft.quote}
+					undo={undo}
 					onSend={send}
 					onChange={change}
 					onDiscard={discard}

@@ -119,7 +119,7 @@ func (q *Queries) FindByRole(ctx context.Context, arg FindByRoleParams) (string,
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature FROM mail_account WHERE id = $1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at FROM mail_account WHERE id = $1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
@@ -140,6 +140,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.SyncError,
 		&i.DisplayName,
 		&i.Signature,
+		&i.ArchivedAt,
 	)
 	return i, err
 }
@@ -261,6 +262,30 @@ SELECT id FROM mail_account
 
 func (q *Queries) ListAccountIDs(ctx context.Context) ([]string, error) {
 	rows, err := q.db.Query(ctx, listAccountIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listArchivedAccountIDs = `-- name: ListArchivedAccountIDs :many
+SELECT id FROM mail_account WHERE archived_at IS NOT NULL
+`
+
+func (q *Queries) ListArchivedAccountIDs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listArchivedAccountIDs)
 	if err != nil {
 		return nil, err
 	}

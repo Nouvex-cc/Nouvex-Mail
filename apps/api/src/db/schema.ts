@@ -37,7 +37,18 @@ export const mailAccount = pgTable("mail_account", {
 	version: bigint("version", { mode: "number" }).notNull().default(0),
 	// Why the last sync failed, cleared by the next one that works. Written by the engine.
 	syncError: text("sync_error"),
+	// Archived accounts stay out of All inboxes and aren't watched; the engine checks them once a day.
+	archivedAt: timestamp("archived_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Settings that follow the user to every device; what's only right for one screen stays in that browser.
+export const userPrefs = pgTable("user_prefs", {
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	prefs: jsonb("prefs").notNull().default({}),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const mailbox = pgTable(
