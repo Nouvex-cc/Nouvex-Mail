@@ -11,6 +11,7 @@ import {
 	SearchField,
 	type SearchQuery,
 	Sidebar,
+	useShortcut,
 	useToast,
 } from "@nouvex/ui";
 import {
@@ -78,6 +79,7 @@ export const Route = createFileRoute("/")({
 function Inbox() {
 	const { user } = Route.useRouteContext();
 	const navigate = useNavigate();
+	useShortcut("mod+,", () => navigate({ to: "/settings" }));
 	const [current, setCurrent] = useState("all");
 	const search = Route.useSearch();
 	const router = useRouter();

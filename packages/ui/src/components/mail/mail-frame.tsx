@@ -147,7 +147,7 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 	// Newsletters are built as one fixed-width table, usually 600px, meant to sit in the middle of the window.
 	// Plain mails keep reading from the left edge.
 	const layout = [...doc.querySelectorAll<HTMLElement>("table")].find((t) =>
-		/^\d+(px)?$/.test(t.getAttribute("width") || t.style.width || t.style.maxWidth),
+		[t.getAttribute("width"), t.style.width, t.style.maxWidth].some((w) => /^\d+(px)?$/.test(w ?? "")),
 	);
 	layout?.style.setProperty("margin-inline", "auto");
 	// The parser moves a <style> that comes before any content into <head>; most HTML mail starts with one.
