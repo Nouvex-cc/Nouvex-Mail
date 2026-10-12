@@ -6,14 +6,15 @@ import { Kbd } from "../kbd";
 const typing = (target: EventTarget | null) =>
 	target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
-/** Runs `handler` when `key` is pressed, unless the user is typing in a field. */
+/** Runs `handler` when `key` is pressed, unless the user is typing in a field. "mod+," also works while typing. */
 export function useShortcut(key: string, handler: (e: KeyboardEvent) => void) {
 	const latest = useRef(handler);
 	latest.current = handler;
 
 	useEffect(() => {
+		const mod = key.startsWith("mod+");
 		const onKey = (e: KeyboardEvent) => {
-			if (typing(e.target) || e.key !== key) return;
+			if (mod ? !(e.metaKey || e.ctrlKey) || e.key !== key.slice(4) : typing(e.target) || e.key !== key) return;
 			e.preventDefault();
 			latest.current(e);
 		};

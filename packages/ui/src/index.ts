@@ -38,6 +38,7 @@ export * from "./components/resizable";
 export * from "./components/scroll-area";
 export * from "./components/select";
 export * from "./components/separator";
+export * from "./components/settings";
 export * from "./components/slider";
 export * from "./components/spinner";
 export * from "./components/switch";

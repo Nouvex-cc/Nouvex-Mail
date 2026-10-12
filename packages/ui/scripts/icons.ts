@@ -31,6 +31,7 @@ const used: Record<string, string> = {
 	Mail: "mail-line",
 	MailOpen: "mail-open-line",
 	Moon: "moon-line",
+	Palette: "palette-line",
 	Paperclip: "attachment-line",
 	PenLine: "pen-line",
 	Plus: "add-line",
