@@ -36,6 +36,9 @@ RETURNING version;
 -- name: ListAccountIDs :many
 SELECT id FROM mail_account;
 
+-- name: ListArchivedAccountIDs :many
+SELECT id FROM mail_account WHERE archived_at IS NOT NULL;
+
 -- name: GetMessagePlace :one
 SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2;
 

@@ -48,6 +48,7 @@ type MailAccount struct {
 	SyncError   pgtype.Text
 	DisplayName string
 	Signature   string
+	ArchivedAt  pgtype.Timestamptz
 }
 
 type Mailbox struct {

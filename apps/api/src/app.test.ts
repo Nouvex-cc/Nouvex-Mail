@@ -155,3 +155,42 @@ test.skipIf(!process.env.DATABASE_URL)("prefs merge per key and refuse unknown o
 	});
 	expect((await app.request("/prefs")).status).toBe(401);
 });
+
+test.skipIf(!process.env.DATABASE_URL)("archiving an account and bringing it back", async () => {
+	const { auth } = await import("./auth");
+	const { db } = await import("./db");
+	const { mailAccount } = await import("./db/schema");
+	const res = await auth.api.signUpEmail({
+		body: { name: "Lena", email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
+		asResponse: true,
+	});
+	const cookie = res.headers.getSetCookie().join("; ");
+	const { user: me } = (await res.json()) as { user: { id: string } };
+	const id = crypto.randomUUID();
+	await db.insert(mailAccount).values({
+		id,
+		userId: me.id,
+		email: "old@x",
+		imapHost: "x",
+		imapPort: 993,
+		smtpHost: "x",
+		smtpPort: 465,
+		username: "x",
+		secret: new Uint8Array(1),
+	});
+	const archived = async () =>
+		((await (await app.request("/accounts", { headers: { cookie } })).json()) as { archivedAt: string | null }[])[0]
+			?.archivedAt;
+	const patch = (archived: boolean) =>
+		app.request(`/accounts/${id}`, {
+			method: "PATCH",
+			headers: { cookie, "content-type": "application/json" },
+			body: JSON.stringify({ archived }),
+		});
+
+	expect(await archived()).toBeNull();
+	expect((await patch(true)).status).toBe(204);
+	expect(await archived()).toBeString();
+	expect((await patch(false)).status).toBe(204);
+	expect(await archived()).toBeNull();
+});

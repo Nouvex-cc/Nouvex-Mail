@@ -18,13 +18,13 @@ import (
 // Watch keeps an IDLE connection on the account's INBOX and calls changed when the server reports new, deleted or
 // changed mail, and
 // once after every (re)connect to catch up on what came in meanwhile. It returns when ctx ends or the account is
-// deleted.
+// deleted or archived.
 // ponytail: one connection per account and IDLE only; servers without IDLE need polling, many accounts a pool.
 // failed hears why a connection broke or couldn't be made, e.g. a wrong password.
 func Watch(ctx context.Context, q *db.Queries, master []byte, accountID string, changed func(), failed func(error)) {
 	for {
 		err := watch(ctx, q, master, accountID, changed)
-		if ctx.Err() != nil || errors.Is(err, pgx.ErrNoRows) {
+		if ctx.Err() != nil || errors.Is(err, pgx.ErrNoRows) || errors.Is(err, errArchived) {
 			return
 		}
 		slog.Warn("watch dropped", "account", accountID, "err", err)
@@ -37,10 +37,24 @@ func Watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 	}
 }
 
+var errArchived = errors.New("archived")
+
+// gone tells a watcher to stop: the account was removed or archived.
+func gone(ctx context.Context, q *db.Queries, accountID string) error {
+	acc, err := q.GetAccount(ctx, accountID)
+	if err == nil && acc.ArchivedAt.Valid {
+		return errArchived
+	}
+	return err
+}
+
 func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, changed func()) error {
 	acc, err := q.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
+	}
+	if acc.ArchivedAt.Valid {
+		return errArchived
 	}
 	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
@@ -81,10 +95,19 @@ func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 	changed()
 	done := make(chan error, 1)
 	go func() { done <- idle.Wait() }()
+	// ponytail: archiving or removing the account ends the connection within 5 minutes, not at once.
+	check := time.NewTicker(5 * time.Minute)
+	defer check.Stop()
 	for {
 		select {
 		case <-news:
 			changed()
+		case <-check.C:
+			if err := gone(ctx, q, accountID); err != nil {
+				_ = idle.Close()
+				<-done
+				return err
+			}
 		case err := <-done:
 			return errors.Join(errors.New("idle ended"), err)
 		case <-ctx.Done():

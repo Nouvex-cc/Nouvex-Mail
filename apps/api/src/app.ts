@@ -90,6 +90,7 @@ app.openapi(
 								displayName: z.string(),
 								signature: z.string(),
 								syncError: z.string().nullable(),
+								archivedAt: z.string().nullable(),
 							}),
 						),
 					},
@@ -106,6 +107,7 @@ app.openapi(
 					displayName: mailAccount.displayName,
 					signature: mailAccount.signature,
 					syncError: mailAccount.syncError,
+					archivedAt: mailAccount.archivedAt,
 				})
 				.from(mailAccount)
 				.where(eq(mailAccount.userId, c.get("userId")))
@@ -171,6 +173,7 @@ export const Prefs = z
 		afterArchive: z.enum(["next", "previous", "list"]),
 		undoSend: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(20), z.literal(30)]),
 		replyDefault: z.enum(["reply", "all"]),
+		archivedReplies: z.boolean(),
 	})
 	.partial()
 	.strict();
@@ -232,6 +235,7 @@ app.openapi(
 						schema: z.object({
 							displayName: z.string().max(200).optional(),
 							signature: z.string().max(5000).optional(),
+							archived: z.boolean().optional(),
 						}),
 					},
 				},
@@ -240,13 +244,12 @@ app.openapi(
 		responses: { 204: { description: "Saved" }, 404: { description: "No such account" } },
 	}),
 	async (c) => {
-		const change = c.req.valid("json");
-		if (Object.keys(change).length) {
-			await db
-				.update(mailAccount)
-				.set(change)
-				.where(eq(mailAccount.id, c.req.valid("param").accountId));
-		}
+		const { archived, ...change } = c.req.valid("json");
+		const { accountId } = c.req.valid("param");
+		const set = archived === undefined ? change : { ...change, archivedAt: archived ? new Date() : null };
+		if (Object.keys(set).length) await db.update(mailAccount).set(set).where(eq(mailAccount.id, accountId));
+		// Back from the archive: the sync starts its watcher again.
+		if (archived === false) await sync(accountId);
 		return c.body(null, 204);
 	},
 );

@@ -34,7 +34,7 @@ import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/rea
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useEffect, useRef, useState } from "react";
-import { useAccounts } from "../accounts";
+import { asleep, useAccounts, wake } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth, session } from "../auth";
 import { db, type Message, once } from "../db";
@@ -131,11 +131,15 @@ function Inbox() {
 		);
 	}, [ids, toast, accounts.refetch]);
 
-	const boxes =
+	const every =
 		useLiveQuery(
 			() => (current === "all" ? db.mailboxes.toArray() : db.mailboxes.where("accountId").equals(current).toArray()),
 			[current],
 		) ?? [];
+	// Archived accounts stay out of All inboxes, unless a search asks for them.
+	const archived = new Set((accounts.data ?? []).filter((a) => a.archivedAt).map((a) => a.id));
+	const withArchived = query.filters.some((f) => f.key === "in" && f.value === "archived");
+	const boxes = current === "all" && !withArchived ? every.filter((b) => !archived.has(b.accountId)) : every;
 	// Starred and search look across every folder in view.
 	const everywhere = searching || folder === "starred";
 	const shown = boxes.filter((b) => everywhere || (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
@@ -178,6 +182,42 @@ function Inbox() {
 			.sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 			.slice(0, limit);
 	}, [shown.join(), query, limit, folder]);
+	// Except for answers to what was sent from them: those still show in All inboxes.
+	const [archivedReplies] = usePref("archivedReplies");
+	const sleeping = every.filter((b) => archived.has(b.accountId) && current === "all" && !withArchived);
+	const replyBoxes =
+		folder === "inbox" && !searching && archivedReplies ? sleeping.filter((b) => b.role === "inbox") : [];
+	const replies = useLiveQuery(async () => {
+		const ours = new Set(sleeping.filter((b) => b.role === "sent").map((b) => b.id));
+		const recent = (
+			await Promise.all(
+				replyBoxes.map((b) =>
+					db.messages
+						.where("[mailboxId+sentAt]")
+						.between([b.id, Dexie.minKey], [b.id, Dexie.maxKey])
+						.reverse()
+						.limit(limit)
+						.toArray(),
+				),
+			)
+		).flat();
+		const answered = await Promise.all(
+			recent.map(
+				async (m) =>
+					!!m.threadId &&
+					(await db.messages
+						.where("threadId")
+						.equals(m.threadId)
+						.filter((t) => ours.has(t.mailboxId))
+						.count()) > 0,
+			),
+		);
+		return recent.filter((_, i) => answered[i]);
+	}, [replyBoxes.map((b) => b.id).join(), limit]);
+	const listed = replies?.length
+		? [...(messages ?? []), ...replies].sort((a, b) => b.sentAt.localeCompare(a.sentAt)).slice(0, limit)
+		: messages;
+	const inList = [...shown, ...replyBoxes.map((b) => b.id)];
 	const inboxes = boxes.filter((b) => b.role === "inbox").map((b) => b.id);
 	const unread = useLiveQuery(
 		async () =>
@@ -189,7 +229,7 @@ function Inbox() {
 	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
 	// One row per conversation, at its newest message in view.
-	const threads = [...Map.groupBy(messages ?? [], keyOf).values()];
+	const threads = [...Map.groupBy(listed ?? [], keyOf).values()];
 	// The count covers the whole conversation, your replies in Sent included.
 	const threadIds = threads.map((t) => t[0]?.threadId ?? "").filter(Boolean);
 	const sizes = useLiveQuery(
@@ -207,19 +247,19 @@ function Inbox() {
 	const reading = useLiveQuery(async () => {
 		if (!open) return undefined;
 		const thread = once(await db.messages.where("threadId").equals(open).sortBy("sentAt"), (m) =>
-			shown.includes(m.mailboxId),
+			inList.includes(m.mailboxId),
 		);
 		// A message whose conversation hasn't arrived yet opens on its own.
 		return thread.length ? thread : db.messages.where("id").equals(open).toArray();
-	}, [open, shown.join()]);
+	}, [open, inList.join()]);
 	// Moving a conversation moves what of it is in the folder in view; Sent keeps its copies.
-	const sent = new Set(boxes.filter((b) => b.role === "sent").map((b) => b.id));
+	const sent = new Set(every.filter((b) => b.role === "sent").map((b) => b.id));
 	// Our drafts in a conversation aren't messages of it; the newest one is what Reply continues.
-	const drafts = new Set(boxes.filter((b) => b.role === "drafts").map((b) => b.id));
+	const drafts = new Set(every.filter((b) => b.role === "drafts").map((b) => b.id));
 	const conversation = reading?.filter((m) => !drafts.has(m.mailboxId));
 	const unsent = reading?.findLast((m) => drafts.has(m.mailboxId));
 	const inView = (thread: Message[]) =>
-		thread.filter((m) => shown.includes(m.mailboxId) && (folder === "sent" || !sent.has(m.mailboxId)));
+		thread.filter((m) => inList.includes(m.mailboxId) && (folder === "sent" || !sent.has(m.mailboxId)));
 	const moveThread = (thread: Message[], change: { trash?: boolean; archive?: boolean; snoozeUntil?: string }) => {
 		setOpen(undefined);
 		for (const m of inView(thread)) void update(m, change);
@@ -309,9 +349,15 @@ function Inbox() {
 			sidebar={
 				<Sidebar.Root>
 					<AccountSwitcher
-						accounts={(accounts.data ?? []).map((a) => ({ id: a.id, email: a.email, name: a.email }))}
+						accounts={(accounts.data ?? [])
+							.filter((a) => a.id === current || !asleep(a))
+							.map((a) => ({ id: a.id, email: a.email, name: a.email }))}
+						archived={(accounts.data ?? [])
+							.filter((a) => a.id !== current && asleep(a))
+							.map((a) => ({ id: a.id, email: a.email, name: a.email }))}
 						current={current}
 						onChange={(id) => {
+							if (archived.has(id)) wake(id);
 							setCurrent(id);
 							setFolder("inbox");
 						}}
@@ -367,6 +413,7 @@ function Inbox() {
 				<SearchField
 					className="w-full max-w-xl"
 					contacts={contacts}
+					archived={archived.size > 0}
 					onSearch={(q) => {
 						setQuery(q);
 						setOpen(undefined);

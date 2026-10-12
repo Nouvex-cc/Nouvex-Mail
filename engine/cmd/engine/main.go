@@ -138,6 +138,7 @@ func run() error {
 	for _, id := range ids {
 		watch(id)
 	}
+	go checkArchived(ctx, db.New(pool), js)
 
 	cc, err := cons.Consume(func(m jetstream.Msg) {
 		if m.Subject() == "cmd.message.send" {
@@ -283,6 +284,31 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 	}
 	b, _ := json.Marshal(ev)
 	_ = nc.Publish("evt.message.sent", b)
+}
+
+// checkArchived syncs archived accounts once a day; they have no watcher, and opening one syncs it too.
+// ponytail: counts the day from the engine's start, a restart pushes the next check back.
+func checkArchived(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
+	tick := time.NewTicker(24 * time.Hour)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		ids, err := q.ListArchivedAccountIDs(ctx)
+		if err != nil {
+			slog.Error("archived accounts", "err", err)
+			continue
+		}
+		for _, id := range ids {
+			cmd, _ := json.Marshal(msg.MailboxSync{AccountId: id})
+			if _, err := js.Publish(ctx, "cmd.mailbox.sync", cmd); err != nil {
+				slog.Error("queue sync", "account", id, "err", err)
+			}
+		}
+	}
 }
 
 // runJobs turns due jobs back into commands: a message to send, a snoozed message to move back to the INBOX.

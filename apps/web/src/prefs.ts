@@ -8,6 +8,8 @@ export type Prefs = {
 	afterArchive: "next" | "previous" | "list";
 	undoSend: 0 | 5 | 10 | 20 | 30;
 	replyDefault: "reply" | "all";
+	/** Replies to mail sent from an archived account still show in All inboxes. */
+	archivedReplies: boolean;
 };
 
 export const defaults: Prefs = {
@@ -16,6 +18,7 @@ export const defaults: Prefs = {
 	afterArchive: "list",
 	undoSend: 5,
 	replyDefault: "reply",
+	archivedReplies: true,
 };
 
 // The last answer is kept in the browser, so the first paint already has the user's choices.

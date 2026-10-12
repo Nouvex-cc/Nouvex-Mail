@@ -87,6 +87,16 @@ const reading = prefsPage({ id: "reading", title: "Reading", icon: <BookOpen str
 		],
 	},
 	{
+		key: "archivedReplies",
+		label: "Replies to archived accounts",
+		hint: "Answers to mail you sent from an archived account still show in All inboxes",
+		keywords: "archived account reply",
+		options: [
+			[true, "Show"],
+			[false, "Keep archived"],
+		],
+	},
+	{
 		key: "afterArchive",
 		label: "After archiving or deleting",
 		hint: "From an open conversation",
