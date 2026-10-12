@@ -3,6 +3,7 @@ import type { ComponentType, ReactNode } from "react";
 import { accounts } from "./accounts";
 import { app } from "./appearance";
 import { mail } from "./mail";
+import { you } from "./you";
 
 /** A setting search can find; `id` is the id of its row on the page, so /settings/<page>#<id> lands on it. */
 export type Entry = { id: string; label: string; keywords?: string };
@@ -15,7 +16,7 @@ export type Page = { id: string; title: string; icon: ReactNode; entries?: Entry
  */
 export type Module = { title: string; usePages: () => Page[]; action?: ComponentType };
 
-export const modules: Module[] = [mail, accounts, app];
+export const modules: Module[] = [mail, accounts, you, app];
 
 export function useSections() {
 	// biome-ignore lint/correctness/useHookAtTopLevel: modules is a fixed list, so the hooks run in the same order every render
