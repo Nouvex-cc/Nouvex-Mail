@@ -4,7 +4,8 @@
 	"type": "module",
 	"scripts": {
 		"dev": "bun --watch --env-file=../../.env src/index.ts",
-		"build": "bun build src/index.ts src/migrate.ts --target bun --outdir dist",
+		"build": "bun build src/index.ts src/migrate.ts src/user.ts --target bun --outdir dist",
+		"user": "bun --env-file=../../.env src/user.ts",
 		"test": "bun test --env-file=../../.env",
 		"lint": "biome check .",
 		"typecheck": "tsc",

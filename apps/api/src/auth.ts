@@ -10,7 +10,8 @@ const web = process.env.WEB_ORIGIN ?? "http://localhost:5173";
 export const auth = betterAuth({
 	appName: "Nouvex",
 	database: drizzleAdapter(db, { provider: "pg" }),
-	emailAndPassword: { enabled: true },
+	// Nobody signs up on their own; accounts come from src/user.ts.
+	emailAndPassword: { enabled: true, disableSignUp: true },
 	user: { deleteUser: { enabled: true } },
 	trustedOrigins: [web],
 	plugins: [passkey({ rpName: "Nouvex", rpID: new URL(web).hostname, origin: web }), twoFactor()],
