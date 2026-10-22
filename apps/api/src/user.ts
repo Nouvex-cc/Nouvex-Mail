@@ -1,50 +1,61 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Accounts are made on the server, not on the sign-in page, so a public instance only has the people its admin added.
+// Nobody here ever knows their password: each command prints a link where the person picks it themselves.
 //   bun src/user.ts add <email> <name>     a new account
-//   bun src/user.ts password <email>       a new password, for someone who forgot theirs
-// The password comes in on stdin, so it stays out of the shell history.
+//   bun src/user.ts reset <email>          for someone who forgot their password; their mail is fetched again
+import { eq } from "drizzle-orm";
 import { auth } from "./auth";
+import { db } from "./db";
+import { userKey } from "./db/schema";
 
 const ctx = await auth.$context;
+const week = 7 * 24 * 60 * 60 * 1000;
 
-const checked = (password: string) => {
-	if (password.length < 8) throw new Error("The password needs at least 8 characters.");
-	return ctx.password.hash(password);
-};
+// Lets the holder of the link set a password once.
+async function link(userId: string) {
+	const token = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url");
+	await ctx.internalAdapter.createVerificationValue({
+		identifier: `invite:${token}`,
+		value: userId,
+		expiresAt: new Date(Date.now() + week),
+	});
+	// After the #, so the token stays out of proxy and server logs.
+	return `${process.env.WEB_ORIGIN ?? "http://localhost:5173"}/welcome#${token}`;
+}
 
-export async function addUser(email: string, name: string, password: string) {
-	const hash = await checked(password);
+export async function addUser(email: string, name: string) {
 	if (await ctx.internalAdapter.findUserByEmail(email.toLowerCase()))
 		throw new Error(`${email} already has an account.`);
 	const user = await ctx.internalAdapter.createUser(
 		{ email: email.toLowerCase(), name, emailVerified: false },
 		{ method: "email-password" },
 	);
-	await ctx.internalAdapter.linkAccount({
-		userId: user.id,
-		providerId: "credential",
-		accountId: user.id,
-		password: hash,
-	});
-	return user;
+	return { user, link: await link(user.id) };
 }
 
-export async function setPassword(email: string, password: string) {
-	const hash = await checked(password);
+// The old password and key go, and with the key everything stored for this person can't be read anymore: the engine
+// drops it and fetches the mail again once they've set a new password.
+export async function resetUser(email: string) {
 	const found = await ctx.internalAdapter.findUserByEmail(email.toLowerCase());
 	if (!found) throw new Error(`${email} has no account.`);
-	await ctx.internalAdapter.updatePassword(found.user.id, hash);
+	const id = found.user.id;
+	const credential = await ctx.internalAdapter.findCredentialAccount(id);
+	if (credential) await ctx.internalAdapter.deleteAccount(credential.id);
+	await ctx.internalAdapter.deleteUserSessions(id);
+	await db.delete(userKey).where(eq(userKey.userId, id));
+	return link(id);
 }
 
 if (import.meta.main) {
 	const [command, email, ...name] = process.argv.slice(2);
 	try {
-		if (!email || (command !== "add" && command !== "password"))
-			throw new Error("usage: user add <email> <name> | user password <email>, password on stdin");
-		const password = (await Bun.stdin.text()).trim();
-		if (command === "add") await addUser(email, name.join(" ") || email.split("@")[0] || email, password);
-		else await setPassword(email, password);
-		console.log(command === "add" ? `Added ${email}.` : `New password set for ${email}.`);
+		if (!email || (command !== "add" && command !== "reset"))
+			throw new Error("usage: user add <email> <name> | user reset <email>");
+		const url =
+			command === "add"
+				? (await addUser(email, name.join(" ") || email.split("@")[0] || email)).link
+				: await resetUser(email);
+		console.log(`Send this link to ${email}, it works once within a week:\n${url}`);
 		process.exit(0);
 	} catch (e) {
 		console.error((e as Error).message);

@@ -36,8 +36,9 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { asleep, useAccounts, wake } from "../accounts";
 import { AddAccount } from "../add-account";
-import { auth, session } from "../auth";
+import { session } from "../auth";
 import { type Category, db, type Message, once } from "../db";
+import { signOut, unlocked } from "../keys";
 import { Now } from "../now";
 import { usePref } from "../prefs";
 import { body, Reader, text } from "../reader";
@@ -83,6 +84,7 @@ export const Route = createFileRoute("/")({
 	beforeLoad: async () => {
 		const { data } = await session();
 		if (!data) throw redirect({ to: "/login" });
+		if (!(await unlocked())) throw redirect({ to: "/unlock" });
 		return { user: data.user };
 	},
 	component: Inbox,
@@ -475,7 +477,7 @@ function Inbox() {
 							<Settings strokeWidth={1.75} />
 							Settings
 						</Menu.Item>
-						<Menu.Item onClick={() => auth.signOut().then(() => location.assign("/login"))}>
+						<Menu.Item onClick={signOut}>
 							<LogOut strokeWidth={1.75} />
 							Sign out
 						</Menu.Item>

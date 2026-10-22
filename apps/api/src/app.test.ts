@@ -2,14 +2,23 @@
 import { expect, test } from "bun:test";
 import { app } from "./app";
 
-// Someone signed in, added the way src/user.ts adds people.
+const keys = { publicKey: btoa("public"), wrappedPrivate: btoa("wrapped") };
+const welcome = (link: string, password: string) =>
+	app.request(`/invites/${link.split("#")[1]}`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ password, ...keys }),
+	});
+
+// Someone signed in, added the way src/user.ts adds people: a link, where they pick their password.
 async function signedIn(name: string) {
 	const { auth } = await import("./auth");
 	const { addUser } = await import("./user");
 	const email = `${crypto.randomUUID()}@test.dev`;
-	const me = await addUser(email, name, "correct-horse-9");
+	const { user, link } = await addUser(email, name);
+	await welcome(link, "correct-horse-9");
 	const res = await auth.api.signInEmail({ body: { email, password: "correct-horse-9" }, asResponse: true });
-	return { id: me.id, email, cookie: res.headers.getSetCookie().join("; ") };
+	return { id: user.id, email, cookie: res.headers.getSetCookie().join("; ") };
 }
 
 test("health", async () => {
@@ -246,20 +255,47 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 	},
 );
 
-test.skipIf(!process.env.DATABASE_URL)("nobody signs up on their own, the CLI adds people", async () => {
+test.skipIf(!process.env.DATABASE_URL)("nobody signs up on their own or learns someone's password", async () => {
 	const { auth } = await import("./auth");
-	const { setPassword } = await import("./user");
+	const { addUser, resetUser } = await import("./user");
 	const res = await auth.api.signUpEmail({
 		body: { name: "Mallory", email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
 		asResponse: true,
 	});
 	expect(res.status).toBe(400);
 
-	const lena = await signedIn("Lena");
-	expect(lena.cookie).toContain("session_token");
-	await setPassword(lena.email, "battery-staple-7");
-	const signIn = (password: string) =>
-		auth.api.signInEmail({ body: { email: lena.email, password }, asResponse: true });
-	expect((await signIn("correct-horse-9")).status).toBe(401);
-	expect((await signIn("battery-staple-7")).status).toBe(200);
+	const email = `${crypto.randomUUID()}@test.dev`;
+	const { link } = await addUser(email, "Lena");
+	expect((await app.request(`/invites/${link.split("#")[1]}`)).status).toBe(200);
+	expect((await welcome(link, "correct-horse-9")).status).toBe(204);
+	expect((await welcome(link, "battery-staple-7")).status).toBe(404);
+	const signIn = (password: string) => auth.api.signInEmail({ body: { email, password }, asResponse: true });
+	const session = await signIn("correct-horse-9");
+	expect(session.status).toBe(200);
+	const cookie = session.headers.getSetCookie().join("; ");
+	expect(await (await app.request("/keys", { headers: { cookie } })).json()).toEqual(keys);
+
+	// The password only changes together with the wrapped key.
+	const direct = await app.request("/api/auth/change-password", { method: "POST", headers: { cookie } });
+	expect(direct.status).toBe(404);
+	const change = (currentPassword: string) =>
+		app.request("/password", {
+			method: "POST",
+			headers: { cookie, "content-type": "application/json" },
+			body: JSON.stringify({ currentPassword, newPassword: "battery-staple-7", wrappedPrivate: btoa("again") }),
+		});
+	expect((await change("wrong-horse-9")).status).toBe(400);
+	const changed = await change("correct-horse-9");
+	expect(changed.status).toBe(204);
+	const fresh = changed.headers.getSetCookie().join("; ");
+	expect(
+		((await (await app.request("/keys", { headers: { cookie: fresh } })).json()) as typeof keys).wrappedPrivate,
+	).toBe(btoa("again"));
+
+	// A reset leaves neither the password nor the key, and signs everyone out.
+	const again = await resetUser(email);
+	expect((await signIn("battery-staple-7")).status).toBe(401);
+	expect((await app.request("/keys", { headers: { cookie: fresh } })).status).toBe(401);
+	expect((await welcome(again, "staple-battery-5")).status).toBe(204);
+	expect((await signIn("staple-battery-5")).status).toBe(200);
 });

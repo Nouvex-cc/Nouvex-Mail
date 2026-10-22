@@ -51,6 +51,17 @@ export const userPrefs = pgTable("user_prefs", {
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// The user's key pair for mail encrypted at rest (engine/internal/seal). The private half is wrapped with a key that
+// only the user's password gives, on their device; the server never sees either.
+export const userKey = pgTable("user_key", {
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	publicKey: bytea("public_key").notNull(),
+	wrappedPrivate: bytea("wrapped_private").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const mailbox = pgTable(
 	"mailbox",
 	{

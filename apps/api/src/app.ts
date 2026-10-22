@@ -10,7 +10,7 @@ import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
-import { changeLog, mailAccount, mailbox, message, userPrefs } from "./db/schema";
+import { changeLog, mailAccount, mailbox, message, userKey, userPrefs } from "./db/schema";
 import { fetchImage } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
@@ -21,6 +21,8 @@ export const app = new OpenAPIHono<Env>();
 app.use("*", httpInstrumentationMiddleware({ serviceName: "nouvex-api" }));
 app.use("*", cors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:5173", credentials: true }));
 
+// A new password also wraps the user's key again, so it only changes through POST /password.
+app.post("/api/auth/change-password", (c) => c.body(null, 404));
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.use("/image", async (c, next) => {
@@ -36,6 +38,8 @@ const signedIn: MiddlewareHandler<Env> = async (c, next) => {
 	await next();
 };
 app.use("/prefs", signedIn);
+app.use("/keys", signedIn);
+app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
 
 // Someone else's account answers like a missing one.
@@ -220,6 +224,140 @@ app.openapi(
 				target: userPrefs.userId,
 				set: { prefs: sql`${userPrefs.prefs} || excluded.prefs`, updatedAt: new Date() },
 			});
+		return c.body(null, 204);
+	},
+);
+
+const Keys = z.object({ publicKey: z.base64(), wrappedPrivate: z.base64() });
+const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+const bytes = (base64: string) => new Uint8Array(Buffer.from(base64, "base64"));
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/invites/{token}",
+		operationId: "getInvite",
+		request: { params: z.object({ token: z.string() }) },
+		responses: {
+			200: {
+				description: "Who the link from src/user.ts is for",
+				content: { "application/json": { schema: z.object({ email: z.string() }) } },
+			},
+			404: { description: "Used or expired" },
+		},
+	}),
+	async (c) => {
+		const ctx = await auth.$context;
+		const row = await ctx.internalAdapter.findVerificationValue(`invite:${c.req.valid("param").token}`);
+		const user = row && row.expiresAt > new Date() && (await ctx.internalAdapter.findUserById(row.value));
+		if (!user) return c.body(null, 404);
+		return c.json({ email: user.email }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/invites/{token}",
+		operationId: "acceptInvite",
+		request: {
+			params: z.object({ token: z.string() }),
+			body: {
+				content: {
+					"application/json": {
+						// password is the authKey the client derived; the password itself stays on the device.
+						schema: Keys.extend({ password: z.string().min(8).max(128) }),
+					},
+				},
+			},
+		},
+		responses: { 204: { description: "Password and keys set, sign in next" }, 404: { description: "Used or expired" } },
+	}),
+	async (c) => {
+		const { password, publicKey, wrappedPrivate } = c.req.valid("json");
+		const ctx = await auth.$context;
+		const row = await ctx.internalAdapter.consumeVerificationValue(`invite:${c.req.valid("param").token}`);
+		if (!row) return c.body(null, 404);
+		const userId = row.value;
+		const hash = await ctx.password.hash(password);
+		if (await ctx.internalAdapter.findCredentialAccount(userId)) await ctx.internalAdapter.updatePassword(userId, hash);
+		else await ctx.internalAdapter.linkAccount({ userId, providerId: "credential", accountId: userId, password: hash });
+		const keys = { publicKey: bytes(publicKey), wrappedPrivate: bytes(wrappedPrivate), createdAt: new Date() };
+		await db
+			.insert(userKey)
+			.values({ userId, ...keys })
+			.onConflictDoUpdate({ target: userKey.userId, set: keys });
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/keys",
+		operationId: "getKeys",
+		responses: {
+			200: {
+				description: "The user's key pair, the private half wrapped",
+				content: { "application/json": { schema: Keys } },
+			},
+			404: { description: "None yet" },
+		},
+	}),
+	async (c) => {
+		const [row] = await db
+			.select()
+			.from(userKey)
+			.where(eq(userKey.userId, c.get("userId")));
+		if (!row) return c.body(null, 404);
+		return c.json({ publicKey: base64(row.publicKey), wrappedPrivate: base64(row.wrappedPrivate) }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/password",
+		operationId: "changePassword",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						// Both are authKeys; wrappedPrivate is the same private key, wrapped for the new password.
+						schema: z.object({
+							currentPassword: z.string(),
+							newPassword: z.string().min(8).max(128),
+							wrappedPrivate: z.base64(),
+						}),
+					},
+				},
+			},
+		},
+		responses: {
+			204: { description: "Changed, every other session signed out" },
+			400: {
+				description: "The current password is wrong",
+				content: { "application/json": { schema: z.object({ message: z.string() }) } },
+			},
+		},
+	}),
+	async (c) => {
+		const { currentPassword, newPassword, wrappedPrivate } = c.req.valid("json");
+		const res = await auth.api.changePassword({
+			body: { currentPassword, newPassword, revokeOtherSessions: true },
+			headers: c.req.raw.headers,
+			asResponse: true,
+		});
+		if (!res.ok) {
+			const { message } = (await res.json()) as { message?: string };
+			return c.json({ message: message ?? "Couldn't change the password." }, 400);
+		}
+		await db
+			.update(userKey)
+			.set({ wrappedPrivate: bytes(wrappedPrivate) })
+			.where(eq(userKey.userId, c.get("userId")));
+		// This device keeps its session under a new token.
+		for (const cookie of res.headers.getSetCookie()) c.header("set-cookie", cookie, { append: true });
 		return c.body(null, 204);
 	},
 );

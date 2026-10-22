@@ -70,6 +70,7 @@
       "dependencies": {
         "@better-auth/passkey": "^1.7.7",
         "@nouvex/schema": "workspace:*",
+        "@nouvex/sdk": "workspace:*",
         "@nouvex/ui": "workspace:*",
         "@tanstack/react-query": "^5.104.1",
         "@tanstack/react-router": "^1.170.41",

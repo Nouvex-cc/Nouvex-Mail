@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { Keys } from "@nouvex/sdk/crypto";
 import { Dexie, type EntityTable } from "dexie";
 
 // A message as GET /accounts/{id}/changes delivers it.
@@ -75,6 +76,8 @@ export const db = new Dexie("nouvex") as Dexie & {
 	messages: EntityTable<Message, "id">;
 	mailboxes: EntityTable<Mailbox, "id">;
 	cursor: EntityTable<{ accountId: string; version: number }, "accountId">;
+	/** This device's copy of the user's keys, unlocked with the password (keys.ts). */
+	keys: EntityTable<Keys & { id: "me" }, "id">;
 };
 
 db.version(1).stores({
@@ -130,3 +133,5 @@ db.version(8)
 				m.category ??= "primary";
 			}),
 	);
+// The user's keys, once this device is unlocked.
+db.version(9).stores({ keys: "id" });

@@ -3,6 +3,7 @@ import { Button, Field, OTPField } from "@nouvex/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { auth } from "../auth";
+import { open, signIn } from "../keys";
 
 export const Route = createFileRoute("/login")({ component: Login });
 
@@ -10,13 +11,16 @@ function Login() {
 	const navigate = useNavigate();
 	// With two-factor on, the password only gets as far as asking for the code.
 	const [code, setCode] = useState<"app" | "backup">();
+	// Kept from the password until the code is in, to unlock the keys then.
+	const [encKey, setEncKey] = useState<CryptoKey>();
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const codeForm = useRef<HTMLFormElement>(null);
 	useEffect(() => {
 		if (code) codeForm.current?.querySelector("input")?.focus();
 	}, [code]);
-	const done = (res: { error: { message?: string } | null }) => {
+	const done = async (res: { error: { message?: string } | null }) => {
+		if (!res.error && encKey) await open(encKey).catch((e: Error) => setError(e.message));
 		setBusy(false);
 		if (res.error) return setError(res.error.message ?? "That didn't work.");
 		navigate({ to: "/" });
@@ -32,7 +36,7 @@ function Login() {
 						e.preventDefault();
 						const value = String(new FormData(e.currentTarget).get("code"));
 						setBusy(true);
-						done(
+						await done(
 							code === "app"
 								? await auth.twoFactor.verifyTotp({ code: value, trustDevice: true })
 								: await auth.twoFactor.verifyBackupCode({ code: value, trustDevice: true }),
@@ -79,13 +83,20 @@ function Login() {
 					const email = String(f.get("email"));
 					const password = String(f.get("password"));
 					setBusy(true);
-					const res = await auth.signIn.email({ email, password });
-					if (res.data && "twoFactorRedirect" in res.data) {
+					const { res, twoFactor, encKey } = await signIn(email, password).catch((e: Error) => ({
+						res: { error: { message: e.message } },
+						twoFactor: false,
+						encKey: undefined,
+					}));
+					if (twoFactor) {
+						setEncKey(encKey);
 						setBusy(false);
 						setError("");
 						return setCode("app");
 					}
-					done(res);
+					setBusy(false);
+					if (res.error) return setError(res.error.message ?? "That didn't work.");
+					navigate({ to: "/" });
 				}}
 			>
 				<span role="img" aria-label="Nouvex" className="logo mb-4" />
