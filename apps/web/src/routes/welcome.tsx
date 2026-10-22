@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { derive, newKeys, toBase64 } from "@nouvex/sdk/crypto";
+import { derive, newKeys } from "@nouvex/sdk/crypto";
 import { Button, Field } from "@nouvex/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -47,8 +47,8 @@ function Welcome() {
 							headers: { "content-type": "application/json" },
 							body: JSON.stringify({
 								password: authKey,
-								publicKey: toBase64(made.publicKey),
-								wrappedPrivate: toBase64(made.wrappedPrivate),
+								publicKey: made.publicKey.toBase64(),
+								wrappedPrivate: made.wrappedPrivate.toBase64(),
 							}),
 						});
 						if (!res.ok) {

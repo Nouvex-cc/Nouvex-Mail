@@ -38,12 +38,6 @@ enum Crypto {
         try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: key, authenticating: Data(label.utf8))
     }
 
-    /// A new key pair, with the private half wrapped for the server to keep.
-    static func newKeys(_ encKey: SymmetricKey) throws -> (key: Curve25519.KeyAgreement.PrivateKey, wrapped: Data) {
-        let key = Curve25519.KeyAgreement.PrivateKey()
-        return (key, try encrypt(encKey, privateLabel, key.rawRepresentation))
-    }
-
     static func openPrivate(_ encKey: SymmetricKey, _ wrapped: Data) throws -> Curve25519.KeyAgreement.PrivateKey {
         try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: decrypt(encKey, privateLabel, wrapped))
     }

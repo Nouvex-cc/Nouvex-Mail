@@ -135,9 +135,10 @@ db.version(8)
 				m.category ??= "primary";
 			}),
 	);
-// The user's keys, once this device is unlocked.
-db.version(9).stores({ keys: "id" });
-// Mail now comes sealed for the user; what was stored before is fetched again.
-db.version(10).upgrade((tx) =>
-	Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
-);
+// The user's keys, once this device is unlocked. Mail comes sealed for the user now; what was stored before is fetched
+// again.
+db.version(9)
+	.stores({ keys: "id" })
+	.upgrade((tx) =>
+		Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
+	);

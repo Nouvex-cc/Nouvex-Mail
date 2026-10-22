@@ -68,9 +68,7 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 		return 0, err
 	}
 	pub, err := db.New(pool).GetUserKey(ctx, accountID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		pub = nil
-	} else if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
 	s := &syncer{ctx: ctx, pool: pool, store: store, progress: progress, acc: acc, pub: pub}

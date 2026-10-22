@@ -229,8 +229,6 @@ app.openapi(
 );
 
 const Keys = z.object({ publicKey: z.base64(), wrappedPrivate: z.base64() });
-const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
-const bytes = (base64: string) => new Uint8Array(Buffer.from(base64, "base64"));
 
 app.openapi(
 	createRoute({
@@ -282,7 +280,11 @@ app.openapi(
 		const hash = await ctx.password.hash(password);
 		if (await ctx.internalAdapter.findCredentialAccount(userId)) await ctx.internalAdapter.updatePassword(userId, hash);
 		else await ctx.internalAdapter.linkAccount({ userId, providerId: "credential", accountId: userId, password: hash });
-		const keys = { publicKey: bytes(publicKey), wrappedPrivate: bytes(wrappedPrivate), createdAt: new Date() };
+		const keys = {
+			publicKey: Uint8Array.fromBase64(publicKey),
+			wrappedPrivate: Uint8Array.fromBase64(wrappedPrivate),
+			createdAt: new Date(),
+		};
 		await db
 			.insert(userKey)
 			.values({ userId, ...keys })
@@ -313,7 +315,7 @@ app.openapi(
 			.from(userKey)
 			.where(eq(userKey.userId, c.get("userId")));
 		if (!row) return c.body(null, 404);
-		return c.json({ publicKey: base64(row.publicKey), wrappedPrivate: base64(row.wrappedPrivate) }, 200);
+		return c.json({ publicKey: row.publicKey.toBase64(), wrappedPrivate: row.wrappedPrivate.toBase64() }, 200);
 	},
 );
 
@@ -357,7 +359,7 @@ app.openapi(
 		}
 		await db
 			.update(userKey)
-			.set({ wrappedPrivate: bytes(wrappedPrivate) })
+			.set({ wrappedPrivate: Uint8Array.fromBase64(wrappedPrivate) })
 			.where(eq(userKey.userId, c.get("userId")));
 		// This device keeps its session under a new token.
 		for (const cookie of res.headers.getSetCookie()) c.header("set-cookie", cookie, { append: true });
@@ -529,8 +531,8 @@ app.openapi(
 						({ accountId: _, uid: __, refs: ___, messageId: ____, sentAt, key, sealed, ...m }) => ({
 							...m,
 							sentAt: sentAt.toISOString(),
-							key: base64(key),
-							sealed: base64(sealed),
+							key: key.toBase64(),
+							sealed: sealed.toBase64(),
 						}),
 					),
 					deleted: msgs.deleted,
@@ -603,7 +605,7 @@ app.openapi(
 			.from(message)
 			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
 		if (!found) return c.body(null, 404);
-		return c.json({ sealed: base64(new Uint8Array(await s3.file(`body/${found.id}.html`).arrayBuffer())) }, 200);
+		return c.json({ sealed: (await s3.file(`body/${found.id}.html`).bytes()).toBase64() }, 200);
 	},
 );
 

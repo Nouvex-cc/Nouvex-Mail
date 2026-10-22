@@ -94,9 +94,7 @@ function Login() {
 						setError("");
 						return setCode("app");
 					}
-					setBusy(false);
-					if (res.error) return setError(res.error.message ?? "That didn't work.");
-					navigate({ to: "/" });
+					return done(res);
 				}}
 			>
 				<span role="img" aria-label="Nouvex" className="logo mb-4" />

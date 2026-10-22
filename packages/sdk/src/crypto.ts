@@ -13,15 +13,7 @@ const empty = new Uint8Array();
 export const privateLabel = "nouvex private key";
 const info = text.encode("nouvex message key");
 
-export function fromBase64(s: string) {
-	const bin = atob(s.replaceAll("-", "+").replaceAll("_", "/"));
-	return Uint8Array.from(bin, (c) => c.charCodeAt(0));
-}
-
-export function toBase64(bytes: Bytes, url = false) {
-	const s = btoa(String.fromCharCode(...bytes));
-	return url ? s.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") : s;
-}
+const url = { alphabet: "base64url", omitPadding: true } as const;
 
 const cat = (...parts: (Uint8Array | number[])[]) => {
 	const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
@@ -45,7 +37,7 @@ export async function derive(password: string, email: string) {
 		new Uint8Array(
 			await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: empty, info: text.encode(label) }, hkdf, 256),
 		);
-	return { authKey: toBase64(await part("nouvex auth"), true), encKey: await aes(await part("nouvex enc")) };
+	return { authKey: (await part("nouvex auth")).toBase64(url), encKey: await aes(await part("nouvex enc")) };
 }
 
 /** AES-256-GCM with the nonce in front; the label is the associated data, as in the engine. */
@@ -66,7 +58,7 @@ export type Keys = { publicKey: Bytes; privateKey: CryptoKey };
 export async function newKeys(encKey: CryptoKey) {
 	const pair = (await subtle.generateKey({ name: "X25519" }, true, ["deriveBits"])) as CryptoKeyPair;
 	const jwk = await subtle.exportKey("jwk", pair.privateKey);
-	const raw = fromBase64(jwk.d ?? "");
+	const raw = Uint8Array.fromBase64(jwk.d ?? "", url);
 	const publicKey = new Uint8Array(await subtle.exportKey("raw", pair.publicKey));
 	return { publicKey, wrappedPrivate: await encrypt(encKey, privateLabel, raw), keys: await unlock(raw, publicKey) };
 }
@@ -77,7 +69,7 @@ export const wrapPrivate = (encKey: CryptoKey, raw: Bytes) => encrypt(encKey, pr
 
 /** The private key as a CryptoKey that can't be read back out, safe to keep in IndexedDB. */
 export async function unlock(raw: Bytes, publicKey: Bytes): Promise<Keys> {
-	const jwk = { kty: "OKP", crv: "X25519", d: toBase64(raw, true), x: toBase64(publicKey, true) };
+	const jwk = { kty: "OKP", crv: "X25519", d: raw.toBase64(url), x: publicKey.toBase64(url) };
 	return { publicKey, privateKey: await subtle.importKey("jwk", jwk, { name: "X25519" }, false, ["deriveBits"]) };
 }
 

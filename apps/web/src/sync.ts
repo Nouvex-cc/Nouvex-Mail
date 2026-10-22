@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { MailboxSynced, MailboxSyncing, MessageSent } from "@nouvex/schema";
-import { decrypt, fromBase64 } from "@nouvex/sdk/crypto";
+import { decrypt } from "@nouvex/sdk/crypto";
 import { db, local, type Mailbox, type Message } from "./db";
 import { messageKey } from "./keys";
 
@@ -19,7 +19,7 @@ type Changes = {
 
 // The server keeps what only this user can read sealed; opened here, it's stored on this device like any message.
 async function open({ sealed, ...m }: Sealed) {
-	const meta = await decrypt(await messageKey(m), "meta", fromBase64(sealed));
+	const meta = await decrypt(await messageKey(m), "meta", Uint8Array.fromBase64(sealed));
 	return { ...m, ...(JSON.parse(new TextDecoder().decode(meta)) as Meta) };
 }
 

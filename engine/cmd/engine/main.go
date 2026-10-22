@@ -147,7 +147,7 @@ func run() error {
 	}
 	go checkArchived(ctx, db.New(pool), js, bucket)
 
-	if err := bucket.Sweep(ctx, func(ids []string) ([]string, error) { return db.New(pool).KnownMessages(ctx, ids) }); err != nil {
+	if err := bucket.Sweep(ctx, db.New(pool)); err != nil {
 		slog.Error("sweep", "err", err)
 	}
 
@@ -317,7 +317,7 @@ func checkArchived(ctx context.Context, q *db.Queries, js jetstream.JetStream, b
 			return
 		case <-tick.C:
 		}
-		if err := bucket.SweepUploads(ctx, 24*time.Hour); err != nil {
+		if err := bucket.SweepUploads(ctx); err != nil {
 			slog.Error("sweep uploads", "err", err)
 		}
 		ids, err := q.ListArchivedAccountIDs(ctx)

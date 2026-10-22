@@ -13,6 +13,8 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 )
 
 // Bucket is where message bodies, attachments and uploads live, e.g. S3.
@@ -63,9 +65,9 @@ func (b *Bucket) Remove(ctx context.Context, key string) error {
 	return b.c.RemoveObject(ctx, b.name, key, minio.RemoveObjectOptions{})
 }
 
-// Drop removes a message's body and attachments, and the whole message older versions kept as raw/.
+// Drop removes a message's body and attachments.
 func (b *Bucket) Drop(ctx context.Context, id string) error {
-	keys := []string{"body/" + id + ".html", "raw/" + id + ".eml"}
+	keys := []string{"body/" + id + ".html"}
 	for o := range b.c.ListObjects(ctx, b.name, minio.ListObjectsOptions{Prefix: "att/" + id + "/", Recursive: true}) {
 		if o.Err != nil {
 			return o.Err
@@ -75,10 +77,10 @@ func (b *Bucket) Drop(ctx context.Context, id string) error {
 	return b.remove(ctx, keys)
 }
 
-// Sweep removes the parts of messages that aren't stored anymore: everything from before mail was sealed, and what
-// a crash between storing parts and the row left behind. Only safe while nothing syncs, so the engine runs it before
-// taking commands. known says which of the ids still have a row.
-func (b *Bucket) Sweep(ctx context.Context, known func(ids []string) ([]string, error)) error {
+// Sweep removes the parts of messages that aren't stored anymore: everything from before mail was sealed (raw/ too),
+// and what a crash between storing parts and the row left behind. Only safe while nothing syncs, so the engine runs
+// it before taking commands.
+func (b *Bucket) Sweep(ctx context.Context, q *db.Queries) error {
 	byID := map[string][]string{}
 	for _, prefix := range []string{"raw/", "body/", "att/"} {
 		for o := range b.c.ListObjects(ctx, b.name, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
@@ -95,7 +97,7 @@ func (b *Bucket) Sweep(ctx context.Context, known func(ids []string) ([]string, 
 	for id := range byID {
 		ids = append(ids, id)
 	}
-	kept, err := known(ids)
+	kept, err := q.KnownMessages(ctx, ids)
 	if err != nil {
 		return err
 	}
@@ -109,14 +111,14 @@ func (b *Bucket) Sweep(ctx context.Context, known func(ids []string) ([]string, 
 	return b.remove(ctx, keys)
 }
 
-// SweepUploads removes attachments uploaded for messages that were never sent.
-func (b *Bucket) SweepUploads(ctx context.Context, olderThan time.Duration) error {
+// SweepUploads removes attachments uploaded a day ago or earlier for messages that were never sent.
+func (b *Bucket) SweepUploads(ctx context.Context) error {
 	var keys []string
 	for o := range b.c.ListObjects(ctx, b.name, minio.ListObjectsOptions{Prefix: "upload/", Recursive: true}) {
 		if o.Err != nil {
 			return o.Err
 		}
-		if time.Since(o.LastModified) > olderThan {
+		if time.Since(o.LastModified) > 24*time.Hour {
 			keys = append(keys, o.Key)
 		}
 	}

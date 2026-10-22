@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { decrypt, fromBase64 } from "@nouvex/sdk/crypto";
+import { decrypt } from "@nouvex/sdk/crypto";
 import {
 	AttachmentList,
 	AttachmentTile,
@@ -142,7 +142,7 @@ export async function body(m: Message) {
 	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
 	if (!res.ok) throw new Error(`body: ${res.status}`);
 	const { sealed } = (await res.json()) as { sealed: string };
-	return new TextDecoder().decode(await decrypt(await messageKey(m), "body", fromBase64(sealed)));
+	return new TextDecoder().decode(await decrypt(await messageKey(m), "body", Uint8Array.fromBase64(sealed)));
 }
 
 // Opened here and saved as a download, never shown on our origin.
