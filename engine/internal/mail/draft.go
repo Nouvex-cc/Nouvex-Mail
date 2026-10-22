@@ -22,7 +22,7 @@ func draftID(draft, email string) string {
 }
 
 // SaveDraft stores a draft in the Drafts folder in place of its previous version, or only deletes it when discarded.
-func SaveDraft(ctx context.Context, q *db.Queries, master []byte, cmd msg.DraftSave) error {
+func SaveDraft(ctx context.Context, q *db.Queries, master []byte, cmd msg.DraftSave) (err error) {
 	acc, err := q.GetAccount(ctx, cmd.AccountId)
 	if err != nil {
 		return err
@@ -31,11 +31,11 @@ func SaveDraft(ctx context.Context, q *db.Queries, master []byte, cmd msg.DraftS
 	if err != nil {
 		return err
 	}
-	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, nil)
+	c, err := connect(acc, pass, true)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = c.Logout().Wait() }()
+	defer func() { release(acc, c, err) }()
 	drafts, err := specialFolder(c, "drafts", "Drafts")
 	if err != nil {
 		return err

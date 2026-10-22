@@ -62,6 +62,10 @@ export const mailbox = pgTable(
 		// inbox, sent, drafts, trash, junk, archive, or empty for the user's own folders.
 		role: text("role").notNull().default(""),
 		uidValidity: bigint("uid_validity", { mode: "number" }).notNull(),
+		// The folder as of the last sync. On servers with CONDSTORE, a folder where none of them moved is skipped.
+		uidNext: bigint("uid_next", { mode: "number" }).notNull().default(0),
+		messageCount: bigint("message_count", { mode: "number" }).notNull().default(0),
+		highestModSeq: bigint("highest_mod_seq", { mode: "number" }).notNull().default(0),
 	},
 	(t) => [unique().on(t.accountId, t.name)],
 );
