@@ -193,3 +193,69 @@ test.skipIf(!process.env.DATABASE_URL)("archiving an account", async () => {
 	expect((await patch(true)).status).toBe(204);
 	expect(await archived()).toBeString();
 });
+
+test("sockets need a session", async () => {
+	expect((await app.request("/ws")).status).toBe(401);
+});
+
+// Needs the database and NATS (docker compose up -d).
+test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
+	"a socket only hears about its own accounts",
+	async () => {
+		const { auth } = await import("./auth");
+		const { db } = await import("./db");
+		const { mailAccount, user } = await import("./db/schema");
+		const { nats } = await import("./nats");
+		const { websocket } = await import("hono/bun");
+		const { inArray } = await import("drizzle-orm");
+
+		const signUp = async (name: string) => {
+			const res = await auth.api.signUpEmail({
+				body: { name, email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
+				asResponse: true,
+			});
+			const { user: me } = (await res.json()) as { user: { id: string } };
+			return { id: me.id, cookie: res.headers.getSetCookie().join("; ") };
+		};
+		const lena = await signUp("Lena");
+		const tom = await signUp("Tom");
+		const account = crypto.randomUUID();
+		const server = Bun.serve({ port: 0, fetch: app.fetch, websocket });
+		try {
+			await db.insert(mailAccount).values({
+				id: account,
+				userId: lena.id,
+				email: "lena@x",
+				imapHost: "x",
+				imapPort: 993,
+				smtpHost: "x",
+				smtpPort: 465,
+				username: "x",
+				secret: new Uint8Array(1),
+			});
+			const listen = async (cookie: string) => {
+				const heard: string[] = [];
+				// @ts-expect-error Bun's WebSocket takes headers, the DOM type doesn't know them.
+				const ws = new WebSocket(`ws://localhost:${server.port}/ws`, { headers: { cookie } });
+				ws.onmessage = (e) => heard.push(e.data as string);
+				await new Promise((ready) => (ws.onopen = ready));
+				return { ws, heard };
+			};
+			const forLena = await listen(lena.cookie);
+			const forTom = await listen(tom.cookie);
+			// The server subscribes once the socket is open; give it a moment.
+			await Bun.sleep(200);
+			const { nc } = await nats();
+			nc.publish("evt.mailbox.syncing", JSON.stringify({ accountId: account }));
+			await Bun.sleep(300);
+			expect(forLena.heard).toHaveLength(1);
+			expect(forTom.heard).toEqual([]);
+			forLena.ws.close();
+			forTom.ws.close();
+		} finally {
+			server.stop(true);
+			await db.delete(mailAccount).where(inArray(mailAccount.id, [account]));
+			await db.delete(user).where(inArray(user.id, [lena.id, tom.id]));
+		}
+	},
+);

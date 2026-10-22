@@ -411,16 +411,38 @@ app.openapi(
 	},
 );
 
-// Every socket gets every event for now. Needs filtering per user once sessions are checked here.
+// A socket only hears about the signed-in user's own accounts.
+app.use("/ws", signedIn);
 app.get(
 	"/ws",
-	upgradeWebSocket(() => {
+	upgradeWebSocket((c) => {
+		const userId = c.get("userId");
+		// Whose an account is doesn't change, so each answer holds for the socket's life.
+		const mine = new Map<string, Promise<boolean>>();
+		const owns = (accountId: string) => {
+			let known = mine.get(accountId);
+			if (!known) {
+				known = db
+					.select({ id: mailAccount.id })
+					.from(mailAccount)
+					.where(and(eq(mailAccount.id, accountId), eq(mailAccount.userId, userId)))
+					.then((rows) => rows.length > 0);
+				mine.set(accountId, known);
+			}
+			return known;
+		};
 		let sub: Subscription | undefined;
 		return {
 			async onOpen(_, ws) {
 				const { nc } = await nats();
 				sub = nc.subscribe("evt.>", {
-					callback: (_, m) => ws.send(JSON.stringify({ subject: m.subject, data: m.json() })),
+					callback: (_, m) => {
+						const data = m.json<{ accountId?: string }>();
+						if (!data.accountId) return;
+						owns(data.accountId).then((ok) => {
+							if (ok) ws.send(JSON.stringify({ subject: m.subject, data }));
+						});
+					},
 				});
 			},
 			onClose: () => sub?.unsubscribe(),
