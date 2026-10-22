@@ -19,6 +19,10 @@ struct MailList: View {
     @State private var narrow = false
     @FocusState private var focused: Bool
     @State private var selection = Set<String>()
+    /// Filters picked in the search field, like the web's chips.
+    @State private var tokens: [SearchToken] = []
+    /// People whose mail matches what's typed, offered as "From …".
+    @State private var people: [SearchToken] = []
     /// Where a shift-click range starts.
     @State private var anchor: String?
     /// Conversations a new mail just came into; they light up for a moment.
@@ -33,7 +37,7 @@ struct MailList: View {
             rows
                 .environment(\.compact, compact || narrow)
                 .onGeometryChange(for: Bool.self) { $0.size.width < 600 } action: { narrow = $0 }
-                .navigationTitle(query.isEmpty ? mail.folder.name : "Search")
+                .navigationTitle(query.isEmpty && tokens.isEmpty ? mail.folder.name : "Search")
                 .overlay {
                     if conversations.isEmpty {
                         Text(query.isEmpty ? "Nothing here" : "No mail matches").font(.md).foregroundStyle(.muted)
@@ -52,9 +56,15 @@ struct MailList: View {
         }
         .animation(.quick, value: selection.isEmpty)
         #endif
-        .searchable(text: $query, prompt: "Search mail")
+        .searchable(text: $query, tokens: $tokens, prompt: "Search mail") { Label($0.title, systemImage: $0.icon) }
+        .searchSuggestions {
+            ForEach(SearchToken.suggestions(for: query, people: people, archived: mail.accounts.contains(where: \.archived))) {
+                Label($0.title, systemImage: $0.icon).searchCompletion($0)
+            }
+        }
+        .task(id: query) { await suggestPeople() }
         .searchFocused(searching)
-        .task(id: [AnyHashable(mail.folder), AnyHashable(mail.account), AnyHashable(query)]) { await observe() }
+        .task(id: [AnyHashable(mail.folder), AnyHashable(mail.account), AnyHashable(query), AnyHashable(tokens)]) { await observe() }
         #if os(iOS)
         .toolbar { toolbar }
         .sheet(isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } })) {
@@ -301,15 +311,27 @@ struct MailList: View {
         Button("Delete", role: .destructive) { act(c) { mail.update(c.messages, trash: true) } }
     }
 
+    // Up to four people whose mail matches what's typed.
+    private func suggestPeople() async {
+        let typed = query.trimmingCharacters(in: .whitespaces)
+        guard typed.count > 1, (try? await Task.sleep(for: .milliseconds(100))) != nil else { return people = [] }
+        people = (try? await Store.db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT fromName, fromAddr FROM message WHERE fromAddr LIKE ?1 OR fromName LIKE ?1
+                GROUP BY lower(fromAddr) ORDER BY MAX(sentAt) DESC LIMIT 4
+                """, arguments: ["%\(typed)%"]).map { SearchToken.from($0["fromAddr"], $0["fromName"]) }
+        }) ?? []
+    }
+
     private func observe() async {
         let folder = mail.folder
         let categories = mail.categories
         let account = mail.account
-        let query = query.trimmingCharacters(in: .whitespaces)
+        let query = (tokens.map(\.query) + [query.trimmingCharacters(in: .whitespaces)]).filter { !$0.isEmpty }.joined(separator: " ")
         // Waits for typing to pause before searching.
         if !query.isEmpty, (try? await Task.sleep(for: .milliseconds(150))) == nil { return }
         let fetch: @Sendable (GRDB.Database) throws -> [Conversation] = { db in
-            query.isEmpty ? try folder.conversations(db, categories: categories, account: account) : try Conversation.search(db, query)
+            query.isEmpty ? try folder.conversations(db, categories: categories, account: account) : try Conversation.search(db, query, account: account)
         }
         var first = true
         do {
@@ -483,5 +505,79 @@ private struct SyncLine: View {
         .frame(height: 2)
         .clipped()
         .accessibilityLabel("Syncing")
+    }
+}
+
+/// A filter in the search field, the way the web turns words into chips.
+enum SearchToken: Identifiable, Hashable {
+    case unread, starred, attachment, archived
+    case from(String, String)
+    case since(Date, String)
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .unread: "Unread"
+        case .starred: "Starred"
+        case .attachment: "With attachments"
+        case .archived: "In archived accounts"
+        case .from(let address, let name): "From \(name.isEmpty ? address : name)"
+        case .since(_, let label): "Since \(label)"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .unread: "envelope.badge"
+        case .starred: "star"
+        case .attachment: "paperclip"
+        case .archived: "archivebox"
+        case .from: "person"
+        case .since: "calendar"
+        }
+    }
+
+    /// What Conversation.search reads.
+    var query: String {
+        switch self {
+        case .unread: "is:unread"
+        case .starred: "is:starred"
+        case .attachment: "has:attachment"
+        case .archived: "in:archived"
+        case .from(let address, _): "from:\(address)"
+        case .since(let date, _): "after:\(date.formatted(.iso8601.year().month().day()))"
+        }
+    }
+
+    /// The filters that fit what's typed (all of them while it's empty), dates it reads as one, and matching people.
+    static func suggestions(for text: String, people: [SearchToken], archived: Bool) -> [SearchToken] {
+        let typed = text.trimmingCharacters(in: .whitespaces).lowercased()
+        let flags = [SearchToken.unread, .starred, .attachment] + (archived ? [.archived] : [])
+        guard !typed.isEmpty else { return flags }
+        let words = typed.split(separator: " ").map(String.init)
+        let matching = flags.filter { f in words.contains { f.title.lowercased().contains($0) } }
+        return matching + (day(typed).map { [$0] } ?? []) + people
+    }
+
+    // A day in the past from a word: today, yesterday, a weekday (the last one), or a month (its first day).
+    private static func day(_ word: String) -> SearchToken? {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: .now)
+        let word = word.replacingOccurrences(of: "since ", with: "").replacingOccurrences(of: "after ", with: "")
+        if word == "today" { return .since(today, "today") }
+        if word == "yesterday" { return .since(cal.date(byAdding: .day, value: -1, to: today)!, "yesterday") }
+        let weekdays = cal.weekdaySymbols.map { $0.lowercased() }
+        if let i = weekdays.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
+            let back = (cal.component(.weekday, from: today) - 1 - i + 7) % 7
+            return .since(cal.date(byAdding: .day, value: -(back == 0 ? 7 : back), to: today)!, cal.weekdaySymbols[i])
+        }
+        let months = cal.monthSymbols.map { $0.lowercased() }
+        if let i = months.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
+            var year = cal.component(.year, from: today)
+            if i + 1 > cal.component(.month, from: today) { year -= 1 }
+            return .since(cal.date(from: DateComponents(year: year, month: i + 1, day: 1))!, cal.monthSymbols[i])
+        }
+        return nil
     }
 }

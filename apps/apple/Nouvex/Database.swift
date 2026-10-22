@@ -165,11 +165,18 @@ extension Conversation {
         return order.map { Conversation(messages: threads[$0]!) }
     }
 
-    /// Searches every folder but Trash and Junk, like the web: words in the subject, preview or sender, plus from:,
-    /// to:, is:unread, is:starred, has:attachment, after: and before: (YYYY-MM-DD).
-    static func search(_ db: GRDB.Database, _ text: String) throws -> [Conversation] {
+    /// Searches every folder but Trash and Junk of the account in view, like the web: words in the subject, preview or
+    /// sender, plus from:, to:, is:unread, is:starred, has:attachment, after: and before: (YYYY-MM-DD). Archived
+    /// accounts only with in:archived.
+    static func search(_ db: GRDB.Database, _ text: String, account: String?) throws -> [Conversation] {
         var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))"]
         var args: [DatabaseValueConvertible] = []
+        if let account {
+            clauses.append("accountId = ?")
+            args.append(account)
+        } else if !text.split(separator: " ").contains("in:archived") {
+            clauses.append(Folder.active)
+        }
         for token in text.split(separator: " ") {
             let (key, value) = token.split(separator: ":", maxSplits: 1).count == 2
                 ? (token.prefix { $0 != ":" }.lowercased(), String(token.drop { $0 != ":" }.dropFirst()))
@@ -186,6 +193,7 @@ extension Conversation {
             case ("is", "unread"): clauses.append("seen = 0")
             case ("is", "starred"): clauses.append("starred = 1")
             case ("has", "attachment"): clauses.append("attachments > 0")
+            case ("in", "archived"): break
             case ("after", _) where date != nil:
                 clauses.append("sentAt >= ?")
                 args.append(date!)
