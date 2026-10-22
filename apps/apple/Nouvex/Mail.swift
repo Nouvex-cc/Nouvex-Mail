@@ -40,6 +40,8 @@ struct Toast: Identifiable, Equatable {
     /// The account the sidebar shows, all of them when nil.
     var account: String?
     var thread: String?
+    /// The conversations in the list, in order, for moving on to the next one after archiving.
+    var order: [String] = []
     /// A new message, docked in the window's bottom right.
     var compose: Draft?
     /// A reply being written in the open conversation, in the reply bar's place.

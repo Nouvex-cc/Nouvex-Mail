@@ -561,7 +561,8 @@ app.openapi(
 			params: z.object({ accountId: z.string(), messageId: z.string(), index: whole }),
 		},
 		responses: {
-			200: { description: "The file, as a download", content: { "application/octet-stream": { schema: z.any() } } },
+			// Sent with its own type, whatever that is.
+			200: { description: "The file, as a download", content: { "*/*": { schema: z.any() } } },
 			404: { description: "No such attachment" },
 		},
 	}),

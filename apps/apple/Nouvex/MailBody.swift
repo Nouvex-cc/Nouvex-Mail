@@ -2,7 +2,8 @@
 import SwiftUI
 import WebKit
 
-/// A message's body at its full height, so a conversation scrolls as one page.
+/// A message's body at its full height, so a conversation scrolls as one page. Remote pictures wait for a click when
+/// the reader asked for that, quoted history folds behind "•••", and a mail turned dark can be seen as sent.
 struct MailBody: View {
     let message: Message
     @Environment(Mail.self) private var mail
@@ -11,17 +12,36 @@ struct MailBody: View {
     @State private var rules: WKContentRuleList?
     @State private var failed = false
     @State private var height: CGFloat = 40
+    @State private var pictures = false
+    @State private var quote = false
+    @State private var original = false
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 8) {
             if let html, let rules {
-                WebView(html: Frame.page(html, dark: scheme == .dark), rules: rules, height: $height) { url in
+                let page = Frame(html: html)
+                let hidden = !pictures && mail.prefs.remoteImages == "ask" && page.remote
+                if hidden || scheme == .dark {
+                    HStack(spacing: 6) {
+                        if hidden { pill("Remote images hidden · Show") { pictures = true } }
+                        if scheme == .dark { pill(original ? "Original colors · Show dark" : "Dark colors · Show original") { original.toggle() } }
+                    }
+                }
+                WebView(
+                    html: page.render(dark: scheme == .dark && !original, pictures: !hidden, quote: quote),
+                    rules: rules, height: $height
+                ) { url in
                     // A mailto link is written here, not handed to another mail app.
                     let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
                     let subject = parts?.queryItems?.first { $0.name.lowercased() == "subject" }?.value ?? ""
                     mail.compose = Draft(accountId: message.accountId, to: [parts?.path ?? ""].filter { !$0.isEmpty }, subject: subject)
                 }
                 .frame(height: height)
+                .background(original ? Color.white : .clear, in: .rect(cornerRadius: Radius.md))
+                if page.quoted {
+                    pill("•••") { withAnimation(.quick) { quote.toggle() } }
+                        .help(quote ? "Hide quoted text" : "Show quoted text")
+                }
             } else if failed {
                 Text("This message couldn't be loaded. It shows once the server is reachable again.").font(.md).foregroundStyle(.muted)
             } else {
@@ -35,11 +55,29 @@ struct MailBody: View {
             failed = html == nil
         }
     }
+
+    private func pill(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.xs)
+            .foregroundStyle(.muted)
+            .padding(.horizontal, 10).frame(height: 24)
+            .background(.hover, in: .capsule)
+            .buttonStyle(.plain)
+    }
 }
 
 // Mail is the sender's markup: it runs without JavaScript, can't load anything itself, and its remote images come
 // through the server's image proxy, so the sender never sees the reader's address.
-enum Frame {
+struct Frame {
+    let html: String
+
+    /// It brings its own dark design.
+    var ownDark: Bool { html.contains(/(?i)prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/) }
+    /// It loads pictures or backgrounds from the web.
+    var remote: Bool { html.contains(/(?i)(src|background)\s*=\s*["']https?:|url\(\s*['"]?https?:|srcset\s*=/) }
+    /// It carries an earlier mail, quoted.
+    var quoted: Bool { html.contains(/(?i)class\s*=\s*["'][^"']*gmail_quote|<blockquote/) }
+
     @MainActor private static var compiled: WKContentRuleList?
 
     @MainActor static func rules() async -> WKContentRuleList? {
@@ -63,12 +101,18 @@ enum Frame {
         body { color: #181513; filter: \(flip) contrast(0.82); }
         img, picture, video, canvas, svg, [style*="background-image"], [background] { filter: \(flip); }
         """
+    // The same places the web folds: a Gmail quote, a cited blockquote, or one standing on its own.
+    private static let folded = ".gmail_quote, blockquote[type='cite' i], body > blockquote { display: none; }"
+    // Without the proxy the blocker stops them anyway; hidden, they don't leave broken frames behind.
+    private static let unloaded = "img[src^='http' i], img[srcset] { display: none; }"
 
-    static func page(_ html: String, dark: Bool) -> String {
-        let look = !dark ? light : html.contains(/(?i)prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/) ? own : flipped
+    func render(dark: Bool, pictures: Bool, quote: Bool) -> String {
+        let look = !dark ? Self.light : ownDark ? Self.own : Self.flipped
         return #"<meta name="viewport" content="width=device-width, initial-scale=1">"#
-            + "<style>\(look) body { margin: 0; font: 16px/1.6 -apple-system, system-ui; overflow-wrap: anywhere; }</style>"
-            + proxied(html)
+            + "<style>\(look) body { margin: 0; font: 16px/1.6 -apple-system, system-ui; overflow-wrap: anywhere; }"
+            + " blockquote { margin: 0 0 0 4px; padding-left: 12px; border-left: 2px solid #e2ded9; color: #6b655f; }"
+            + (quote ? "" : Self.folded) + (pictures ? "" : Self.unloaded) + "</style>"
+            + (pictures ? Self.proxied(html) : html)
     }
 
     static func proxied(_ html: String) -> String {

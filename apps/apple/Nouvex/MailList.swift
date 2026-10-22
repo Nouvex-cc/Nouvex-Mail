@@ -228,6 +228,7 @@ struct MailList: View {
         do {
             for try await value in ValueObservation.tracking(fetch).values(in: Store.db) {
                 conversations = value
+                if query.isEmpty { mail.order = value.map(\.id) }
                 if cursor == nil || !value.contains(where: { $0.id == cursor }) { cursor = value.first?.id }
             }
         } catch {}
