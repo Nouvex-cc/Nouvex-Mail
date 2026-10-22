@@ -11,7 +11,7 @@ Everything runs on one machine with Docker: Postgres, NATS, SeaweedFS for mail b
 ## First start
 
 ```sh
-git clone https://github.com/Nouvex-cc/Nouvex-Mail.git && cd Nouvex-Mail
+sudo git clone https://github.com/Nouvex-cc/Nouvex-Mail.git /opt/nouvex && cd /opt/nouvex
 cp deploy/.env.example deploy/.env
 ```
 
@@ -21,7 +21,17 @@ Fill in `deploy/.env`. Each secret is one `openssl rand -base64 32`. Keep a copy
 docker compose -f deploy/compose.yml up -d --build
 ```
 
-The database schema is created on the first start. Open `https://<your domain>`, create an account, add a mailbox. In the Apple apps, enter the same address as the server when signing in.
+The database schema is created on the first start.
+
+## Accounts
+
+Nobody can sign up on the server's page; accounts are added here. The password is read from stdin, so it stays out of the shell history:
+
+```sh
+read -rs pw && echo "$pw" | docker compose -f deploy/compose.yml exec -T api bun dist/user.js add you@example.com "Your Name"
+```
+
+`user.js password you@example.com` sets a new password the same way, for someone who forgot theirs. Then open `https://<your domain>` and sign in. In the Apple apps, enter the same address as the server when signing in.
 
 ## Behind another reverse proxy
 
@@ -29,10 +39,14 @@ If a proxy in front already takes ports 80 and 443 and does HTTPS, set `SITE=:80
 
 ## Updates
 
+The server keeps itself on the newest `main` that passed CI:
+
 ```sh
-git pull
-docker compose -f deploy/compose.yml up -d --build
+sudo cp deploy/nouvex-update.service deploy/nouvex-update.timer /etc/systemd/system/
+sudo systemctl enable --now nouvex-update.timer
 ```
+
+Every two minutes `deploy/update.sh` looks at `main`, waits for its checks, rebuilds and restarts. A commit whose CI failed, or whose build fails on the server, is skipped. What it did: `journalctl -u nouvex-update`. Without the timer, run `deploy/update.sh` by hand.
 
 ## Backups
 

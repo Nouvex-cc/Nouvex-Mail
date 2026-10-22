@@ -1,0 +1,8 @@
+[Unit]
+Description=Nouvex: bring the server to the newest main that passed CI
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/nouvex/deploy/update.sh
