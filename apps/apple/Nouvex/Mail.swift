@@ -315,10 +315,20 @@ struct Toast: Identifiable, Equatable {
         } catch {}
     }
 
+    /// Removes an account and everything synced from it; the mail server keeps its mail.
+    func remove(_ account: Account) async {
+        guard case .noContent = try? await API.client.deleteAccount(path: .init(accountId: account.id)) else {
+            return toast("Couldn't remove \(account.email)")
+        }
+        _ = try? await Store.db.write { try Account.deleteOne($0, key: account.id) }
+        try? await loadAccounts()
+    }
+
     /// Changes the local copy right away; a message the server refuses to change is put back as it was.
     func update(
         _ messages: [Message], seen: Bool? = nil, starred: Bool? = nil, archive: Bool = false, trash: Bool = false, snoozeUntil: Date? = nil
     ) {
+        if let snoozeUntil, !messages.isEmpty { toast("Snoozed until \(snoozeUntil.formatted(.dateTime.weekday(.abbreviated).hour().minute()))") }
         Task { await Background.keepAlive {
             try? await Store.db.write { db in
                 for var m in messages {

@@ -499,6 +499,7 @@ struct Composer: View {
             phase = .writing
             return
         }
+        if let sendAt { mail.toast("Scheduled for \(sendAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))") }
         dismiss()
     }
 

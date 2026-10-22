@@ -33,6 +33,7 @@ struct Shell: View {
         )) {
             Composer(placement: .sheet)
         }
+        .overlay(alignment: .bottom) { Toasts().padding(.bottom, 84) }
         .background {
             Button("Search") { searching = true }.keyboardShortcut("f").hidden()
         }
