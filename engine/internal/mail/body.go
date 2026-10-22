@@ -4,6 +4,7 @@ package mail
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"html"
 	"io"
@@ -18,7 +19,18 @@ import (
 var (
 	tags   = regexp.MustCompile(`(?s)<(style|script|head)\b.*?</(style|script|head)>|<[^>]*>`)
 	spaces = regexp.MustCompile(`\s+`)
+	// Some senders put a whole HTML page in the text part, or escape it inside the HTML part.
+	markup = regexp.MustCompile(`(?i)^\s*<(!doctype|html|head|body|div|table|p|span|meta)\b`)
 )
+
+// plain is the readable text of HTML, unescaped once more if that turned out to be HTML too.
+func plain(s string) string {
+	s = html.UnescapeString(tags.ReplaceAllString(s, " "))
+	if markup.MatchString(s) {
+		s = html.UnescapeString(tags.ReplaceAllString(s, " "))
+	}
+	return s
+}
 
 // File is an attachment of a message.
 type File struct {
@@ -28,23 +40,47 @@ type File struct {
 	Data []byte `json:"-"`
 }
 
-// Content returns the HTML to show for a raw message (the text part, escaped, if there is no HTML part), a one-line
-// snippet of its text and its attachments. Sanitizing happens where it is shown.
+// Parsed is what a raw message shows: the HTML to render (the text part, escaped, if there is no HTML part), a
+// one-line snippet of its text, its attachments, what can be done with it right away and its inbox tab.
+type Parsed struct {
+	Body     string
+	Snippet  string
+	Files    []File
+	Actions  []Action
+	Category string
+}
+
+// columns are the attachments and actions as stored in the message table, empty lists rather than null.
+func (p Parsed) columns() (attachments, actions []byte) {
+	files, acts := p.Files, p.Actions
+	if files == nil {
+		files = []File{}
+	}
+	if acts == nil {
+		acts = []Action{}
+	}
+	attachments, _ = json.Marshal(files)
+	actions, _ = json.Marshal(acts)
+	return attachments, actions
+}
+
+// Content reads a raw message. Sanitizing happens where it is shown.
 // ponytail: inline images referenced by cid: become plain attachments; showing them in place needs cid rewriting.
-func Content(raw []byte) (body, snippet string, files []File, err error) {
+func Content(raw []byte) (Parsed, error) {
 	mr, err := mail.CreateReader(bytes.NewReader(raw))
 	if err != nil {
-		return "", "", nil, err
+		return Parsed{}, err
 	}
 	defer func() { _ = mr.Close() }()
-	var htmlPart, textPart string
+	var out Parsed
+	var htmlPart, textPart, calendar string
 	for {
 		p, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", "", nil, err
+			return Parsed{}, err
 		}
 		// Senders get the encoding wrong now and then (a stray "=" in quoted-printable); like other mail apps, keep
 		// what could be read instead of losing the whole message.
@@ -60,6 +96,9 @@ func Content(raw []byte) (body, snippet string, files []File, err error) {
 			ct, _, _ = h.ContentType()
 			name, _ = h.Filename()
 		}
+		if calendar == "" && (ct == "text/calendar" || ct == "application/ics" || strings.HasSuffix(strings.ToLower(name), ".ics")) {
+			calendar = string(b)
+		}
 		switch {
 		case name == "" && ct == "text/html" && htmlPart == "":
 			htmlPart = string(b)
@@ -69,20 +108,30 @@ func Content(raw []byte) (body, snippet string, files []File, err error) {
 			if name == "" {
 				name = "attachment"
 			}
-			files = append(files, File{Name: name, Type: ct, Size: len(b), Data: b})
+			out.Files = append(out.Files, File{Name: name, Type: ct, Size: len(b), Data: b})
 		}
+	}
+	if markup.MatchString(textPart) {
+		if htmlPart == "" {
+			htmlPart = textPart
+		}
+		textPart = ""
 	}
 	text := textPart
 	if text == "" {
-		text = html.UnescapeString(tags.ReplaceAllString(htmlPart, " "))
+		text = plain(htmlPart)
 	}
-	snippet = strings.TrimSpace(spaces.ReplaceAllString(text, " "))
-	if r := []rune(snippet); len(r) > 200 {
-		snippet = string(r[:200])
+	text = strings.TrimSpace(spaces.ReplaceAllString(text, " "))
+	out.Snippet = text
+	if r := []rune(text); len(r) > 200 {
+		out.Snippet = string(r[:200])
 	}
-	body = htmlPart
-	if body == "" {
-		body = `<div style="white-space: pre-wrap">` + html.EscapeString(textPart) + `</div>`
+	out.Body = htmlPart
+	if out.Body == "" {
+		out.Body = `<div style="white-space: pre-wrap">` + html.EscapeString(textPart) + `</div>`
 	}
-	return body, snippet, files, nil
+	subject, _ := mr.Header.Subject()
+	out.Actions = actions(subject, text, calendar)
+	out.Category = category(mr.Header, subject, out.Actions)
+	return out, nil
 }

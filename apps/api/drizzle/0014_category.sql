@@ -1,0 +1,1 @@
+ALTER TABLE "message" ADD COLUMN "category" text DEFAULT 'primary' NOT NULL;

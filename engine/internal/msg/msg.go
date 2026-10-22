@@ -192,6 +192,34 @@ func (j *MailboxSynced) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Event: engine started a sync for an account, or saved a batch and keeps going. A
+// MailboxSynced ends it.
+type MailboxSyncing struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// Set once a batch is saved.
+	Version *int `json:"version,omitempty,omitzero"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MailboxSyncing) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MailboxSyncing: required")
+	}
+	type Plain MailboxSyncing
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MailboxSyncing(plain)
+	return nil
+}
+
 // Command: API asks the engine to send a message from one account.
 type MessageSend struct {
 	// AccountId corresponds to the JSON schema field "accountId".

@@ -19,11 +19,32 @@ export interface Message {
 	flags: string[];
 	size: number;
 	attachments: { name: string; type: string; size: number }[];
+	/** The inbox tab, sorted by the engine. */
+	category: Category;
+	/** A sign-in code or a meeting the engine found in it. */
+	actions: Action[];
+	// 1 when actions isn't empty, so the sidebar finds them through an index.
+	acts?: 0 | 1;
 	// 1 when flags has \Seen. Only here so unread mail can be found through an index; IndexedDB can't index booleans.
 	seen: 0 | 1;
 	// 1 when flags has \Flagged, for the Starred view.
 	starred: 0 | 1;
 }
+
+export type Category = "primary" | "promotions" | "social" | "updates" | "newsletters";
+
+export type Action = {
+	kind: "code" | "meeting";
+	code?: string;
+	title?: string;
+	start?: string;
+	end?: string;
+	url?: string;
+	provider?: string;
+	/** Updates and cancellations of one meeting share it. */
+	event?: string;
+	cancelled?: boolean;
+};
 
 export const seen = (flags: string[]): 0 | 1 => (flags.includes("\\Seen") ? 1 : 0);
 export const starred = (flags: string[]): 0 | 1 => (flags.includes("\\Flagged") ? 1 : 0);
@@ -88,5 +109,24 @@ db.version(6)
 			.toCollection()
 			.modify((m: Message) => {
 				m.starred = starred(m.flags);
+			}),
+	);
+// Messages with a code or a meeting; theirs arrive with the next pull.
+db.version(7).stores({
+	messages: "id, mailboxId, sentAt, threadId, acts, [mailboxId+sentAt], [mailboxId+seen], [starred+sentAt]",
+});
+// Inbox tabs, newest first and with their unread mail. Stored messages start in Primary; those the engine sorts elsewhere arrive with the next
+// pull.
+db.version(8)
+	.stores({
+		messages:
+			"id, mailboxId, sentAt, threadId, acts, [mailboxId+sentAt], [mailboxId+category+sentAt], [mailboxId+category+seen], [mailboxId+seen], [starred+sentAt]",
+	})
+	.upgrade((tx) =>
+		tx
+			.table("messages")
+			.toCollection()
+			.modify((m: Message) => {
+				m.category ??= "primary";
 			}),
 	);

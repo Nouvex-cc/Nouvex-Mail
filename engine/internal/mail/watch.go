@@ -84,8 +84,12 @@ func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 	}
 	// Only now: mail that arrives from here on is reported by IDLE, everything before is caught up by this sync.
 	changed()
-	done := make(chan error, 1)
-	go func() { done <- idle.Wait() }()
+	var idleErr error
+	done := make(chan struct{})
+	go func() {
+		idleErr = idle.Wait()
+		close(done)
+	}()
 	// ponytail: archiving or removing the account ends the connection within 5 minutes, not at once.
 	check := time.NewTicker(5 * time.Minute)
 	defer check.Stop()
@@ -103,8 +107,8 @@ func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 				<-done
 				return err
 			}
-		case err := <-done:
-			return errors.Join(errors.New("idle ended"), err)
+		case <-done:
+			return errors.Join(errors.New("idle ended"), idleErr)
 		case <-ctx.Done():
 			_ = idle.Close()
 			<-done

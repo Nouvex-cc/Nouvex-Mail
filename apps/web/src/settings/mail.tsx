@@ -87,6 +87,16 @@ const reading = prefsPage({ id: "reading", title: "Reading", icon: <BookOpen str
 		],
 	},
 	{
+		key: "categories",
+		label: "Categories",
+		hint: "Promotions, social networks, updates and newsletters get their own place under Inbox",
+		keywords: "categories primary promotions social updates newsletters sort tabs group",
+		options: [
+			[true, "On"],
+			[false, "Off"],
+		],
+	},
+	{
 		key: "archivedReplies",
 		label: "Replies to archived accounts",
 		hint: "Answers to mail you sent from an archived account still show in All inboxes",
@@ -105,6 +115,31 @@ const reading = prefsPage({ id: "reading", title: "Reading", icon: <BookOpen str
 			["next", "Next"],
 			["previous", "Previous"],
 			["list", "Back to list"],
+		],
+	},
+	{
+		key: "meetingLead",
+		label: "Meetings in the sidebar",
+		hint: "How long before they start, with a button to join",
+		keywords: "calendar invite join zoom teams meet",
+		options: [
+			[5, "5 minutes"],
+			[10, "10 minutes"],
+			[15, "15 minutes"],
+			[30, "30 minutes"],
+			[60, "1 hour"],
+		],
+	},
+	{
+		key: "codeLife",
+		label: "Sign-in codes in the sidebar",
+		hint: "How long after they arrive",
+		keywords: "2fa otp verification code copy",
+		options: [
+			[1, "1 minute"],
+			[5, "5 minutes"],
+			[10, "10 minutes"],
+			[15, "15 minutes"],
 		],
 	},
 ]);

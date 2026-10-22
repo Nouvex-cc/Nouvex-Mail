@@ -2,6 +2,16 @@
 import { expect, test } from "bun:test";
 import { app } from "./app";
 
+// Someone signed in, added the way src/user.ts adds people.
+async function signedIn(name: string) {
+	const { auth } = await import("./auth");
+	const { addUser } = await import("./user");
+	const email = `${crypto.randomUUID()}@test.dev`;
+	const me = await addUser(email, name, "correct-horse-9");
+	const res = await auth.api.signInEmail({ body: { email, password: "correct-horse-9" }, asResponse: true });
+	return { id: me.id, email, cookie: res.headers.getSetCookie().join("; ") };
+}
+
 test("health", async () => {
 	const res = await app.request("/health");
 	expect(await res.json()).toEqual({ ok: true });
@@ -14,18 +24,13 @@ test("accounts need a session", async () => {
 
 // Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
 test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", async () => {
-	const { auth } = await import("./auth");
 	const { db } = await import("./db");
 	const { changeLog, mailAccount, mailbox, message, user } = await import("./db/schema");
 	const { eq } = await import("drizzle-orm");
 
-	const email = `${crypto.randomUUID()}@test.dev`;
-	const res = await auth.api.signUpEmail({
-		body: { name: "Lena", email, password: "correct-horse-9" },
-		asResponse: true,
-	});
-	const headers = { cookie: res.headers.getSetCookie().join("; ") };
-	const { user: me } = (await res.json()) as { user: { id: string } };
+	const me = await signedIn("Lena");
+	const { email } = me;
+	const headers = { cookie: me.cookie };
 	const id = crypto.randomUUID();
 	try {
 		await db.insert(mailAccount).values({
@@ -131,12 +136,7 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 });
 
 test.skipIf(!process.env.DATABASE_URL)("prefs merge per key and refuse unknown ones", async () => {
-	const { auth } = await import("./auth");
-	const res = await auth.api.signUpEmail({
-		body: { name: "Lena", email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
-		asResponse: true,
-	});
-	const cookie = res.headers.getSetCookie().join("; ");
+	const { cookie } = await signedIn("Lena");
 	const patch = (body: unknown) =>
 		app.request("/prefs", {
 			method: "PATCH",
@@ -158,15 +158,10 @@ test.skipIf(!process.env.DATABASE_URL)("prefs merge per key and refuse unknown o
 
 // Bringing it back queues a sync over NATS, which CI doesn't run.
 test.skipIf(!process.env.DATABASE_URL)("archiving an account", async () => {
-	const { auth } = await import("./auth");
 	const { db } = await import("./db");
 	const { mailAccount } = await import("./db/schema");
-	const res = await auth.api.signUpEmail({
-		body: { name: "Lena", email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
-		asResponse: true,
-	});
-	const cookie = res.headers.getSetCookie().join("; ");
-	const { user: me } = (await res.json()) as { user: { id: string } };
+	const me = await signedIn("Lena");
+	const { cookie } = me;
 	const id = crypto.randomUUID();
 	await db.insert(mailAccount).values({
 		id,
@@ -192,4 +187,79 @@ test.skipIf(!process.env.DATABASE_URL)("archiving an account", async () => {
 	expect(await archived()).toBeNull();
 	expect((await patch(true)).status).toBe(204);
 	expect(await archived()).toBeString();
+});
+
+test("sockets need a session", async () => {
+	expect((await app.request("/ws")).status).toBe(401);
+});
+
+// Needs the database and NATS (docker compose up -d).
+test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
+	"a socket only hears about its own accounts",
+	async () => {
+		const { db } = await import("./db");
+		const { mailAccount, user } = await import("./db/schema");
+		const { nats } = await import("./nats");
+		const { websocket } = await import("hono/bun");
+		const { inArray } = await import("drizzle-orm");
+
+		const lena = await signedIn("Lena");
+		const tom = await signedIn("Tom");
+		const account = crypto.randomUUID();
+		const server = Bun.serve({ port: 0, fetch: app.fetch, websocket });
+		try {
+			await db.insert(mailAccount).values({
+				id: account,
+				userId: lena.id,
+				email: "lena@x",
+				imapHost: "x",
+				imapPort: 993,
+				smtpHost: "x",
+				smtpPort: 465,
+				username: "x",
+				secret: new Uint8Array(1),
+			});
+			const listen = async (cookie: string) => {
+				const heard: string[] = [];
+				// @ts-expect-error Bun's WebSocket takes headers, the DOM type doesn't know them.
+				const ws = new WebSocket(`ws://localhost:${server.port}/ws`, { headers: { cookie } });
+				ws.onmessage = (e) => heard.push(e.data as string);
+				await new Promise((ready) => (ws.onopen = ready));
+				return { ws, heard };
+			};
+			const forLena = await listen(lena.cookie);
+			const forTom = await listen(tom.cookie);
+			// The server subscribes once the socket is open; give it a moment.
+			await Bun.sleep(200);
+			const { nc } = await nats();
+			nc.publish("evt.mailbox.syncing", JSON.stringify({ accountId: account }));
+			await Bun.sleep(300);
+			expect(forLena.heard).toHaveLength(1);
+			expect(forTom.heard).toEqual([]);
+			forLena.ws.close();
+			forTom.ws.close();
+		} finally {
+			server.stop(true);
+			await db.delete(mailAccount).where(inArray(mailAccount.id, [account]));
+			await db.delete(user).where(inArray(user.id, [lena.id, tom.id]));
+		}
+	},
+);
+
+test.skipIf(!process.env.DATABASE_URL)("nobody signs up on their own, the CLI adds people", async () => {
+	const { auth } = await import("./auth");
+	const { setPassword } = await import("./user");
+	const res = await auth.api.signUpEmail({
+		body: { name: "Mallory", email: `${crypto.randomUUID()}@test.dev`, password: "correct-horse-9" },
+		asResponse: true,
+	});
+	expect(res.status).toBe(400);
+
+	const lena = await signedIn("Lena");
+	expect(lena.cookie).toContain("session_token");
+	await setPassword(lena.email, "battery-staple-7");
+	const signIn = (password: string) =>
+		auth.api.signInEmail({ body: { email: lena.email, password }, asResponse: true });
+	expect((await signIn("correct-horse-9")).status).toBe(401);
+	expect((await signIn("battery-staple-7")).status).toBe(200);
 });

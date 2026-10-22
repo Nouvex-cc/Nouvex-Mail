@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { MailboxSynced, MessageSent } from "@nouvex/schema";
+import type { MailboxSynced, MailboxSyncing, MessageSent } from "@nouvex/schema";
 import { db, local, type Mailbox, type Message } from "./db";
 
 type Changes = {
@@ -8,6 +8,9 @@ type Changes = {
 	mailboxes: { upserted: Omit<Mailbox, "accountId">[]; deleted: string[] };
 	messages: { upserted: Omit<Message, "accountId" | "seen" | "starred">[]; deleted: string[] };
 };
+
+// When each message this device hadn't seen yet came in, so the list can mark it.
+export const arrived = new Map<string, number>();
 
 // Pulls everything after the stored cursor, page by page. Concurrent calls for the same account share one run.
 const running = new Map<string, Promise<void>>();
@@ -21,9 +24,13 @@ export function pull(accountId: string) {
 				if (!res.ok) throw new Error(`changes: ${res.status}`);
 				const { version, more, mailboxes, messages }: Changes = await res.json();
 				await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
+					const known = await db.messages.bulkGet(messages.upserted.map((m) => m.id));
+					for (const [i, m] of messages.upserted.entries()) if (!known[i]) arrived.set(m.id, Date.now());
 					await db.mailboxes.bulkPut(mailboxes.upserted.map((b) => ({ ...b, accountId })));
 					await db.mailboxes.bulkDelete(mailboxes.deleted);
-					await db.messages.bulkPut(messages.upserted.map((m) => ({ ...m, accountId, ...local(m.flags) })));
+					await db.messages.bulkPut(
+						messages.upserted.map((m) => ({ ...m, accountId, ...local(m.flags), acts: m.actions.length ? 1 : 0 })),
+					);
 					await db.messages.bulkDelete(messages.deleted);
 					await db.cursor.put({ accountId, version });
 				});
@@ -36,17 +43,28 @@ export function pull(accountId: string) {
 }
 
 type Event =
+	| { subject: "evt.mailbox.syncing"; data: MailboxSyncing }
 	| { subject: "evt.mailbox.synced"; data: MailboxSynced }
 	| { subject: "evt.message.sent"; data: MessageSent };
 
-// The engine announces saved syncs, failed syncs and sends over the socket; only events for our accounts count.
-export function listen(accountIds: string[], onSent: (e: MessageSent) => void, onSynced: (e: MailboxSynced) => void) {
+// The engine announces running, saved and failed syncs and sends over the socket; only events for our accounts count.
+export function listen(
+	accountIds: string[],
+	onSent: (e: MessageSent) => void,
+	onSynced: (e: MailboxSynced) => void,
+	onSyncing: (accountId: string, running: boolean) => void,
+) {
 	const ws = new WebSocket(`${location.origin.replace(/^http/, "ws")}/ws`);
 	ws.onmessage = (e) => {
 		const ev = JSON.parse(e.data) as Event;
 		if (!accountIds.includes(ev.data.accountId)) return;
+		if (ev.subject === "evt.mailbox.syncing") {
+			if (ev.data.version !== undefined) void pull(ev.data.accountId);
+			onSyncing(ev.data.accountId, true);
+		}
 		if (ev.subject === "evt.mailbox.synced") {
 			if (!ev.data.error) void pull(ev.data.accountId);
+			onSyncing(ev.data.accountId, false);
 			onSynced(ev.data);
 		}
 		if (ev.subject === "evt.message.sent") onSent(ev.data);

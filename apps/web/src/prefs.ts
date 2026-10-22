@@ -10,6 +10,12 @@ export type Prefs = {
 	replyDefault: "reply" | "all";
 	/** Replies to mail sent from an archived account still show in All inboxes. */
 	archivedReplies: boolean;
+	/** Minutes before a meeting starts that it shows in the sidebar. */
+	meetingLead: 5 | 10 | 15 | 30 | 60;
+	/** Minutes a sign-in code stays in the sidebar. */
+	codeLife: 1 | 5 | 10 | 15;
+	/** Promotions, social, updates and newsletters leave the inbox for their own place under it. */
+	categories: boolean;
 };
 
 export const defaults: Prefs = {
@@ -19,6 +25,9 @@ export const defaults: Prefs = {
 	undoSend: 5,
 	replyDefault: "reply",
 	archivedReplies: true,
+	meetingLead: 15,
+	codeLife: 5,
+	categories: true,
 };
 
 // The last answer is kept in the browser, so the first paint already has the user's choices.

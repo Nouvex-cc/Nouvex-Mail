@@ -33,16 +33,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { asleep, useAccounts, wake } from "../accounts";
 import { AddAccount } from "../add-account";
 import { auth, session } from "../auth";
-import { db, type Message, once } from "../db";
+import { type Category, db, type Message, once } from "../db";
+import { Now } from "../now";
 import { usePref } from "../prefs";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
 import { shortcuts } from "../shortcuts";
-import { forget, listen, pull, update } from "../sync";
+import { arrived, forget, listen, pull, update } from "../sync";
 import { storedLook } from "../theme";
 import { type Draft, Write, when } from "../write";
 
@@ -57,6 +58,14 @@ const standard = [
 ] as const;
 
 const page = 100;
+
+// Kinds of mail the inbox can keep apart; under Inbox in the sidebar, each shows like a folder.
+const categories: [Category, string][] = [
+	["promotions", "Promotions"],
+	["social", "Social"],
+	["updates", "Updates"],
+	["newsletters", "Newsletters"],
+];
 
 // Rows are conversations; the key is what selection and opening go by.
 const keyOf = (m: Message) => m.threadId || m.id;
@@ -109,12 +118,20 @@ function Inbox() {
 	// While searching, every folder in view counts.
 	const [query, setQuery] = useState<SearchQuery>({ text: "", filters: [] });
 	const searching = query.text !== "" || query.filters.length > 0;
+	const [bundling] = usePref("categories");
+	// A category is a part of the inbox; with them on, Inbox itself is what's left (Primary).
+	const category = categories.find(([c]) => c === folder)?.[0];
+	const role = category ? "inbox" : folder;
+	const tab: Category | undefined = searching
+		? undefined
+		: (category ?? (folder === "inbox" && bundling ? "primary" : undefined));
 	const [adding, setAdding] = useState(false);
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
 	const queryClient = useQueryClient();
 	const accounts = useAccounts();
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
+	const [syncing, setSyncing] = useState<ReadonlySet<string>>(new Set());
 
 	useEffect(() => {
 		if (!ids) return;
@@ -128,6 +145,14 @@ function Inbox() {
 				),
 			// A sync that failed or worked again changes the account's error.
 			() => void accounts.refetch(),
+			(id, running) =>
+				setSyncing((s) => {
+					if (s.has(id) === running) return s;
+					const next = new Set(s);
+					if (running) next.add(id);
+					else next.delete(id);
+					return next;
+				}),
 		);
 	}, [ids, toast, accounts.refetch]);
 
@@ -142,12 +167,12 @@ function Inbox() {
 	const boxes = current === "all" && !withArchived ? every.filter((b) => !archived.has(b.accountId)) : every;
 	// Starred and search look across every folder in view.
 	const everywhere = searching || folder === "starred";
-	const shown = boxes.filter((b) => everywhere || (b.role ? b.role === folder : b.id === folder)).map((b) => b.id);
+	const shown = boxes.filter((b) => everywhere || (b.role ? b.role === role : b.id === folder)).map((b) => b.id);
 	// Only a page of the newest messages is read and rendered; scrolling to the end asks for the next one. Each folder
 	// is read newest first through its index, so the cost doesn't grow with the mailbox.
 	const [limit, setLimit] = useState(page);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts at the first page again
-	useEffect(() => setLimit(page), [shown.join(), query]);
+	useEffect(() => setLimit(page), [shown.join(), query, tab]);
 	const messages = useLiveQuery(async () => {
 		const inView = new Set(shown);
 		if (searching) {
@@ -169,9 +194,10 @@ function Inbox() {
 		}
 		const newest = await Promise.all(
 			shown.map((id) =>
-				db.messages
-					.where("[mailboxId+sentAt]")
-					.between([id, Dexie.minKey], [id, Dexie.maxKey])
+				(tab
+					? db.messages.where("[mailboxId+category+sentAt]").between([id, tab, Dexie.minKey], [id, tab, Dexie.maxKey])
+					: db.messages.where("[mailboxId+sentAt]").between([id, Dexie.minKey], [id, Dexie.maxKey])
+				)
 					.reverse()
 					.limit(limit)
 					.toArray(),
@@ -181,7 +207,7 @@ function Inbox() {
 			.flat()
 			.sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 			.slice(0, limit);
-	}, [shown.join(), query, limit, folder]);
+	}, [shown.join(), query, limit, folder, tab]);
 	// Except for answers to what was sent from them: those still show in All inboxes.
 	const [archivedReplies] = usePref("archivedReplies");
 	const sleeping = every.filter((b) => archived.has(b.accountId) && current === "all" && !withArchived);
@@ -212,17 +238,44 @@ function Inbox() {
 						.count()) > 0,
 			),
 		);
-		return recent.filter((_, i) => answered[i]);
-	}, [replyBoxes.map((b) => b.id).join(), limit]);
+		return recent.filter((m, i) => answered[i] && (!tab || m.category === tab));
+	}, [replyBoxes.map((b) => b.id).join(), limit, tab]);
 	const listed = replies?.length
 		? [...(messages ?? []), ...replies].sort((a, b) => b.sentAt.localeCompare(a.sentAt)).slice(0, limit)
 		: messages;
 	const inList = [...shown, ...replyBoxes.map((b) => b.id)];
 	const inboxes = boxes.filter((b) => b.role === "inbox").map((b) => b.id);
+	// With categories on, Inbox's dot is about Primary; each category has its own.
 	const unread = useLiveQuery(
 		async () =>
-			(await Promise.all(inboxes.map((id) => db.messages.where("[mailboxId+seen]").equals([id, 0]).count()))).some(
-				Boolean,
+			(
+				await Promise.all(
+					inboxes.map((id) =>
+						bundling
+							? db.messages.where("[mailboxId+category+seen]").equals([id, "primary", 0]).first()
+							: db.messages.where("[mailboxId+seen]").equals([id, 0]).first(),
+					),
+				)
+			).some(Boolean),
+		[inboxes.join(), bundling],
+	);
+	// Whether each category has unread mail, for its dot.
+	const unreadIn = useLiveQuery(
+		async () =>
+			new Set(
+				(
+					await Promise.all(
+						categories.map(async ([c]) =>
+							(
+								await Promise.all(
+									inboxes.map((id) => db.messages.where("[mailboxId+category+seen]").equals([id, c, 0]).first()),
+								)
+							).some(Boolean)
+								? [c]
+								: [],
+						),
+					)
+				).flat(),
 			),
 		[inboxes.join()],
 	);
@@ -345,6 +398,7 @@ function Inbox() {
 				) : undefined
 			}
 			className="h-screen"
+			syncing={[...syncing].some((id) => (current === "all" ? !archived.has(id) : id === current))}
 			logo={<span role="img" aria-label="Nouvex" className="logo" />}
 			sidebar={
 				<Sidebar.Root>
@@ -368,14 +422,27 @@ function Inbox() {
 						{standard
 							.filter((f) => f.role === "inbox" || boxes.some((b) => b.role === f.role))
 							.map(({ role, label, Icon }) => (
-								<Sidebar.Item
-									key={role}
-									label={label}
-									icon={<Icon strokeWidth={1.75} />}
-									unread={role === "inbox" && unread}
-									active={!searching && folder === role}
-									onSelect={() => setFolder(role)}
-								/>
+								<Fragment key={role}>
+									<Sidebar.Item
+										label={label}
+										icon={<Icon strokeWidth={1.75} />}
+										unread={role === "inbox" && unread}
+										active={!searching && folder === role}
+										onSelect={() => setFolder(role)}
+									/>
+									{role === "inbox" &&
+										bundling &&
+										categories.map(([c, name]) => (
+											<Sidebar.Item
+												key={c}
+												inset
+												label={name}
+												unread={unreadIn?.has(c)}
+												active={!searching && folder === c}
+												onSelect={() => setFolder(c)}
+											/>
+										))}
+								</Fragment>
 							))}
 						<Sidebar.Item
 							label="Starred"
@@ -397,6 +464,12 @@ function Inbox() {
 							))}
 						</Sidebar.Section>
 					)}
+					<Now
+						accountIds={(accounts.data ?? [])
+							.filter((a) => (current === "all" ? !a.archivedAt : a.id === current))
+							.map((a) => a.id)}
+						onOpen={(m) => show([m])}
+					/>
 					<Sidebar.Profile name={user.name} email={user.email}>
 						<Menu.Item onClick={() => navigate({ to: "/settings" })}>
 							<Settings strokeWidth={1.75} />
@@ -482,6 +555,7 @@ function Inbox() {
 									attachments={thread.reduce((n, t) => n + t.attachments.length, 0)}
 									date={new Date(m.sentAt)}
 									unread={thread.some((t) => t.seen === 0)}
+									fresh={thread.some((t) => Date.now() - (arrived.get(t.id) ?? 0) < 3000)}
 									starred={isStarred(thread)}
 									onStar={() => toggleStar(thread)}
 									selected={selected.has(key(thread))}
@@ -500,7 +574,7 @@ function Inbox() {
 									}
 									onArchive={folder === "archive" ? undefined : () => moveThread(thread, { archive: true })}
 									onSnooze={
-										folder === "inbox"
+										role === "inbox"
 											? (until) => {
 													moveThread(thread, { snoozeUntil: until.toISOString() });
 													toast.add({

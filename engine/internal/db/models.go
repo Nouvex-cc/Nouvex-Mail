@@ -77,6 +77,8 @@ type Message struct {
 	ThreadID    string
 	ToAddrs     []string
 	CcAddrs     []string
+	Actions     []byte
+	Category    string
 }
 
 type Passkey struct {

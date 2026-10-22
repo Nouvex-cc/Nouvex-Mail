@@ -67,10 +67,12 @@ export type SidebarItemProps = {
 	/** Only where the number matters (drafts, not unread mail). */
 	count?: number;
 	shortcut?: string;
+	/** Part of the item above it (Promotions under Inbox): no icon, the label lines up with the one above. */
+	inset?: boolean;
 	onSelect?: () => void;
 };
 
-function Item({ icon, label, active, unread, count, shortcut, onSelect }: SidebarItemProps) {
+function Item({ icon, label, active, unread, count, shortcut, inset, onSelect }: SidebarItemProps) {
 	const button = (
 		<button
 			type="button"
@@ -78,7 +80,10 @@ function Item({ icon, label, active, unread, count, shortcut, onSelect }: Sideba
 			data-active={active || undefined}
 			aria-current={active ? "page" : undefined}
 			onClick={onSelect}
-			className="relative flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-muted outline-none transition duration-100 select-none focus-visible:outline-2 focus-visible:-outline-offset-2 active:scale-98 data-active:font-medium data-active:text-accent-text [&:not([data-active])]:hover:bg-hover [&:not([data-active])]:hover:text-ink [&_svg]:size-4 [&_svg]:shrink-0"
+			className={cn(
+				"relative flex h-8 w-full items-center gap-2.5 rounded-md px-2 text-left text-muted outline-none transition duration-100 select-none focus-visible:outline-2 focus-visible:-outline-offset-2 active:scale-98 data-active:font-medium data-active:text-accent-text [&:not([data-active])]:hover:bg-hover [&:not([data-active])]:hover:text-ink [&_svg]:size-4 [&_svg]:shrink-0",
+				inset && "pl-8.5",
+			)}
 		>
 			{icon}
 			<span className="min-w-0 flex-1 truncate">{label}</span>
@@ -110,7 +115,7 @@ function Label({ color, ...props }: Omit<SidebarItemProps, "icon"> & { color: La
 function Profile({ name, email, children }: { name: string; email: string; children: ReactNode }) {
 	return (
 		<Menu.Root>
-			<Menu.Trigger className="mt-auto flex h-12 w-full shrink-0 items-center justify-between gap-2 rounded-md px-2 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30 data-popup-open:bg-hover">
+			<Menu.Trigger className="mt-auto flex peer-data-now:mt-0 h-12 w-full shrink-0 items-center justify-between gap-2 rounded-md px-2 text-left outline-none transition-colors duration-100 hover:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30 data-popup-open:bg-hover">
 				<span className="flex min-w-0 items-center gap-2.5">
 					<Avatar name={name} />
 					<span className="grid min-w-0">
@@ -127,4 +132,40 @@ function Profile({ name, email, children }: { name: string; email: string; child
 	);
 }
 
-export const Sidebar = { Root, Section, Item, Label, Profile };
+/** Cards for what needs doing now (a sign-in code, a meeting about to start), at the bottom above Profile. */
+function Now({ children }: { children: ReactNode }) {
+	return (
+		<div data-now className="peer mt-auto grid gap-1.5">
+			{children}
+		</div>
+	);
+}
+
+/** One thing to act on: what it is, from whom or when, and a button that does it. Clicking the rest opens it. */
+function Card({
+	title,
+	detail,
+	action,
+	onOpen,
+}: {
+	title: string;
+	detail: string;
+	action: ReactNode;
+	onOpen?: () => void;
+}) {
+	return (
+		<div className="flex items-center gap-2 rounded-lg border border-line bg-paper py-2 pr-2 pl-3">
+			<button
+				type="button"
+				onClick={onOpen}
+				className="grid min-w-0 flex-1 rounded-sm text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2"
+			>
+				<span className="truncate text-xs text-muted">{detail}</span>
+				<span className="truncate text-sm font-medium tabular-nums">{title}</span>
+			</button>
+			{action}
+		</div>
+	);
+}
+
+export const Sidebar = { Root, Section, Item, Label, Now, Card, Profile };

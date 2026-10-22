@@ -8,7 +8,6 @@ export const Route = createFileRoute("/login")({ component: Login });
 
 function Login() {
 	const navigate = useNavigate();
-	const [signUp, setSignUp] = useState(false);
 	// With two-factor on, the password only gets as far as asking for the code.
 	const [code, setCode] = useState<"app" | "backup">();
 	const [error, setError] = useState("");
@@ -80,7 +79,6 @@ function Login() {
 					const email = String(f.get("email"));
 					const password = String(f.get("password"));
 					setBusy(true);
-					if (signUp) return done(await auth.signUp.email({ email, password, name: String(f.get("name")) }));
 					const res = await auth.signIn.email({ email, password });
 					if (res.data && "twoFactorRedirect" in res.data) {
 						setBusy(false);
@@ -91,48 +89,33 @@ function Login() {
 				}}
 			>
 				<span role="img" aria-label="Nouvex" className="logo mb-4" />
-				{signUp && (
-					<Field.Root>
-						<Field.Label>Name</Field.Label>
-						<Field.Control name="name" required autoComplete="name" />
-					</Field.Root>
-				)}
 				<Field.Root>
 					<Field.Label>Email</Field.Label>
 					<Field.Control name="email" type="email" required autoComplete="email webauthn" />
 				</Field.Root>
 				<Field.Root>
 					<Field.Label>Password</Field.Label>
-					<Field.Control
-						name="password"
-						type="password"
-						required
-						minLength={8}
-						autoComplete={signUp ? "new-password" : "current-password"}
-					/>
+					<Field.Control name="password" type="password" required minLength={8} autoComplete="current-password" />
 				</Field.Root>
 				{error && <p className="text-sm text-danger">{error}</p>}
 				<Button variant="primary" type="submit" loading={busy} className="justify-center">
-					{signUp ? "Create account" : "Sign in"}
+					Sign in
 				</Button>
-				{!signUp && (
-					<Button
-						variant="ghost"
-						className="justify-center"
-						onClick={async () => {
-							const res = await auth.signIn.passkey();
-							if (!res?.error) return navigate({ to: "/" });
-							// Closing the browser's passkey sheet isn't worth an error.
-							if (!("code" in res.error && res.error.code === "AUTH_CANCELLED"))
-								setError(res.error.message ?? "That didn't work.");
-						}}
-					>
-						Sign in with a passkey
-					</Button>
-				)}
-				<Button variant="ghost" className="justify-center" onClick={() => setSignUp(!signUp)}>
-					{signUp ? "I already have an account" : "Create an account"}
+				<Button
+					variant="ghost"
+					className="justify-center"
+					onClick={async () => {
+						const res = await auth.signIn.passkey();
+						if (!res?.error) return navigate({ to: "/" });
+						// Closing the browser's passkey sheet isn't worth an error.
+						if (!("code" in res.error && res.error.code === "AUTH_CANCELLED"))
+							setError(res.error.message ?? "That didn't work.");
+					}}
+				>
+					Sign in with a passkey
 				</Button>
+				{/* Accounts are added on the server (apps/api/src/user.ts), so there's nothing to sign up for here. */}
+				<p className="text-center text-sm text-muted">No account yet? Ask whoever runs this server.</p>
 			</form>
 		</main>
 	);

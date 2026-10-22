@@ -473,8 +473,8 @@ func TestDrafts(t *testing.T) {
 		msgs, _ := c.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{BodySection: []*imap.FetchItemBodySection{whole}}).Collect()
 		var out []string
 		for _, m := range msgs {
-			_, snippet, _, _ := Content(m.FindBodySection(whole))
-			out = append(out, snippet)
+			p, _ := Content(m.FindBodySection(whole))
+			out = append(out, p.Snippet)
 		}
 		if sel.NumMessages != uint32(len(out)) {
 			t.Fatalf("%d drafts", sel.NumMessages)

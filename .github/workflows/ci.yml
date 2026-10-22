@@ -13,8 +13,12 @@ jobs:
         env: { POSTGRES_USER: nouvex, POSTGRES_PASSWORD: nouvex, POSTGRES_DB: nouvex }
         ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U nouvex" --health-interval 2s
+      nats:
+        image: nats:2.15
+        ports: ["4222:4222"]
     env:
       DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
+      NATS_URL: nats://localhost:4222
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci
       S3_ENDPOINT: http://localhost:8333
       S3_BUCKET: nouvex
@@ -62,3 +66,10 @@ jobs:
       - uses: sqlc-dev/setup-sqlc@v5
         with: { sqlc-version: "1.31.1" }
       - run: sqlc diff
+
+  # The images the server builds from main, built here first so a broken one never reaches it.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: cp deploy/.env.example deploy/.env && docker compose -f deploy/compose.yml build

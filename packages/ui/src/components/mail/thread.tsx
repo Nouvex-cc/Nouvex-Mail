@@ -7,6 +7,7 @@ import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Avatar } from "../avatar";
 import { Button } from "../button";
 import { Kbd } from "../kbd";
+import { TextMorph } from "../text-morph";
 import { Tooltip } from "../tooltip";
 import { FrameSlot } from "./mail-frame";
 import { useShortcut } from "./shortcuts";
@@ -19,6 +20,31 @@ function Panel({ open, id, children }: { open: boolean; id?: string; children: R
 				<div className="thread-body">{children}</div>
 			</div>
 		</section>
+	);
+}
+
+// While hovered the name morphs into the address, and a click copies it instead of opening or closing the message.
+function SenderName({ name, email }: { name: string; email?: string }) {
+	const [hover, setHover] = useState(false);
+	const [copied, setCopied] = useState(false);
+	if (!email) return <span className="justify-self-start truncate font-medium">{name}</span>;
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut inside the message's toggle button, and buttons can't nest
+		// biome-ignore lint/a11y/useKeyWithClickEvents: see above
+		<span
+			className="justify-self-start font-medium"
+			onPointerEnter={() => setHover(true)}
+			onPointerLeave={() => setHover(false)}
+			onClick={(e) => {
+				e.stopPropagation();
+				void navigator.clipboard.writeText(email).then(() => {
+					setCopied(true);
+					setTimeout(() => setCopied(false), 1500);
+				});
+			}}
+		>
+			<TextMorph>{copied ? "Copied" : hover ? email : name}</TextMorph>
+		</span>
 	);
 }
 
@@ -70,9 +96,7 @@ export function ThreadMessage({
 				>
 					<Avatar name={from} />
 					<span className="grid min-w-0 flex-1">
-						<Tooltip content={email}>
-							<span className="justify-self-start truncate font-medium">{from}</span>
-						</Tooltip>
+						<SenderName name={from} email={email} />
 						{/* Same line, two texts: the snippet when closed, the recipients when open. */}
 						<span className="grid text-sm text-muted">
 							<span className="col-start-1 row-start-1 truncate transition-opacity duration-200 group-data-open:opacity-0">
