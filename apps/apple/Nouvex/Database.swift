@@ -132,6 +132,8 @@ struct Conversation: Identifiable, Hashable, Sendable {
 
 enum Folder: Hashable, Sendable {
     case inbox, category(String), starred, role(String)
+    /// One of the account's own IMAP folders, by id, with its name.
+    case mailbox(String, String)
 
     /// All inboxes leaves archived accounts out.
     static let active = "accountId NOT IN (SELECT id FROM account WHERE archived = 1)"
@@ -143,6 +145,7 @@ enum Folder: Hashable, Sendable {
         case .category(let name): ("\(inbox) AND category = ?", [name])
         case .starred: ("starred = 1 AND mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", [])
         case .role(let role): ("mailboxId IN (SELECT id FROM mailbox WHERE role = ?)", [role])
+        case .mailbox(let id, _): ("mailboxId = ?", [id])
         }
         guard let account else { return try Conversation.fetch(db, "(\(sql)) AND \(Self.active)", args) }
         return try Conversation.fetch(db, "(\(sql)) AND accountId = ?", args + [account])

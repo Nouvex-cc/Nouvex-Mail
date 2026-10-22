@@ -52,6 +52,7 @@ extension Folder {
         case .starred: "Starred"
         case .category(let id): Sidebar.categories.first { $0.0 == id }?.1 ?? ""
         case .role(let role): Sidebar.folders.first { $0.0 == role }?.1 ?? ""
+        case .mailbox(_, let name): name
         }
     }
 }
@@ -62,6 +63,9 @@ struct Sidebar: View {
     @Environment(Mail.self) private var mail
     @State private var dots: Set<String> = []
     @State private var categoriesOpen = true
+    /// The selected account's own folders, by name.
+    @State private var own: [Mailbox] = []
+    @State private var ownOpen = true
 
     nonisolated static let categories = [("promotions", "Promotions"), ("social", "Social"), ("updates", "Updates"), ("newsletters", "Newsletters")]
     nonisolated static let folders = [
@@ -99,8 +103,23 @@ struct Sidebar: View {
                 row(name, icon: icon, folder: .role(role))
             }
             row("Starred", icon: "star", folder: .starred)
+            // An account's own folders, only while one account is in view, like the web.
+            if mail.account != nil, !own.isEmpty {
+                #if os(macOS)
+                DisclosureGroup("Folders", isExpanded: $ownOpen) {
+                    ForEach(own, id: \.id) { b in row(b.name, icon: "folder", folder: .mailbox(b.id, b.name)) }
+                }
+                #else
+                Section("Folders") {
+                    ForEach(own, id: \.id) { b in row(b.name, icon: "folder", folder: .mailbox(b.id, b.name)) }
+                }
+                #endif
+            }
             #if os(iOS)
-            Section { Profile() }
+            Section {
+                NowCards()
+                Profile()
+            }
             #endif
         }
         .listStyle(.sidebar)
@@ -125,9 +144,16 @@ struct Sidebar: View {
             .padding(.horizontal, 10)
         }
         #if os(macOS)
-        .safeAreaInset(edge: .bottom) { Profile().padding(.horizontal, 10).padding(.bottom, 8) }
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 8) {
+                NowCards()
+                Profile()
+            }
+            .padding(.horizontal, 10).padding(.bottom, 8)
+        }
         #endif
         .task(id: mail.account) { await observeDots() }
+        .task(id: mail.account) { await observeFolders() }
     }
 
     private func row(_ name: String, icon: String? = nil, folder: Folder, dot: Bool = false) -> some View {
@@ -145,6 +171,16 @@ struct Sidebar: View {
             Dot(on: dot, color: .muted)
         }
         .tag(folder)
+    }
+
+    private func observeFolders() async {
+        guard let account = mail.account else { return own = [] }
+        let folders = ValueObservation.tracking { db in
+            try Mailbox.filter(Column("accountId") == account && Column("role") == "").order(Column("name")).fetchAll(db)
+        }
+        do {
+            for try await value in folders.values(in: Store.db) { own = value }
+        } catch {}
     }
 
     // Inbox's dot only counts what the categories leave, like on the web.
@@ -179,9 +215,10 @@ private struct SidebarItemStyle: ButtonStyle {
 struct AccountPicker: View {
     @Environment(Mail.self) private var mail
     @State private var open = false
+    @State private var archivedOpen = false
 
     var body: some View {
-        let current = mail.accountList.first { $0.id == mail.account }
+        let current = mail.accounts.first { $0.id == mail.account }
         Button { open.toggle() } label: {
             HStack(spacing: 10) {
                 badge(current)
@@ -203,6 +240,15 @@ struct AccountPicker: View {
                 choice(nil)
                 Rectangle().fill(.line).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 8)
                 ForEach(mail.accountList) { choice($0) }
+                // Archived accounts wait behind one row, like archived chats; picking one checks it for mail.
+                let archived = mail.accounts.filter(\.archived)
+                if !archived.isEmpty {
+                    DisclosureGroup("Archived \(archived.count)", isExpanded: $archivedOpen) {
+                        ForEach(archived) { choice($0) }
+                    }
+                    .font(.sm).foregroundStyle(.muted)
+                    .padding(.horizontal, 8).padding(.top, 4)
+                }
             }
             .padding(6)
             .frame(width: 272)
@@ -215,6 +261,7 @@ struct AccountPicker: View {
         return Button {
             mail.account = account?.id
             open = false
+            if let account, account.archived { Task { _ = try? await API.client.syncAccount(path: .init(accountId: account.id)) } }
         } label: {
             HStack(spacing: 10) {
                 badge(account)
