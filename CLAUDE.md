@@ -41,7 +41,7 @@ bun run e2e                         # e2e tests
 bun run --cwd apps/playground dev   # component playground on :5174
 cd apps/apple && xcodegen           # generate the Xcode project
 bun apps/apple/tokens.ts            # Apple colors from the tokens in packages/ui
-apps/apple/testflight.sh            # iOS build to TestFlight (ASC_KEY_ID, ASC_ISSUER_ID)
+apps/apple/release.sh               # iOS to TestFlight and Mac app to /Applications (`ios` or `mac` for one)
 docker compose -f deploy/compose.yml up -d --build   # production, see docs/deploy.md
 ```
 
