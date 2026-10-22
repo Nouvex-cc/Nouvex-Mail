@@ -10,4 +10,5 @@ WORKDIR /app
 COPY --from=build /src/apps/api/dist ./dist
 COPY --from=build /src/apps/api/drizzle ./drizzle
 EXPOSE 3000
-CMD ["bun", "dist/index.js"]
+# The schema is brought up to date before the server takes requests.
+CMD ["sh", "-c", "bun dist/migrate.js && exec bun dist/index.js"]

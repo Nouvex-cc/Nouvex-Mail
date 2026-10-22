@@ -1,0 +1,15 @@
+{$DOMAIN} {
+	encode zstd gzip
+
+	# The same paths the web app's dev server forwards; the Apple apps use them too.
+	@api path /api/* /accounts /accounts/* /prefs /image /ws /health
+	handle @api {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

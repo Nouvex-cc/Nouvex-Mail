@@ -1,0 +1,83 @@
+# The whole server on one machine, behind Caddy on one domain. Setup and updates: docs/deploy.md.
+name: nouvex
+
+x-backend: &backend
+  restart: unless-stopped
+  env_file: .env
+  environment:
+    NODE_ENV: production
+    DATABASE_URL: postgres://nouvex:${PG_PASSWORD}@postgres:5432/nouvex
+    NATS_URL: nats://nats:4222
+    S3_ENDPOINT: http://s3:8333
+    S3_BUCKET: nouvex
+    BETTER_AUTH_URL: https://${DOMAIN}
+    WEB_ORIGIN: https://${DOMAIN}
+  depends_on:
+    postgres: { condition: service_healthy }
+    nats: { condition: service_started }
+    s3: { condition: service_healthy }
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nouvex
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: nouvex
+    volumes: [pg:/var/lib/postgresql]
+    healthcheck:
+      test: pg_isready -U nouvex
+      interval: 5s
+
+  nats:
+    image: nats:2.15
+    restart: unless-stopped
+    command: -js -sd /data
+    volumes: [nats:/data]
+
+  # Mail bodies and attachments. Its one user is written from .env on every start.
+  s3:
+    image: chrislusf/seaweedfs
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '{"identities":[{"name":"nouvex","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}'
+        "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" > /tmp/s3.json
+        && exec weed server -s3 -s3.config=/tmp/s3.json -dir=/data
+    volumes: [s3:/data]
+    healthcheck:
+      test: nc -z 127.0.0.1 8333
+      interval: 5s
+      start_period: 60s
+
+  api:
+    <<: *backend
+    build: { context: .., dockerfile: apps/api/Dockerfile }
+    healthcheck:
+      test: ["CMD", "bun", "-e", "process.exit((await fetch('http://localhost:3000/health')).ok ? 0 : 1)"]
+      interval: 5s
+
+  # Starts once the api has brought the schema up to date.
+  engine:
+    <<: *backend
+    build: ../engine
+    depends_on:
+      api: { condition: service_healthy }
+
+  web:
+    build: { context: .., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: [caddy:/data]
+    depends_on: [api]
+
+volumes:
+  pg:
+  nats:
+  s3:
+  caddy:

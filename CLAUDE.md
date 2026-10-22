@@ -23,6 +23,7 @@ packages/sdk     Headless client core (Apache-2.0)
 packages/ui      Our UI library on Base UI, tokens in src/styles.css (Apache-2.0)
 apps/playground  Temporary component playground, will be deleted
 docs/design.md   Design language, read before any UI work
+deploy           Production compose and Caddyfile, see docs/deploy.md
 ```
 
 ## Commands
@@ -41,6 +42,7 @@ bun run --cwd apps/playground dev   # component playground on :5174
 cd apps/apple && xcodegen           # generate the Xcode project
 bun apps/apple/tokens.ts            # Apple colors from the tokens in packages/ui
 apps/apple/testflight.sh            # iOS build to TestFlight (ASC_KEY_ID, ASC_ISSUER_ID)
+docker compose -f deploy/compose.yml up -d --build   # production, see docs/deploy.md
 ```
 
 ## Stack
