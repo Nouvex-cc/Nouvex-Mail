@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+
+import { decrypt, fromBase64 } from "@nouvex/sdk/crypto";
 import {
 	AttachmentList,
 	AttachmentTile,
@@ -15,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useAccounts } from "./accounts";
 import type { Message } from "./db";
+import { messageKey } from "./keys";
 import { usePref } from "./prefs";
 import type { Draft } from "./write";
 
@@ -138,7 +141,21 @@ export function Reader({
 export async function body(m: Message) {
 	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/body`);
 	if (!res.ok) throw new Error(`body: ${res.status}`);
-	return ((await res.json()) as { html: string }).html;
+	const { sealed } = (await res.json()) as { sealed: string };
+	return new TextDecoder().decode(await decrypt(await messageKey(m), "body", fromBase64(sealed)));
+}
+
+// Opened here and saved as a download, never shown on our origin.
+async function download(m: Message, i: number) {
+	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`);
+	if (!res.ok) throw new Error(`attachment: ${res.status}`);
+	const file = m.attachments[i];
+	const data = await decrypt(await messageKey(m), `att/${i}`, new Uint8Array(await res.arrayBuffer()));
+	const link = document.createElement("a");
+	link.href = URL.createObjectURL(new Blob([data], { type: file?.type || "application/octet-stream" }));
+	link.download = file?.name ?? "attachment";
+	link.click();
+	setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 }
 
 // The body of one message; it loads when the message is first shown.
@@ -156,7 +173,7 @@ function Entry({ message: m }: { message: Message }) {
 							// biome-ignore lint/suspicious/noArrayIndexKey: attachments are addressed by position, the API too
 							key={i}
 							{...a}
-							onOpen={() => location.assign(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`)}
+							onOpen={() => void download(m, i)}
 						/>
 					))}
 				</AttachmentList>
@@ -182,7 +199,7 @@ const reply = (m: Message, body: string, to: string[]): Draft => ({
 	to,
 	subject: prefixed("Re:", m.subject),
 	quote: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
-	inReplyTo: m.id,
+	inReplyTo: m.messageId || undefined,
 });
 
 const forward = (m: Message, body: string): Draft => ({

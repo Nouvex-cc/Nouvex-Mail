@@ -2,7 +2,7 @@
 // The password never leaves this device: it becomes authKey, which the server takes as the password, and encKey,
 // which opens the user's private key (packages/sdk/src/crypto.ts). The unlocked key stays in IndexedDB as a key the
 // page can use but not read back, until signing out.
-import { derive, fromBase64, openPrivate, toBase64, unlock, wrapPrivate } from "@nouvex/sdk/crypto";
+import { derive, fromBase64, openKey, openPrivate, toBase64, unlock, wrapPrivate } from "@nouvex/sdk/crypto";
 import { auth } from "./auth";
 import { db } from "./db";
 
@@ -33,6 +33,13 @@ export async function open(encKey: CryptoKey) {
 }
 
 export const unlocked = async () => !!(await db.keys.get("me"));
+
+/** Opens a message's own key, which opens its meta, body and attachments. */
+export async function messageKey(m: { key: string }) {
+	const keys = await db.keys.get("me");
+	if (!keys) throw new Error("This device is locked.");
+	return openKey(keys, fromBase64(m.key));
+}
 
 /** What the server takes as the password, for settings that ask for it again. */
 export const authKey = async (password: string, email: string) => (await derive(password, email)).authKey;

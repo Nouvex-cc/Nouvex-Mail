@@ -2,9 +2,11 @@
 import type { Keys } from "@nouvex/sdk/crypto";
 import { Dexie, type EntityTable } from "dexie";
 
-// A message as GET /accounts/{id}/changes delivers it.
+// A message as GET /accounts/{id}/changes delivers it, with what was sealed in it opened (sync.ts).
 export interface Message {
 	id: string;
+	/** The message's own key, sealed to the user: it opens the body and the attachments too (keys.ts). */
+	key: string;
 	accountId: string;
 	mailboxId: string;
 	messageId: string;
@@ -135,3 +137,7 @@ db.version(8)
 	);
 // The user's keys, once this device is unlocked.
 db.version(9).stores({ keys: "id" });
+// Mail now comes sealed for the user; what was stored before is fetched again.
+db.version(10).upgrade((tx) =>
+	Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
+);

@@ -6,6 +6,7 @@ import { matches } from "./search";
 const m: Message = {
 	id: "1",
 	accountId: "a",
+	key: "",
 	mailboxId: "b",
 	messageId: "x",
 	threadId: "x",

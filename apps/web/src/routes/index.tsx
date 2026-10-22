@@ -339,7 +339,7 @@ function Inbox() {
 			subject: m.subject,
 			body: at < 0 ? full : full.slice(0, at),
 			quote: at < 0 ? undefined : full.slice(at),
-			inReplyTo: earlier.findLast((e) => !drafts.has(e.mailboxId))?.id,
+			inReplyTo: earlier.findLast((e) => !drafts.has(e.mailboxId))?.messageId || undefined,
 			thread,
 			draftId: /^draft-([0-9a-f-]{36})@/.exec(m.messageId)?.[1] ?? crypto.randomUUID(),
 		});

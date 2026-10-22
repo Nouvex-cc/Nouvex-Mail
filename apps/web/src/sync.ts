@@ -1,13 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { MailboxSynced, MailboxSyncing, MessageSent } from "@nouvex/schema";
+import { decrypt, fromBase64 } from "@nouvex/sdk/crypto";
 import { db, local, type Mailbox, type Message } from "./db";
+import { messageKey } from "./keys";
+
+type Meta = Pick<
+	Message,
+	"messageId" | "subject" | "snippet" | "fromName" | "fromAddr" | "to" | "cc" | "attachments" | "actions"
+>;
+type Sealed = Omit<Message, "accountId" | "seen" | "starred" | keyof Meta> & { sealed: string };
 
 type Changes = {
 	version: number;
 	more: boolean;
 	mailboxes: { upserted: Omit<Mailbox, "accountId">[]; deleted: string[] };
-	messages: { upserted: Omit<Message, "accountId" | "seen" | "starred">[]; deleted: string[] };
+	messages: { upserted: Sealed[]; deleted: string[] };
 };
+
+// The server keeps what only this user can read sealed; opened here, it's stored on this device like any message.
+async function open({ sealed, ...m }: Sealed) {
+	const meta = await decrypt(await messageKey(m), "meta", fromBase64(sealed));
+	return { ...m, ...(JSON.parse(new TextDecoder().decode(meta)) as Meta) };
+}
 
 // When each message this device hadn't seen yet came in, so the list can mark it.
 export const arrived = new Map<string, number>();
@@ -23,13 +37,15 @@ export function pull(accountId: string) {
 				const res = await fetch(`/accounts/${accountId}/changes?since=${since}`);
 				if (!res.ok) throw new Error(`changes: ${res.status}`);
 				const { version, more, mailboxes, messages }: Changes = await res.json();
+				// Before the transaction: IndexedDB ends one that waits for anything else.
+				const upserted = await Promise.all(messages.upserted.map(open));
 				await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
-					const known = await db.messages.bulkGet(messages.upserted.map((m) => m.id));
-					for (const [i, m] of messages.upserted.entries()) if (!known[i]) arrived.set(m.id, Date.now());
+					const known = await db.messages.bulkGet(upserted.map((m) => m.id));
+					for (const [i, m] of upserted.entries()) if (!known[i]) arrived.set(m.id, Date.now());
 					await db.mailboxes.bulkPut(mailboxes.upserted.map((b) => ({ ...b, accountId })));
 					await db.mailboxes.bulkDelete(mailboxes.deleted);
 					await db.messages.bulkPut(
-						messages.upserted.map((m) => ({ ...m, accountId, ...local(m.flags), acts: m.actions.length ? 1 : 0 })),
+						upserted.map((m) => ({ ...m, accountId, ...local(m.flags), acts: m.actions.length ? 1 : 0 })),
 					);
 					await db.messages.bulkDelete(messages.deleted);
 					await db.cursor.put({ accountId, version });
