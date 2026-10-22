@@ -87,16 +87,3 @@ import AuthenticationServices
         #endif
     }
 }
-
-extension Data {
-    init?(base64URL: String) {
-        var s = base64URL.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        s += String(repeating: "=", count: (4 - s.count % 4) % 4)
-        self.init(base64Encoded: s)
-    }
-
-    var base64URL: String {
-        base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
-            .trimmingCharacters(in: ["="])
-    }
-}

@@ -64,3 +64,16 @@ targets:
     buildToolPlugins:
       - plugin: OpenAPIGenerator
         package: OpenAPIGenerator
+    scheme:
+      testTargets: [NouvexTests]
+  # Checks against what the engine sealed, without starting the app.
+  NouvexTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [NouvexTests, Nouvex/Crypto.swift]
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        DEVELOPMENT_TEAM: SQR8LP4972
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
+        GENERATE_INFOPLIST_FILE: YES
