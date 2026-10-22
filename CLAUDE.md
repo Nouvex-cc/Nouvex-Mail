@@ -39,6 +39,8 @@ bun run openapi                     # rewrite apps/apple/Nouvex/openapi.json
 bun run e2e                         # e2e tests
 bun run --cwd apps/playground dev   # component playground on :5174
 cd apps/apple && xcodegen           # generate the Xcode project
+bun apps/apple/tokens.ts            # Apple colors from the tokens in packages/ui
+apps/apple/testflight.sh            # iOS build to TestFlight (ASC_KEY_ID, ASC_ISSUER_ID)
 ```
 
 ## Stack

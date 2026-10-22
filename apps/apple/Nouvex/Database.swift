@@ -2,26 +2,247 @@
 import Foundation
 import GRDB
 
-struct Message: Codable, FetchableRecord, PersistableRecord {
+struct Account: Codable, Hashable, Identifiable, FetchableRecord, PersistableRecord {
     var id: String
-    var accountId: String
-    var subject: String
-    var receivedAt: Date
+    var email: String
+    var displayName: String
+    var signature: String
 }
 
-enum Database {
-    static func open(at path: String) throws -> DatabaseQueue {
-        let db = try DatabaseQueue(path: path)
-        var migrator = DatabaseMigrator()
-        migrator.registerMigration("v1") { db in
-            try db.create(table: "message") { t in
-                t.primaryKey("id", .text)
-                t.column("accountId", .text).notNull().indexed()
-                t.column("subject", .text).notNull()
-                t.column("receivedAt", .datetime).notNull()
+struct Mailbox: Codable, Hashable, FetchableRecord, PersistableRecord {
+    var id: String
+    var accountId: String
+    var name: String
+    var role: String
+}
+
+// A message as GET /accounts/{id}/changes delivers it.
+struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, PersistableRecord {
+    var id: String
+    var accountId: String
+    var mailboxId: String
+    var messageId: String
+    var threadId: String
+    var subject: String
+    var snippet: String
+    var fromName: String
+    var fromAddr: String
+    var to: [String]
+    var cc: [String]
+    var sentAt: Date
+    var flags: [String]
+    var category: String
+    var attachments: Int
+    // What flags says, kept apart so unread and starred mail is found through an index.
+    var seen = false
+    var starred = false
+
+    var sender: String { fromName.isEmpty ? fromAddr : fromName }
+    /// Sent from one of the reader's own addresses.
+    func ours(_ accounts: [Account]) -> Bool { accounts.contains { $0.email.caseInsensitiveCompare(fromAddr) == .orderedSame } }
+    /// Everyone on it but the reader's own addresses, each once.
+    func others(_ accounts: [Account]) -> [String] {
+        let mine = Set(accounts.map { $0.email.lowercased() })
+        var seen = Set<String>()
+        return ([fromAddr] + to + cc).filter { !mine.contains($0.lowercased()) && seen.insert($0.lowercased()).inserted }
+    }
+    /// The id of the draft this message is a saved version of.
+    var draftId: String? { messageId.firstMatch(of: /^<?draft-([0-9a-f-]{36})@/).map { String($0.1) } }
+
+    mutating func set(seen: Bool? = nil, starred: Bool? = nil) {
+        for (flag, on) in [("\\Seen", seen), ("\\Flagged", starred)] {
+            guard let on else { continue }
+            flags.removeAll { $0 == flag }
+            if on { flags.append(flag) }
+        }
+        self.seen = flags.contains("\\Seen")
+        self.starred = flags.contains("\\Flagged")
+    }
+}
+
+struct Cursor: Codable, FetchableRecord, PersistableRecord {
+    var accountId: String
+    var version: Int
+}
+
+struct Html: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "body"
+    var id: String
+    var html: String
+
+    /// A message's HTML, fetched once and kept for reading offline.
+    static func load(_ m: Message) async -> String? {
+        let id = m.id
+        if let stored = try? await Store.db.read({ try Html.fetchOne($0, key: id) }) { return stored.html }
+        guard let html = try? await API.client.getMessageBody(path: .init(accountId: m.accountId, messageId: id)).ok.body.json.html
+        else { return nil }
+        try? await Store.db.write { try Html(id: id, html: html).save($0) }
+        return html
+    }
+
+    /// The mail as plain text, for quoting.
+    // ponytail: tags dropped by pattern, entities beyond the common ones stay as written.
+    static func text(_ html: String) -> String {
+        html.replacing(/(?is)<(style|script|head)\b.*?<\/\1>/, with: "")
+            .replacing(/(?i)<br\s*\/?>|<\/(p|div|li|tr|h[1-6])>/, with: "\n")
+            .replacing(/<[^>]+>/, with: "")
+            .replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">").replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'").replacingOccurrences(of: "&amp;", with: "&")
+            .replacing(/[ \t]+\n/, with: "\n")
+            .replacing(/\n{3,}/, with: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// One row in a list: the conversation's messages in that folder, newest first.
+struct Conversation: Identifiable, Hashable, Sendable {
+    let messages: [Message]
+    var id: String { messages[0].threadId }
+    var latest: Message { messages[0] }
+    var unread: Bool { messages.contains { !$0.seen } }
+    var starred: Bool { messages.contains(where: \.starred) }
+}
+
+enum Folder: Hashable, Sendable {
+    case inbox, category(String), starred, role(String)
+
+    func conversations(_ db: GRDB.Database, categories: Bool, account: String?) throws -> [Conversation] {
+        let inbox = "mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox')"
+        let (sql, args): (String, StatementArguments) = switch self {
+        case .inbox: (categories ? "\(inbox) AND category = 'primary'" : inbox, [])
+        case .category(let name): ("\(inbox) AND category = ?", [name])
+        case .starred: ("starred = 1 AND mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", [])
+        case .role(let role): ("mailboxId IN (SELECT id FROM mailbox WHERE role = ?)", [role])
+        }
+        guard let account else { return try Conversation.fetch(db, sql, args) }
+        return try Conversation.fetch(db, "(\(sql)) AND accountId = ?", args + [account])
+    }
+}
+
+extension Conversation {
+    // ponytail: newest 2000 matching messages, page through older ones once someone scrolls that far.
+    static func fetch(_ db: GRDB.Database, _ sql: String, _ args: StatementArguments) throws -> [Conversation] {
+        let rows = try Message.filter(sql: sql, arguments: args).order(Column("sentAt").desc).limit(2000).fetchAll(db)
+        var order: [String] = []
+        var threads: [String: [Message]] = [:]
+        for m in rows {
+            if threads[m.threadId] == nil { order.append(m.threadId) }
+            threads[m.threadId, default: []].append(m)
+        }
+        return order.map { Conversation(messages: threads[$0]!) }
+    }
+
+    /// Searches every folder but Trash and Junk, like the web: words in the subject, preview or sender, plus from:,
+    /// to:, is:unread, is:starred, has:attachment, after: and before: (YYYY-MM-DD).
+    static func search(_ db: GRDB.Database, _ text: String) throws -> [Conversation] {
+        var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))"]
+        var args: [DatabaseValueConvertible] = []
+        for token in text.split(separator: " ") {
+            let (key, value) = token.split(separator: ":", maxSplits: 1).count == 2
+                ? (token.prefix { $0 != ":" }.lowercased(), String(token.drop { $0 != ":" }.dropFirst()))
+                : ("", String(token))
+            let day = value.split(separator: "-").compactMap { Int($0) }
+            let date = day.count == 3 ? Calendar.current.date(from: DateComponents(year: day[0], month: day[1], day: day[2])) : nil
+            switch (key, value.lowercased()) {
+            case ("from", _):
+                clauses.append("(fromAddr || ' ' || fromName) LIKE ?")
+                args.append("%\(value)%")
+            case ("to", _):
+                clauses.append("(\"to\" || cc) LIKE ?")
+                args.append("%\(value)%")
+            case ("is", "unread"): clauses.append("seen = 0")
+            case ("is", "starred"): clauses.append("starred = 1")
+            case ("has", "attachment"): clauses.append("attachments > 0")
+            case ("after", _) where date != nil:
+                clauses.append("sentAt >= ?")
+                args.append(date!)
+            case ("before", _) where date != nil:
+                clauses.append("sentAt < ?")
+                args.append(date!)
+            default:
+                clauses.append("(subject || ' ' || snippet || ' ' || fromName || ' ' || fromAddr) LIKE ?")
+                args.append("%\(token)%")
             }
         }
-        try migrator.migrate(db)
-        return db
+        return try fetch(db, clauses.joined(separator: " AND "), StatementArguments(args))
     }
+}
+
+/// Unread conversations in the inbox per category, and the newest unread messages there.
+struct Unread: Equatable, Sendable {
+    var counts: [String: Int] = [:]
+    var recent: [Message] = []
+
+    static func fetch(_ db: GRDB.Database) throws -> Unread {
+        let inbox = "seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox')"
+        let rows = try Row.fetchAll(db, sql: "SELECT category, COUNT(DISTINCT threadId) AS n FROM message WHERE \(inbox) GROUP BY category")
+        return Unread(
+            counts: Dictionary(uniqueKeysWithValues: rows.map { ($0["category"], $0["n"]) }),
+            recent: try Message.filter(sql: inbox).order(Column("sentAt").desc).limit(20).fetchAll(db)
+        )
+    }
+}
+
+enum Store {
+    static let db: DatabasePool = {
+        var dir = URL.applicationSupportDirectory.appending(path: "Nouvex")
+        try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // A copy of the server's mail: it syncs back after a restore, so it stays out of device backups.
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? dir.setResourceValues(values)
+        let db = try! DatabasePool(path: dir.appending(path: "mail.sqlite").path)
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("v1") { db in
+            try db.create(table: "account") { t in
+                t.primaryKey("id", .text)
+                t.column("email", .text).notNull()
+                t.column("displayName", .text).notNull()
+            }
+            try db.create(table: "cursor") { t in
+                t.primaryKey("accountId", .text).references("account", onDelete: .cascade)
+                t.column("version", .integer).notNull()
+            }
+            try db.create(table: "mailbox") { t in
+                t.primaryKey("id", .text)
+                t.column("accountId", .text).notNull().indexed().references("account", onDelete: .cascade)
+                t.column("name", .text).notNull()
+                t.column("role", .text).notNull()
+            }
+            try db.create(table: "message") { t in
+                t.primaryKey("id", .text)
+                t.column("accountId", .text).notNull().indexed().references("account", onDelete: .cascade)
+                t.column("mailboxId", .text).notNull()
+                t.column("messageId", .text).notNull()
+                t.column("threadId", .text).notNull().indexed()
+                t.column("subject", .text).notNull()
+                t.column("snippet", .text).notNull()
+                t.column("fromName", .text).notNull()
+                t.column("fromAddr", .text).notNull()
+                t.column("sentAt", .datetime).notNull()
+                t.column("flags", .text).notNull()
+                t.column("category", .text).notNull()
+                t.column("attachments", .integer).notNull()
+                t.column("seen", .boolean).notNull()
+                t.column("starred", .boolean).notNull()
+            }
+            try db.create(index: "message_mailbox_sent", on: "message", columns: ["mailboxId", "sentAt"])
+            try db.create(table: "body") { t in
+                t.primaryKey("id", .text).references("message", onDelete: .cascade)
+                t.column("html", .text).notNull()
+            }
+        }
+        // Recipients and signatures came later; messages are fetched again to get them.
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "account") { t in t.add(column: "signature", .text).notNull().defaults(to: "") }
+            try db.alter(table: "message") { t in
+                t.add(column: "to", .text).notNull().defaults(to: "[]")
+                t.add(column: "cc", .text).notNull().defaults(to: "[]")
+            }
+            try db.execute(sql: "DELETE FROM body; DELETE FROM message; DELETE FROM cursor")
+        }
+        try! migrator.migrate(db)
+        return db
+    }()
 }

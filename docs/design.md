@@ -10,7 +10,7 @@ Nouvex should feel like a tool you're glad to open because it works, not because
 
 **Fast beats pretty.** Every action has a keyboard shortcut. Nothing waits for an animation. Optimistic updates by default, the network catches up.
 
-**Native where it matters.** Apple apps use SwiftUI controls, SF Pro and SF Symbols. The web uses our own library. What's shared: palette, tone of voice, spacing logic, shortcuts.
+**Native where it matters.** Apple apps use SwiftUI, SF Pro and SF Symbols. The web uses our own library. What's shared: palette, tone of voice, spacing logic, shortcuts, and the Mail layout below (rows, conversations, composer). The frame around them is Apple's own: split view with the glass sidebar, toolbar, search, menus and popovers, and Liquid Glass for what floats over mail, like the reply bar. On a phone, rows take three lines, swipe left to archive and right to snooze, and writing opens as a sheet. Its colors are generated from the tokens (`bun apps/apple/tokens.ts`).
 
 **Delight is made by people.** Easter eggs, playful transitions and the "wait, that works here?" moments are designed by the team and get as many iterations as they need. They are never generated, never filler, and never get in the way of a fast workflow.
 
