@@ -178,6 +178,7 @@ private struct SidebarItemStyle: ButtonStyle {
 struct AccountPicker: View {
     @Environment(Mail.self) private var mail
     @State private var open = false
+    @State private var adding = false
 
     var body: some View {
         let current = mail.accountList.first { $0.id == mail.account }
@@ -202,11 +203,26 @@ struct AccountPicker: View {
                 choice(nil)
                 Rectangle().fill(.line).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 8)
                 ForEach(mail.accountList) { choice($0) }
+                if !mail.accountList.isEmpty {
+                    Rectangle().fill(.line).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 8)
+                }
+                Button {
+                    open = false
+                    adding = true
+                } label: {
+                    Label("Add Account", systemImage: "plus").font(.sm.weight(.medium)).foregroundStyle(.ink)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(SidebarItemStyle())
             }
             .padding(6)
             .frame(width: 272)
             .presentationCompactAdaptation(.popover)
         }
+        // A new account shows up with the next load, which also starts its first pull.
+        .sheet(isPresented: $adding) { AddAccount { mail.resume() } }
     }
 
     private func choice(_ account: Account?) -> some View {
