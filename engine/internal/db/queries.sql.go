@@ -205,8 +205,8 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs, actions, category)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
@@ -228,6 +228,8 @@ type InsertMessageParams struct {
 	ThreadID    string
 	ToAddrs     []string
 	CcAddrs     []string
+	Actions     []byte
+	Category    string
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -249,6 +251,8 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.ThreadID,
 		arg.ToAddrs,
 		arg.CcAddrs,
+		arg.Actions,
+		arg.Category,
 	)
 	if err != nil {
 		return 0, err
@@ -305,7 +309,7 @@ func (q *Queries) ListArchivedAccountIDs(ctx context.Context) ([]string, error) 
 }
 
 const listContent = `-- name: ListContent :many
-SELECT id, account_id, snippet, attachments FROM message WHERE $1::text = '' OR account_id = $1
+SELECT id, account_id, snippet, attachments, actions, category FROM message WHERE $1::text = '' OR account_id = $1
 `
 
 type ListContentRow struct {
@@ -313,6 +317,8 @@ type ListContentRow struct {
 	AccountID   string
 	Snippet     string
 	Attachments []byte
+	Actions     []byte
+	Category    string
 }
 
 func (q *Queries) ListContent(ctx context.Context, accountID string) ([]ListContentRow, error) {
@@ -329,6 +335,8 @@ func (q *Queries) ListContent(ctx context.Context, accountID string) ([]ListCont
 			&i.AccountID,
 			&i.Snippet,
 			&i.Attachments,
+			&i.Actions,
+			&i.Category,
 		); err != nil {
 			return nil, err
 		}
@@ -468,17 +476,25 @@ func (q *Queries) MergeThread(ctx context.Context, arg MergeThreadParams) ([]str
 }
 
 const setContent = `-- name: SetContent :exec
-UPDATE message SET snippet = $2, attachments = $3 WHERE id = $1
+UPDATE message SET snippet = $2, attachments = $3, actions = $4, category = $5 WHERE id = $1
 `
 
 type SetContentParams struct {
 	ID          string
 	Snippet     string
 	Attachments []byte
+	Actions     []byte
+	Category    string
 }
 
 func (q *Queries) SetContent(ctx context.Context, arg SetContentParams) error {
-	_, err := q.db.Exec(ctx, setContent, arg.ID, arg.Snippet, arg.Attachments)
+	_, err := q.db.Exec(ctx, setContent,
+		arg.ID,
+		arg.Snippet,
+		arg.Attachments,
+		arg.Actions,
+		arg.Category,
+	)
 	return err
 }
 

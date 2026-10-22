@@ -19,6 +19,8 @@ const m: Message = {
 	flags: [],
 	size: 10,
 	attachments: [{ name: "plan.pdf", type: "application/pdf", size: 5 }],
+	category: "primary",
+	actions: [],
 	seen: 0,
 	starred: 0,
 };

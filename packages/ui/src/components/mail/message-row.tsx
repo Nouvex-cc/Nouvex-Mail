@@ -20,6 +20,8 @@ export type MessageRowProps = {
 	labels?: MailLabel[];
 	date: Date;
 	unread?: boolean;
+	/** Just came in: the list marks it with a short glow. */
+	fresh?: boolean;
 	selected?: boolean;
 	/** Some row in the list is selected: checkboxes stay visible on every row. */
 	selecting?: boolean;
@@ -55,6 +57,7 @@ export function MessageRow({
 	labels = [],
 	date,
 	unread = false,
+	fresh,
 	selected = false,
 	selecting = false,
 	attachments = 0,
@@ -126,6 +129,7 @@ export function MessageRow({
 	return (
 		<div
 			data-row
+			data-fresh={fresh || undefined}
 			role="option"
 			tabIndex={0}
 			aria-selected={selected}

@@ -66,6 +66,18 @@ export const mailbox = pgTable(
 	(t) => [unique().on(t.accountId, t.name)],
 );
 
+export type Action = {
+	kind: "code" | "meeting";
+	code?: string;
+	title?: string;
+	start?: string;
+	end?: string;
+	url?: string;
+	provider?: string;
+	event?: string;
+	cancelled?: boolean;
+};
+
 export const message = pgTable(
 	"message",
 	{
@@ -92,6 +104,12 @@ export const message = pgTable(
 		size: integer("size").notNull(),
 		// Stored in S3 as att/<message id>/<index>.
 		attachments: jsonb("attachments").$type<{ name: string; type: string; size: number }[]>().notNull().default([]),
+		// Sign-in codes and meetings found by the engine (Action in engine/internal/mail/actions.go).
+		actions: jsonb("actions").$type<Action[]>().notNull().default([]),
+		// The inbox tab, sorted by the engine from the headers (engine/internal/mail/category.go).
+		category: text("category", { enum: ["primary", "promotions", "social", "updates", "newsletters"] })
+			.notNull()
+			.default("primary"),
 	},
 	(t) => [
 		unique().on(t.mailboxId, t.uid),

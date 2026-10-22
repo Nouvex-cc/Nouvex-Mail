@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MailboxSyncing",
+	"description": "Event: engine started a sync for an account, or saved a batch and keeps going. A MailboxSynced ends it.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"version": { "type": "integer", "description": "Set once a batch is saved." }
+	},
+	"required": ["accountId"],
+	"additionalProperties": false
+}

@@ -170,6 +170,12 @@ export const Prefs = z
 		undoSend: z.union([z.literal(0), z.literal(5), z.literal(10), z.literal(20), z.literal(30)]),
 		replyDefault: z.enum(["reply", "all"]),
 		archivedReplies: z.boolean(),
+		/** Minutes before a meeting starts that it shows in the sidebar. */
+		meetingLead: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(30), z.literal(60)]),
+		/** Minutes a sign-in code stays in the sidebar. */
+		codeLife: z.union([z.literal(1), z.literal(5), z.literal(10), z.literal(15)]),
+		/** Promotions, social, updates and newsletters leave the inbox for their own place under it. */
+		categories: z.boolean(),
 	})
 	.partial()
 	.strict();
@@ -282,6 +288,14 @@ app.openapi(
 	},
 );
 
+// A number in the path or query. Coercing makes its input `unknown`, which the document would list as optional and
+// nullable, and the generated Swift client can't build from that.
+const whole = z.coerce
+	.number()
+	.int()
+	.min(0)
+	.openapi({ type: "integer", minimum: 0, param: { required: true } });
+
 const Mailbox = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -303,6 +317,22 @@ const Message = z.object({
 	flags: z.array(z.string()),
 	size: z.int(),
 	attachments: z.array(z.object({ name: z.string(), type: z.string(), size: z.int() })),
+	/** The inbox tab it belongs in, sorted by the engine from its headers. */
+	category: z.enum(["primary", "promotions", "social", "updates", "newsletters"]),
+	/** A sign-in code to copy or a meeting to join, found by the engine. How long it's useful is up to the client. */
+	actions: z.array(
+		z.object({
+			kind: z.enum(["code", "meeting"]),
+			code: z.string().optional(),
+			title: z.string().optional(),
+			start: z.iso.datetime({ offset: true }).optional(),
+			end: z.iso.datetime({ offset: true }).optional(),
+			url: z.url().optional(),
+			provider: z.string().optional(),
+			event: z.string().optional(),
+			cancelled: z.boolean().optional(),
+		}),
+	),
 });
 
 app.openapi(
@@ -315,7 +345,7 @@ app.openapi(
 		request: {
 			params: z.object({ accountId: z.string() }),
 			query: z.object({
-				since: z.coerce.number().int().min(0),
+				since: whole,
 				limit: z.coerce.number().int().min(1).max(1000).default(500),
 			}),
 		},
@@ -506,7 +536,7 @@ app.openapi(
 		path: "/accounts/{accountId}/messages/{messageId}/attachments/{index}",
 		operationId: "getAttachment",
 		request: {
-			params: z.object({ accountId: z.string(), messageId: z.string(), index: z.coerce.number().int().min(0) }),
+			params: z.object({ accountId: z.string(), messageId: z.string(), index: whole }),
 		},
 		responses: {
 			200: { description: "The file, as a download", content: { "application/octet-stream": { schema: z.any() } } },
@@ -542,6 +572,7 @@ app.openapi(
 		request: {
 			params: z.object({ accountId: z.string() }),
 			body: {
+				required: true,
 				content: {
 					"multipart/form-data": {
 						schema: z.object({ file: z.instanceof(File).openapi({ type: "string", format: "binary" }) }),

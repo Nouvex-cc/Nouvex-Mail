@@ -156,6 +156,40 @@
 	}
 }
 
+/* Sync running in AppShell: a short segment runs around the content panel. It reaches past the window's bottom edge
+   so only the rounded top and the sides show, and waits a moment so a quick sync never flashes. */
+@utility panel-ring {
+	position: absolute;
+	inset: 0 0 auto;
+	width: 100%;
+	height: calc(100% + 1.5rem);
+	& rect {
+		x: 0.75px;
+		y: 0.75px;
+		width: calc(100% - 1.5px);
+		height: calc(100% - 1.5px);
+		rx: 19.25px;
+		fill: none;
+		stroke: var(--ink);
+		stroke-width: 1.5;
+		stroke-linecap: round;
+		stroke-dasharray: 0 100;
+		opacity: 0;
+		animation: button-ring 4s linear infinite paused;
+		transition:
+			stroke-dasharray 160ms ease-in,
+			opacity 160ms ease-in;
+	}
+	&[data-active] rect {
+		stroke-dasharray: 8 92;
+		opacity: 1;
+		animation-play-state: running;
+		transition:
+			stroke-dasharray 450ms cubic-bezier(0.4, 0, 0.2, 1) 400ms,
+			opacity 300ms ease-out 400ms;
+	}
+}
+
 /* Countdown of Button: the full outline drains (driven from JS for the exact duration). */
 @utility button-countdown {
 	/* biome-ignore lint/style/noDescendingSpecificity: never on the same element as button-ring */
@@ -544,7 +578,8 @@
 		transition-duration: 0ms !important;
 		animation-duration: 0ms !important;
 	}
-	.button-ring[data-active] rect {
+	.button-ring[data-active] rect,
+	.panel-ring[data-active] rect {
 		stroke-dasharray: none;
 		opacity: 0.4;
 	}

@@ -37,19 +37,29 @@ func TestBody(t *testing.T) {
 	alt := "From: a@x\r\nSubject: s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n" +
 		"--b\r\nContent-Type: text/plain\r\n\r\nHello   Mateo,\r\nsee you\r\n" +
 		"--b\r\nContent-Type: text/html\r\n\r\n<p>Hello <b>Mateo</b></p>\r\n--b--\r\n"
-	body, snippet, _, err := Content([]byte(alt))
+	body, snippet, _, err := content([]byte(alt))
 	if err != nil || body != "<p>Hello <b>Mateo</b></p>" || snippet != "Hello Mateo, see you" {
 		t.Fatalf("%q %q %v", body, snippet, err)
 	}
 
 	plain := "From: a@x\r\nSubject: s\r\n\r\n1 < 2 & <script>\r\n"
-	body, snippet, _, err = Content([]byte(plain))
+	body, snippet, _, err = content([]byte(plain))
 	if err != nil || body != `<div style="white-space: pre-wrap">1 &lt; 2 &amp; &lt;script&gt;`+"\r\n</div>" || snippet != "1 < 2 & <script>" {
 		t.Fatalf("%q %q %v", body, snippet, err)
 	}
 
 	onlyHTML := "From: a@x\r\nContent-Type: text/html\r\n\r\n<style>p{}</style><p>Hi&nbsp;there</p>"
-	if _, snippet, _, _ = Content([]byte(onlyHTML)); snippet != "Hi there" {
+	if _, snippet, _, _ = content([]byte(onlyHTML)); snippet != "Hi there" {
+		t.Fatalf("%q", snippet)
+	}
+
+	htmlAsText := "From: a@x\r\nContent-Type: text/plain\r\n\r\n<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head><body><p>Hi there</p></body></html>"
+	if body, snippet, _, _ = content([]byte(htmlAsText)); snippet != "Hi there" || !strings.HasPrefix(body, "<!DOCTYPE") {
+		t.Fatalf("%q %q", body, snippet)
+	}
+
+	escaped := "From: a@x\r\nContent-Type: text/html\r\n\r\n<p>&lt;!doctype html&gt;<br /> &lt;html&gt;&lt;body&gt;Hi there&lt;/body&gt;</p>"
+	if _, snippet, _, _ = content([]byte(escaped)); snippet != "Hi there" {
 		t.Fatalf("%q", snippet)
 	}
 }
@@ -82,7 +92,7 @@ func TestAttachments(t *testing.T) {
 		"--b\r\nContent-Type: text/plain\r\n\r\nSee attached\r\n" +
 		"--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"Übergabe.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0x\r\n" +
 		"--b\r\nContent-Type: image/png\r\nContent-Disposition: inline\r\nContent-Transfer-Encoding: base64\r\n\r\niVBORw==\r\n--b--\r\n"
-	_, snippet, files, err := Content([]byte(raw))
+	_, snippet, files, err := content([]byte(raw))
 	if err != nil || snippet != "See attached" || len(files) != 2 {
 		t.Fatalf("%q %d %v", snippet, len(files), err)
 	}
@@ -101,7 +111,7 @@ func TestComposeWithFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	// What we send has to read back the same way we read received mail.
-	_, snippet, files, err := Content(raw)
+	_, snippet, files, err := content(raw)
 	if err != nil || snippet != "Attached." || len(files) != 1 || files[0].Name != "Vertrag.pdf" || string(files[0].Data) != "%PDF-1" {
 		t.Fatalf("%q %+v %v", snippet, files, err)
 	}
@@ -116,7 +126,7 @@ func TestFlagStrings(t *testing.T) {
 
 func TestLatin1(t *testing.T) {
 	raw := "From: a@x\r\nSubject: s\r\nContent-Type: text/plain; charset=iso-8859-1\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nViele Gr=FC=DFe\r\n"
-	_, snippet, _, err := Content([]byte(raw))
+	_, snippet, _, err := content([]byte(raw))
 	if err != nil || snippet != "Viele Grüße" {
 		t.Fatalf("%q %v", snippet, err)
 	}
@@ -124,7 +134,7 @@ func TestLatin1(t *testing.T) {
 
 func TestBrokenEncoding(t *testing.T) {
 	raw := "From: a@x\r\nSubject: s\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nStill readable =\r\n=ZZ broken"
-	_, snippet, _, err := Content([]byte(raw))
+	_, snippet, _, err := content([]byte(raw))
 	if err != nil || !strings.HasPrefix(snippet, "Still readable") {
 		t.Fatalf("%q %v", snippet, err)
 	}
@@ -138,4 +148,9 @@ func TestReferences(t *testing.T) {
 	if got := References([]byte("From: a@x\r\n\r\nHi")); got == nil || len(got) != 0 {
 		t.Fatal(got)
 	}
+}
+
+func content(raw []byte) (body, snippet string, files []File, err error) {
+	p, err := Content(raw)
+	return p.Body, p.Snippet, p.Files, err
 }

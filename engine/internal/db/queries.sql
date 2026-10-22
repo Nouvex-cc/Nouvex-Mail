@@ -23,8 +23,8 @@ DELETE FROM message WHERE mailbox_id = $1 RETURNING id;
 SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1;
 
 -- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs, actions, category)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (mailbox_id, uid) DO NOTHING;
 
 -- name: LogChange :one
@@ -58,10 +58,10 @@ SELECT message_id FROM message WHERE id = $1 AND account_id = $2;
 UPDATE mail_account SET sync_error = $2 WHERE id = $1;
 
 -- name: ListContent :many
-SELECT id, account_id, snippet, attachments FROM message WHERE sqlc.arg(account_id)::text = '' OR account_id = sqlc.arg(account_id);
+SELECT id, account_id, snippet, attachments, actions, category FROM message WHERE sqlc.arg(account_id)::text = '' OR account_id = sqlc.arg(account_id);
 
 -- name: SetContent :exec
-UPDATE message SET snippet = $2, attachments = $3 WHERE id = $1;
+UPDATE message SET snippet = $2, attachments = $3, actions = $4, category = $5 WHERE id = $1;
 
 -- name: ThreadsFor :many
 -- Conversations a message belongs to: those of the messages it answers, of messages that answer it, and of other

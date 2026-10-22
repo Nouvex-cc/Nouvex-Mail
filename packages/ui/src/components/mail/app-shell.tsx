@@ -6,13 +6,15 @@ import { cn } from "../../lib";
 /**
  * Logo, header and sidebar as one surface; the content sits in it as a panel with rounded top corners. The panel
  * scrolls without a native scrollbar: a thin line in the gap to the window's right edge shows where you are, never
- * over the content. It brightens while scrolling and widens under the pointer to be dragged.
+ * over the content. It brightens while scrolling and widens under the pointer to be dragged. While `syncing`, a short
+ * segment runs around the panel's edge.
  */
 export function AppShell({
 	logo,
 	sidebar,
 	header,
 	backdrop,
+	syncing,
 	children,
 	className,
 }: {
@@ -21,6 +23,7 @@ export function AppShell({
 	header: ReactNode;
 	/** Behind the content panel and fixed while it scrolls, e.g. a <Backdrop>; the panel turns see-through. */
 	backdrop?: ReactNode;
+	syncing?: boolean;
 	children: ReactNode;
 	className?: string;
 }) {
@@ -48,6 +51,14 @@ export function AppShell({
 				>
 					{children}
 				</ScrollArea.Viewport>
+				<span
+					aria-hidden
+					className="pointer-events-none absolute inset-y-0 right-2.5 left-0 z-10 overflow-hidden rounded-t-xl"
+				>
+					<svg aria-hidden data-active={syncing || undefined} className="panel-ring">
+						<rect pathLength={100} />
+					</svg>
+				</span>
 				<ScrollArea.Scrollbar
 					orientation="vertical"
 					className="group/rail absolute top-3 right-0 bottom-3 hidden w-2.5 cursor-grab touch-none justify-center active:cursor-grabbing data-has-overflow-y:flex"

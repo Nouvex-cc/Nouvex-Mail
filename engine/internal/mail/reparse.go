@@ -3,6 +3,7 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 )
 
 // Reparse reads stored messages again from their raw copy, for when reading mail got better: all of them, or one
-// account's. Messages whose snippet or attachments come out different get a new body and a change_log entry, so
+// account's. Messages whose snippet, attachments, actions or tab come out different get a new body and a change_log entry, so
 // clients fetch them again.
 func Reparse(ctx context.Context, pool *pgxpool.Pool, put Put, get Get, accountID string) (changed int, err error) {
 	rows, err := db.New(pool).ListContent(ctx, accountID)
@@ -31,34 +32,31 @@ func Reparse(ctx context.Context, pool *pgxpool.Pool, put Put, get Get, accountI
 			slog.Warn("no raw copy", "id", r.ID)
 			continue
 		}
-		body, snippet, files, err := Content(raw)
+		parsed, err := Content(raw)
 		if err != nil {
 			slog.Warn("can't read message", "id", r.ID, "err", err)
 			continue
 		}
 		var stored []File
 		_ = json.Unmarshal(r.Attachments, &stored)
-		if snippet == r.Snippet && len(files) == len(stored) {
+		att, acts := parsed.columns()
+		if parsed.Snippet == r.Snippet && len(parsed.Files) == len(stored) && bytes.Equal(acts, r.Actions) && parsed.Category == r.Category {
 			continue
 		}
-		if err := put(ctx, "body/"+r.ID+".html", []byte(body), "text/html; charset=utf-8"); err != nil {
+		if err := put(ctx, "body/"+r.ID+".html", []byte(parsed.Body), "text/html; charset=utf-8"); err != nil {
 			return changed, err
 		}
-		for i, f := range files {
+		for i, f := range parsed.Files {
 			if err := put(ctx, fmt.Sprintf("att/%s/%d", r.ID, i), f.Data, f.Type); err != nil {
 				return changed, err
 			}
 		}
-		if files == nil {
-			files = []File{}
-		}
-		att, _ := json.Marshal(files)
 		tx, err := pool.Begin(ctx)
 		if err != nil {
 			return changed, err
 		}
 		q := db.New(tx)
-		if err := q.SetContent(ctx, db.SetContentParams{ID: r.ID, Snippet: snippet, Attachments: att}); err != nil {
+		if err := q.SetContent(ctx, db.SetContentParams{ID: r.ID, Snippet: parsed.Snippet, Attachments: att, Actions: acts, Category: parsed.Category}); err != nil {
 			_ = tx.Rollback(ctx)
 			return changed, err
 		}

@@ -68,6 +68,74 @@ function Selection() {
 	return <span ref={ref} aria-hidden className="contents" />;
 }
 
+// New rows fade in where they land and the rows they push aside glide there instead of jumping. Rows marked
+// data-fresh (mail that just came in) also get a short accent glow. Only rows on screen move, so a few hundred at
+// once cost the same as one. The first fill is instant.
+function Arrivals() {
+	const ref = useRef<HTMLSpanElement>(null);
+
+	useEffect(() => {
+		const list = ref.current?.parentElement;
+		if (!list) return;
+		const still = matchMedia("(prefers-reduced-motion: reduce)");
+		const rows = () => [...list.querySelectorAll<HTMLElement>(":scope > [data-row]")];
+		// Where each row sat after the last change, without any glide still running.
+		let tops = new Map<HTMLElement, number>();
+		const glides = (r: HTMLElement) => r.getAnimations().filter((a) => a.id === "glide");
+		const glow = (r: HTMLElement, delay: number) => {
+			if (!r.hasAttribute("data-fresh") || r.getAnimations().some((a) => a.id === "glow")) return;
+			r.animate(
+				{ backgroundColor: ["var(--accent-soft)", "var(--accent-soft)", "transparent"], offset: [0, 0.35, 1] },
+				{ id: "glow", duration: 1500, delay, easing: "ease-in-out", fill: "backwards" },
+			);
+		};
+		const measure = () => {
+			tops = new Map(rows().map((r) => [r, r.offsetTop]));
+		};
+
+		const watch = new MutationObserver(() => {
+			const all = rows();
+			if (!tops.size || still.matches) return measure();
+			const view = list.getBoundingClientRect();
+			const onScreen = (r: HTMLElement, top: number) =>
+				view.top + top < innerHeight && view.top + top + r.offsetHeight > 0;
+			// Rows already moving start their new glide from where they are on screen right now.
+			const from = new Map<HTMLElement, number>();
+			for (const r of all) {
+				const top = tops.get(r);
+				if (top === undefined) continue;
+				const shift = glides(r).length ? new DOMMatrix(getComputedStyle(r).transform).m42 : 0;
+				from.set(r, top + shift);
+			}
+			let arrived = 0;
+			for (const r of all) {
+				const before = from.get(r);
+				if (before !== undefined) for (const a of glides(r)) a.cancel();
+				const top = r.offsetTop;
+				if (before === undefined) {
+					if (!onScreen(r, top)) continue;
+					const delay = Math.min(arrived++ * 15, 150);
+					r.animate({ opacity: [0, 1] }, { duration: 200, delay, easing: "ease-out", fill: "backwards" });
+					glow(r, delay);
+				} else if (before !== top && (onScreen(r, before) || onScreen(r, top))) {
+					r.animate(
+						{ transform: [`translateY(${before - top}px)`, "none"] },
+						{ id: "glide", duration: 200, easing: "ease-out" },
+					);
+					// A reply moves its conversation up.
+					glow(r, 0);
+				}
+			}
+			measure();
+		});
+		watch.observe(list, { childList: true });
+		measure();
+		return () => watch.disconnect();
+	}, []);
+
+	return <span ref={ref} aria-hidden className="contents" />;
+}
+
 /** Selection works like a file list: left edge toggles, drag, shift ranges, ⌘-click, X, ⌘A, Esc. */
 export function MessageList({ children, onSelectionChange, className }: MessageListProps) {
 	const list = useRef<HTMLDivElement>(null);
@@ -155,6 +223,7 @@ export function MessageList({ children, onSelectionChange, className }: MessageL
 		>
 			<Highlight attr="data-active" className="rounded-md" />
 			<Selection />
+			<Arrivals />
 			{children}
 		</div>
 	);

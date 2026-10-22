@@ -186,10 +186,14 @@ func run() error {
 				return
 			}
 		}
-		// Every saved batch goes out right away, so clients fill up during a long first sync.
+		// Clients show the sync running until the MailboxSynced below. Every saved batch goes out right away, so they
+		// fill up during a long first sync.
+		start, _ := json.Marshal(msg.MailboxSyncing{AccountId: cmd.AccountId})
+		_ = nc.Publish("evt.mailbox.syncing", start)
 		v, err := mail.Sync(ctx, pool, put, master, cmd.AccountId, func(v int64) {
-			ev, _ := json.Marshal(msg.MailboxSynced{AccountId: cmd.AccountId, Version: int(v)})
-			_ = nc.Publish("evt.mailbox.synced", ev)
+			n := int(v)
+			ev, _ := json.Marshal(msg.MailboxSyncing{AccountId: cmd.AccountId, Version: &n})
+			_ = nc.Publish("evt.mailbox.syncing", ev)
 		})
 		if err != nil {
 			slog.Error("sync failed", "account", cmd.AccountId, "err", err)
