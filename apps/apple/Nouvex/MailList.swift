@@ -196,7 +196,7 @@ struct MailList: View {
 
     // Accounts in view that are syncing or can't: a running line, and what went wrong with a way out.
     @ViewBuilder private var banners: some View {
-        let inView = mail.accounts.filter { a in mail.account.map { $0 == a.id } ?? !a.archived }
+        let inView = mail.inView
         VStack(spacing: 0) {
             if inView.contains(where: { mail.syncing.contains($0.id) }) { SyncLine() }
             ForEach(inView.filter { $0.syncError != nil }) { a in
@@ -315,21 +315,15 @@ struct MailList: View {
         Button("Delete", role: .destructive) { act(c) { mail.update(c.messages, trash: true) } }
     }
 
-    // Up to four people whose mail matches what's typed.
     private func suggestPeople() async {
         let typed = query.trimmingCharacters(in: .whitespaces)
         guard typed.count > 1, (try? await Task.sleep(for: .milliseconds(100))) != nil else { return people = [] }
-        people = (try? await Store.db.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT fromName, fromAddr FROM message WHERE fromAddr LIKE ?1 OR fromName LIKE ?1
-                GROUP BY lower(fromAddr) ORDER BY MAX(sentAt) DESC LIMIT 4
-                """, arguments: ["%\(typed)%"]).map { SearchToken.from($0["fromAddr"], $0["fromName"]) }
-        }) ?? []
+        people = await Store.people(matching: typed, limit: 4).map { SearchToken.from($0.address, $0.name) }
     }
 
     private func observe() async {
         let folder = mail.folder
-        let categories = mail.categories
+        let categories = mail.prefs.categories
         let account = mail.account
         let query = (tokens.map(\.query) + [query.trimmingCharacters(in: .whitespaces)]).filter { !$0.isEmpty }.joined(separator: " ")
         // Waits for typing to pause before searching.

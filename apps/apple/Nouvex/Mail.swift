@@ -9,7 +9,7 @@ import AppKit
 #endif
 
 /// Settings that follow the user to every device; the server leaves out whatever is at its default.
-struct Prefs: Equatable {
+struct Prefs {
     var markRead = "instant"
     var remoteImages = "always"
     var afterArchive = "list"
@@ -25,7 +25,7 @@ struct Prefs: Equatable {
 }
 
 /// A short word after something happened, at the bottom of the window.
-struct Toast: Identifiable, Equatable {
+struct Toast: Identifiable {
     let id = UUID()
     let title: String
     var detail: String?
@@ -62,12 +62,12 @@ struct Toast: Identifiable, Equatable {
 
     /// The accounts in All inboxes and the picker.
     var accountList: [Account] { accounts.filter { !$0.archived } }
-    var categories: Bool { prefs.categories }
-    var undoSend: Int { prefs.undoSend }
+    /// The account picked in the sidebar, or every active one.
+    var inView: [Account] { accounts.filter { a in account.map { $0 == a.id } ?? !a.archived } }
 
     /// Unread conversations in the inbox, the way the sidebar counts them.
-    var inboxUnread: Int { categories ? unread.counts["primary"] ?? 0 : unread.counts.values.reduce(0, +) }
-    var recent: [Message] { Array(unread.recent.filter { !categories || $0.category == "primary" }.prefix(5)) }
+    var inboxUnread: Int { prefs.categories ? unread.counts["primary"] ?? 0 : unread.counts.values.reduce(0, +) }
+    var recent: [Message] { Array(unread.recent.filter { !prefs.categories || $0.category == "primary" }.prefix(5)) }
 
     private var pulls: [String: Task<Void, Never>] = [:]
     private var again: Set<String> = []
@@ -203,6 +203,11 @@ struct Toast: Identifiable, Equatable {
         }
     }
 
+    /// A setting as a binding for a control; changing it saves it.
+    func binding<Value>(_ key: WritableKeyPath<Prefs, Value>) -> Binding<Value> {
+        Binding(get: { self.prefs[keyPath: key] }, set: { v in self.set { $0[keyPath: key] = v } })
+    }
+
     func toast(_ title: String, _ detail: String? = nil) {
         let t = Toast(title: title, detail: detail)
         withAnimation(.quick) { toasts = Array((toasts + [t]).suffix(3)) }
@@ -296,7 +301,7 @@ struct Toast: Identifiable, Equatable {
     }
 
     private func notify(_ fresh: [Message]) {
-        for m in fresh where !categories || m.category == "primary" {
+        for m in fresh where !prefs.categories || m.category == "primary" {
             let content = UNMutableNotificationContent()
             content.title = m.sender
             content.body = m.subject
@@ -332,7 +337,7 @@ struct Toast: Identifiable, Equatable {
     func update(
         _ messages: [Message], seen: Bool? = nil, starred: Bool? = nil, archive: Bool = false, trash: Bool = false, snoozeUntil: Date? = nil
     ) {
-        if let snoozeUntil, !messages.isEmpty { toast("Snoozed until \(snoozeUntil.formatted(.dateTime.weekday(.abbreviated).hour().minute()))") }
+        if let snoozeUntil, !messages.isEmpty { toast("Snoozed until \(snoozeUntil.when)") }
         Task { await Background.keepAlive {
             try? await Store.db.write { db in
                 for var m in messages {

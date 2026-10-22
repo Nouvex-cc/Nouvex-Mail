@@ -25,6 +25,11 @@ let tapSize: CGFloat = 28
 let tapSize: CGFloat = 44
 #endif
 
+extension Date {
+    /// "Fri 09:00": when something is snoozed until or scheduled for.
+    var when: String { formatted(.dateTime.weekday(.abbreviated).hour().minute()) }
+}
+
 enum Device {
     #if os(macOS)
     static let platform = "macOS"

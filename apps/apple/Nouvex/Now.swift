@@ -43,7 +43,7 @@ struct NowCards: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { t in
-            let inView = Set(mail.accounts.filter { a in mail.account.map { $0 == a.id } ?? !a.archived }.map(\.id))
+            let inView = Set(mail.inView.map(\.id))
             let cards = Due.now(found.filter { inView.contains($0.accountId) }, at: t.date, lead: mail.prefs.meetingLead, life: mail.prefs.codeLife)
             VStack(spacing: 6) {
                 ForEach(cards) { card($0, now: t.date) }
@@ -109,12 +109,12 @@ private struct CopyButton: View {
         Button(copied ? "Copied" : "Copy") {
             Clipboard.copy(text)
             copied = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                copied = false
-            }
         }
         .buttonStyle(.glass)
         .controlSize(.small)
+        .task(id: copied) {
+            guard copied, (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
+            copied = false
+        }
     }
 }

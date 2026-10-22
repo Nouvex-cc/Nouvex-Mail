@@ -187,7 +187,7 @@ struct Composer: View {
     }
 
     private var sendButton: some View {
-        SendButton(undoing: undoing, seconds: mail.undoSend) {
+        SendButton(undoing: undoing, seconds: mail.prefs.undoSend) {
             if case .undo(let task) = phase {
                 task.cancel()
                 phase = .writing
@@ -457,11 +457,11 @@ struct Composer: View {
     }
 
     private func send() {
-        guard mail.undoSend > 0 else {
+        guard mail.prefs.undoSend > 0 else {
             Task { await Background.keepAlive { await deliver() } }
             return
         }
-        let seconds = mail.undoSend
+        let seconds = mail.prefs.undoSend
         phase = .undo(Task {
             await Background.keepAlive {
                 guard (try? await Task.sleep(for: .seconds(seconds))) != nil else { return }
@@ -499,7 +499,7 @@ struct Composer: View {
             phase = .writing
             return
         }
-        if let sendAt { mail.toast("Scheduled for \(sendAt.formatted(.dateTime.weekday(.abbreviated).hour().minute()))") }
+        if let sendAt { mail.toast("Scheduled for \(sendAt.when)") }
         dismiss()
     }
 
@@ -566,11 +566,6 @@ struct Recipients: View {
     @State private var entry = Self.mark
     private static let mark = "\u{200B}"
 
-    struct Person: Hashable {
-        let name: String
-        let address: String
-    }
-
     private var focused: Bool { focus.wrappedValue == field }
     private var parts: [String] { text.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
     // While typing, the last part is the text in the field; otherwise every part is a chip.
@@ -603,7 +598,7 @@ struct Recipients: View {
                     .focused(focus, equals: field)
                     .address()
                     .frame(minWidth: 140)
-                    .onSubmit { commit(people.indices.contains(highlighted) && !people.isEmpty ? people[highlighted] : nil) }
+                    .onSubmit { commit(people.indices.contains(highlighted) ? people[highlighted] : nil) }
                     .onKeyPress(.tab) {
                         commit()
                         return next()
@@ -632,8 +627,8 @@ struct Recipients: View {
         }
         .onChange(of: focused) { _, now in
             // Coming in, what's there becomes chips; leaving, the last bit typed becomes one too.
-            if now { set(parts.filter { !$0.isEmpty }, typing: "") }
-            if !now { text = parts.filter { !$0.isEmpty }.joined(separator: ", ") }
+            let filled = parts.filter { !$0.isEmpty }
+            if now { set(filled, typing: "") } else { text = filled.joined(separator: ", ") }
         }
         .overlay(alignment: .topLeading) {
             if focused, !people.isEmpty { suggestions.offset(y: 34) }
@@ -673,13 +668,11 @@ struct Recipients: View {
 
     private var typed: String { entry.replacingOccurrences(of: Self.mark, with: "") }
 
-    // The chips plus what's typed, as one text, so sending and drafts see it all.
     private func set(_ chips: [String], typing: String) {
         text = (chips + [typing]).joined(separator: ", ")
         if entry != Self.mark + typing { entry = Self.mark + typing }
     }
 
-    // The highlighted suggestion, or what was typed, becomes a chip.
     private func commit(_ person: Person? = nil) {
         let typed = typed.trimmingCharacters(in: .whitespaces)
         set(chips + [person?.address ?? typed].filter { !$0.isEmpty }, typing: "")
@@ -692,17 +685,12 @@ struct Recipients: View {
         set(rest, typing: focused ? typed : "")
     }
 
-    // Up to five people from mail already here, most recent first, leaving out who's in already.
+    // Up to five, leaving out who's in already.
     private func suggest() async {
         let query = focused ? typed : ""
         guard !query.isEmpty, (try? await Task.sleep(for: .milliseconds(80))) != nil else { return people = [] }
         let taken = Set(chips.map { $0.lowercased() })
-        let found = (try? await Store.db.read { db in
-            try Row.fetchAll(db, sql: """
-                SELECT fromName, fromAddr FROM message WHERE fromAddr LIKE ?1 OR fromName LIKE ?1
-                GROUP BY lower(fromAddr) ORDER BY MAX(sentAt) DESC LIMIT 10
-                """, arguments: ["%\(query)%"]).map { Person(name: $0["fromName"], address: $0["fromAddr"]) }
-        }) ?? []
+        let found = await Store.people(matching: query, limit: 10)
         people = Array(found.filter { !taken.contains($0.address.lowercased()) }.prefix(5))
         highlighted = 0
     }

@@ -63,11 +63,7 @@ struct ThreadView: View {
                 Composer(placement: .reply).padding(.horizontal, 24).padding(.bottom, 16)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
             } else if let newest {
-                let others = newest.others(mail.accountList)
-                ReplyBar(
-                    to: replyTo(newest), others: others, everyone: mail.prefs.replyDefault == "all" && others.count > 1,
-                    resuming: saved != nil, write: answer
-                )
+                ReplyBar(to: replyTo(newest), others: newest.others(mail.accountList), everyone: everyone, resuming: saved != nil, write: answer)
                 .padding(.horizontal, 16).padding(.bottom, 16)
             }
         }
@@ -250,7 +246,7 @@ struct ThreadView: View {
             mail.update(messages, seen: false)
             back()
         case "h": snoozing = true
-        case "r": answer(mail.prefs.replyDefault == "all" && (newest?.others(mail.accountList).count ?? 0) > 1 ? .replyAll : .reply)
+        case "r": answer(everyone ? .replyAll : .reply)
         case "a": answer(.replyAll)
         case "f": answer(.forward)
         case "?": mail.shortcutsOpen = true
@@ -258,6 +254,9 @@ struct ThreadView: View {
         }
         return .handled
     }
+
+    /// R and the reply button answer everyone when the setting says so and there is more than one other person.
+    private var everyone: Bool { mail.prefs.replyDefault == "all" && (newest?.others(mail.accountList).count ?? 0) > 1 }
 
     /// A reply already saved in this conversation, to carry on with.
     private var saved: Message? { messages.last { drafts.contains($0.mailboxId) } }
@@ -375,10 +374,6 @@ private struct SenderName: View {
         Button {
             Clipboard.copy(message.fromAddr)
             copied = true
-            Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                copied = false
-            }
         } label: {
             Text(copied ? "Copied" : hovered ? message.fromAddr : message.sender)
                 .font(.md.weight(.medium)).foregroundStyle(.ink).contentTransition(.opacity)
@@ -386,6 +381,10 @@ private struct SenderName: View {
         .buttonStyle(.plain)
         .onHover { over in withAnimation(.quick) { hovered = over } }
         .help("Copy \(message.fromAddr)")
+        .task(id: copied) {
+            guard copied, (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
+            copied = false
+        }
     }
 }
 

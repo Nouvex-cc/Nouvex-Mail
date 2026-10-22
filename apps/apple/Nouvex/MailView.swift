@@ -156,7 +156,7 @@ struct WhenPicker: View {
                     HStack {
                         Text(label).foregroundStyle(.ink)
                         Spacer()
-                        Text(date.formatted(.dateTime.weekday(.abbreviated).hour().minute())).foregroundStyle(.muted)
+                        Text(date.when).foregroundStyle(.muted)
                     }
                     .font(.md)
                     .frame(maxWidth: .infinity)

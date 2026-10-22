@@ -224,7 +224,23 @@ struct Unread: Equatable, Sendable {
     }
 }
 
+/// Someone mail came from.
+struct Person: Hashable {
+    let name: String
+    let address: String
+}
+
 enum Store {
+    /// People whose mail matches what's typed, most recent first.
+    static func people(matching typed: String, limit: Int) async -> [Person] {
+        (try? await db.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT fromName, fromAddr FROM message WHERE fromAddr LIKE ?1 OR fromName LIKE ?1
+                GROUP BY lower(fromAddr) ORDER BY MAX(sentAt) DESC LIMIT ?2
+                """, arguments: ["%\(typed)%", limit]).map { Person(name: $0["fromName"], address: $0["fromAddr"]) }
+        }) ?? []
+    }
+
     static let db: DatabasePool = {
         // Per bundle id: on the Mac, Application Support is shared, and a development build mustn't open the installed
         // app's copy.

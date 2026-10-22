@@ -12,8 +12,9 @@ struct SettingsView: View {
     @Environment(Mail.self) private var mail
 
     var body: some View {
+        @Bindable var mail = mail
         NavigationSplitView {
-            List(selection: Binding(get: { mail.settings }, set: { mail.settings = $0 })) {
+            List(selection: $mail.settings) {
                 Section("Mail") {
                     Label("Reading", systemImage: "book").tag(SettingsPage.reading)
                     Label("Writing", systemImage: "pencil.line").tag(SettingsPage.writing)
@@ -107,7 +108,7 @@ private struct Choice<Value: Hashable>: View {
 
     var body: some View {
         LabeledContent {
-            let picker = Picker(label, selection: Binding(get: { mail.prefs[keyPath: key] }, set: { v in mail.set { $0[keyPath: key] = v } })) {
+            let picker = Picker(label, selection: mail.binding(key)) {
                 ForEach(options, id: \.0) { Text($0.1).tag($0.0) }
             }
             .labelsHidden()
@@ -131,7 +132,7 @@ private struct PrefToggle: View {
     let key: WritableKeyPath<Prefs, Bool>
 
     var body: some View {
-        Toggle(isOn: Binding(get: { mail.prefs[keyPath: key] }, set: { v in mail.set { $0[keyPath: key] = v } })) {
+        Toggle(isOn: mail.binding(key)) {
             Text(label)
             Text(hint)
         }
@@ -311,20 +312,20 @@ private struct AccountPage: View {
     }
 
     private func save() async {
-        let change = Operations.updateAccount.Input.Body.jsonPayload(displayName: name, signature: signature)
-        guard case .noContent = try? await API.client.updateAccount(path: .init(accountId: account.id), body: .json(change)) else {
-            return mail.toast("Couldn't save \(account.email)")
-        }
-        try? await mail.loadAccounts()
-        saved = true
+        if await update(.init(displayName: name, signature: signature), failed: "Couldn't save \(account.email)") { saved = true }
     }
 
     private func archive(_ on: Bool) async {
-        let change = Operations.updateAccount.Input.Body.jsonPayload(archived: on)
+        _ = await update(.init(archived: on), failed: "Couldn't change \(account.email)")
+    }
+
+    private func update(_ change: Operations.updateAccount.Input.Body.jsonPayload, failed: String) async -> Bool {
         guard case .noContent = try? await API.client.updateAccount(path: .init(accountId: account.id), body: .json(change)) else {
-            return mail.toast("Couldn't change \(account.email)")
+            mail.toast(failed)
+            return false
         }
         try? await mail.loadAccounts()
+        return true
     }
 }
 

@@ -14,12 +14,13 @@ struct Shell: View {
     #endif
 
     var body: some View {
+        @Bindable var mail = mail
         NavigationSplitView(preferredCompactColumn: $column) {
             Sidebar { column = .detail }.navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 320)
         } detail: {
             NavigationStack {
                 MailList(query: $query, searching: $searching)
-                    .navigationDestination(item: Binding(get: { mail.thread }, set: { mail.thread = $0 })) { thread in
+                    .navigationDestination(item: $mail.thread) { thread in
                         ThreadView(threadId: thread).id(thread)
                     }
             }
@@ -33,9 +34,9 @@ struct Shell: View {
         )) {
             Composer(placement: .sheet)
         }
-        .sheet(isPresented: Binding(get: { mail.shortcutsOpen }, set: { mail.shortcutsOpen = $0 })) { ShortcutsSheet() }
+        .sheet(isPresented: $mail.shortcutsOpen) { ShortcutsSheet() }
         #if os(iOS)
-        .sheet(isPresented: Binding(get: { mail.settingsOpen }, set: { mail.settingsOpen = $0 })) { SettingsView() }
+        .sheet(isPresented: $mail.settingsOpen) { SettingsView() }
         #endif
         .overlay(alignment: .bottom) { Toasts().padding(.bottom, 84) }
         .background {
@@ -84,7 +85,7 @@ struct Sidebar: View {
             mail.thread = nil
             show()
         })) {
-            if mail.categories {
+            if mail.prefs.categories {
                 #if os(macOS)
                 DisclosureGroup(isExpanded: $categoriesOpen) {
                     ForEach(Self.categories, id: \.0) { id, name in
@@ -109,14 +110,11 @@ struct Sidebar: View {
             row("Starred", icon: "star", folder: .starred)
             // An account's own folders, only while one account is in view, like the web.
             if mail.account != nil, !own.isEmpty {
+                let folders = ForEach(own, id: \.id) { b in row(b.name, icon: "folder", folder: .mailbox(b.id, b.name)) }
                 #if os(macOS)
-                DisclosureGroup("Folders", isExpanded: $ownOpen) {
-                    ForEach(own, id: \.id) { b in row(b.name, icon: "folder", folder: .mailbox(b.id, b.name)) }
-                }
+                DisclosureGroup("Folders", isExpanded: $ownOpen) { folders }
                 #else
-                Section("Folders") {
-                    ForEach(own, id: \.id) { b in row(b.name, icon: "folder", folder: .mailbox(b.id, b.name)) }
-                }
+                Section("Folders") { folders }
                 #endif
             }
             #if os(iOS)
