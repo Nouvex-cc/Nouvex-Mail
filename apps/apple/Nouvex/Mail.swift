@@ -2,10 +2,34 @@
 import Foundation
 import GRDB
 import Observation
+import SwiftUI
 import UserNotifications
 #if os(macOS)
 import AppKit
 #endif
+
+/// Settings that follow the user to every device; the server leaves out whatever is at its default.
+struct Prefs: Equatable {
+    var markRead = "instant"
+    var remoteImages = "always"
+    var afterArchive = "list"
+    var undoSend = 5
+    var replyDefault = "reply"
+    /// Replies to mail sent from an archived account still show in All inboxes.
+    var archivedReplies = true
+    /// Minutes before a meeting starts that it shows in the sidebar.
+    var meetingLead = 15
+    /// Minutes a sign-in code stays in the sidebar.
+    var codeLife = 5
+    var categories = true
+}
+
+/// A short word after something happened, at the bottom of the window.
+struct Toast: Identifiable, Equatable {
+    let id = UUID()
+    let title: String
+    var detail: String?
+}
 
 /// The signed-in session: keeps the local copy in step with the server and changes mail there.
 @MainActor @Observable final class Mail {
@@ -22,11 +46,18 @@ import AppKit
     var reply: Draft?
     /// Who's signed in, for the profile at the bottom of the sidebar.
     private(set) var me = (name: "", email: "")
-    private(set) var accountList: [Account] = []
-    /// Settings that follow the user from the web.
-    private(set) var categories = true
-    private(set) var undoSend = 5
+    /// Every account, archived ones too.
+    private(set) var accounts: [Account] = []
+    private(set) var prefs = Prefs()
     private(set) var unread = Unread()
+    /// Accounts the engine is syncing right now.
+    private(set) var syncing: Set<String> = []
+    private(set) var toasts: [Toast] = []
+
+    /// The accounts in All inboxes and the picker.
+    var accountList: [Account] { accounts.filter { !$0.archived } }
+    var categories: Bool { prefs.categories }
+    var undoSend: Int { prefs.undoSend }
 
     /// Unread conversations in the inbox, the way the sidebar counts them.
     var inboxUnread: Int { categories ? unread.counts["primary"] ?? 0 : unread.counts.values.reduce(0, +) }
@@ -53,7 +84,7 @@ import AppKit
     /// Pull to refresh: everything since the last pull, waiting until it's in.
     func refresh() async {
         resume()
-        for a in accountList { pull(a.id) }
+        for a in accounts { pull(a.id) }
         while !pulls.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
     }
 
@@ -82,7 +113,7 @@ import AppKit
                 let socket = URLSession.shared.webSocketTask(with: socketURL)
                 socket.resume()
                 defer { socket.cancel() }
-                for a in accountList { pull(a.id) }
+                for a in accounts { pull(a.id) }
                 while !Task.isCancelled {
                     let message = try await withTaskCancellationHandler { try await socket.receive() } onCancel: { socket.cancel() }
                     if case .string(let text) = message { event(text) }
@@ -108,28 +139,18 @@ import AppKit
     }
 
     private func load() async throws {
-        let client = API.client
-        let list: [Account]
-        switch try await client.listAccounts() {
-        case .ok(let ok):
-            list = try ok.body.json.filter { $0.archivedAt == nil }.map {
-                Account(id: $0.id, email: $0.email, displayName: $0.displayName, signature: $0.signature)
-            }
-        case .undocumented(statusCode: 401, _): throw SignedOut()
-        case .undocumented: throw URLError(.badServerResponse)
-        }
-        if let prefs = try? await client.getPrefs().ok.body.json {
-            categories = prefs.categories ?? true
-            undoSend = Int(prefs.undoSend?.value1 ?? 5)
+        try await loadAccounts()
+        if let p = try? await API.client.getPrefs().ok.body.json {
+            let d = Prefs()
+            prefs = Prefs(
+                markRead: p.markRead?.rawValue ?? d.markRead, remoteImages: p.remoteImages?.rawValue ?? d.remoteImages,
+                afterArchive: p.afterArchive?.rawValue ?? d.afterArchive, undoSend: p.undoSend?.value1.map { Int($0) } ?? d.undoSend,
+                replyDefault: p.replyDefault?.rawValue ?? d.replyDefault, archivedReplies: p.archivedReplies ?? d.archivedReplies,
+                meetingLead: p.meetingLead?.value1.map { Int($0) } ?? d.meetingLead, codeLife: p.codeLife?.value1.map { Int($0) } ?? d.codeLife,
+                categories: p.categories ?? d.categories
+            )
         }
         if let user = await API.me() { me = user }
-        // Accounts removed or archived elsewhere take their mail with them.
-        try await Store.db.write { db in
-            try Account.filter(!list.map(\.id).contains(Column("id"))).deleteAll(db)
-            for a in list { try a.save(db) }
-        }
-        accountList = list
-        if let account, !list.contains(where: { $0.id == account }) { self.account = nil }
         let first = state != .signedIn
         state = .signedIn
         // Asked once there's mail to tell about, not on the sign-in screen. Nothing waits for the answer: with Focus on,
@@ -137,10 +158,59 @@ import AppKit
         if first { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) } }
     }
 
+    /// The accounts with their sync errors; one removed elsewhere takes its mail with it.
+    func loadAccounts() async throws {
+        let list: [Account]
+        switch try await API.client.listAccounts() {
+        case .ok(let ok):
+            list = try ok.body.json.map {
+                Account(
+                    id: $0.id, email: $0.email, displayName: $0.displayName, signature: $0.signature, archived: $0.archivedAt != nil,
+                    syncError: $0.syncError
+                )
+            }
+        case .undocumented(statusCode: 401, _): throw SignedOut()
+        case .undocumented: throw URLError(.badServerResponse)
+        }
+        try await Store.db.write { db in
+            try Account.filter(!list.map(\.id).contains(Column("id"))).deleteAll(db)
+            for a in list { try a.save(db) }
+        }
+        accounts = list
+        if let account, !list.contains(where: { $0.id == account }) { self.account = nil }
+    }
+
+    /// Changes a setting here right away and on the server, where every other device picks it up.
+    func set(_ change: (inout Prefs) -> Void) {
+        let before = prefs
+        change(&prefs)
+        let p = prefs
+        let body = Operations.updatePrefs.Input.Body.jsonPayload(
+            markRead: .init(rawValue: p.markRead), remoteImages: .init(rawValue: p.remoteImages), afterArchive: .init(rawValue: p.afterArchive),
+            undoSend: .init(value1: Double(p.undoSend)), replyDefault: .init(rawValue: p.replyDefault), archivedReplies: p.archivedReplies,
+            meetingLead: .init(value1: Double(p.meetingLead)), codeLife: .init(value1: Double(p.codeLife)), categories: p.categories
+        )
+        Task {
+            if case .noContent = try? await API.client.updatePrefs(body: .json(body)) { return }
+            prefs = before
+            toast("Couldn't save the setting")
+        }
+    }
+
+    func toast(_ title: String, _ detail: String? = nil) {
+        let t = Toast(title: title, detail: detail)
+        withAnimation(.quick) { toasts = Array((toasts + [t]).suffix(3)) }
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(.quick) { toasts.removeAll { $0.id == t.id } }
+        }
+    }
+
     // Engine events (packages/schema), with only the fields used here.
     private struct Event: Decodable {
         struct About: Decodable {
             let accountId: String
+            let version: Int?
             let subject: String?
             let error: String?
         }
@@ -149,14 +219,21 @@ import AppKit
     }
 
     private func event(_ text: String) {
-        guard let e = try? JSONDecoder().decode(Event.self, from: Data(text.utf8)), accountList.contains(where: { $0.id == e.data.accountId }) else { return }
-        if e.subject.hasPrefix("evt.mailbox.") { pull(e.data.accountId) }
-        // Sending happens after the composer closed, so only a failure is worth a word.
-        if e.subject == "evt.message.sent", let error = e.data.error {
-            let content = UNMutableNotificationContent()
-            content.title = "Couldn't send “\(e.data.subject ?? "")”"
-            content.body = error
-            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        guard let e = try? JSONDecoder().decode(Event.self, from: Data(text.utf8)), accounts.contains(where: { $0.id == e.data.accountId }) else { return }
+        let id = e.data.accountId
+        switch e.subject {
+        case "evt.mailbox.syncing":
+            if e.data.version != nil { pull(id) }
+            syncing.insert(id)
+        case "evt.mailbox.synced":
+            if e.data.error == nil { pull(id) }
+            syncing.remove(id)
+            // A sync that failed or worked again changes the account's error.
+            Task { try? await loadAccounts() }
+        case "evt.message.sent":
+            let subject = e.data.subject ?? ""
+            if let error = e.data.error { toast("Couldn't send “\(subject)”", error) } else { toast("Sent “\(subject)”") }
+        default: break
         }
     }
 
@@ -183,7 +260,14 @@ import AppKit
                 var message = Message(
                     id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: m.messageId, threadId: m.threadId,
                     subject: m.subject, snippet: m.snippet, fromName: m.fromName, fromAddr: m.fromAddr, to: m.to, cc: m.cc, sentAt: m.sentAt,
-                    flags: m.flags, category: m.category.rawValue, attachments: m.attachments.count
+                    flags: m.flags, category: m.category.rawValue, attachments: m.attachments.count,
+                    files: m.attachments.map { Attachment(name: $0.name, type: $0._type, size: $0.size) },
+                    actions: m.actions.map {
+                        Action(
+                            kind: $0.kind.rawValue, code: $0.code, title: $0.title, start: $0.start, end: $0.end, url: $0.url,
+                            provider: $0.provider, event: $0.event, cancelled: $0.cancelled
+                        )
+                    }
                 )
                 message.set()
                 return message

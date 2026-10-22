@@ -7,6 +7,10 @@ struct Account: Codable, Hashable, Identifiable, FetchableRecord, PersistableRec
     var email: String
     var displayName: String
     var signature: String
+    /// Out of All inboxes and the picker, still there to look into.
+    var archived = false
+    /// Why the server can't sync it right now, if it can't.
+    var syncError: String?
 }
 
 struct Mailbox: Codable, Hashable, FetchableRecord, PersistableRecord {
@@ -14,6 +18,26 @@ struct Mailbox: Codable, Hashable, FetchableRecord, PersistableRecord {
     var accountId: String
     var name: String
     var role: String
+}
+
+/// A file attached to a message; the bytes come on request, by its place in the list.
+struct Attachment: Codable, Hashable, Sendable {
+    var name: String
+    var type: String
+    var size: Int
+}
+
+/// A sign-in code or a meeting the engine found in a message.
+struct Action: Codable, Hashable, Sendable {
+    var kind: String
+    var code: String?
+    var title: String?
+    var start: Date?
+    var end: Date?
+    var url: String?
+    var provider: String?
+    var event: String?
+    var cancelled: Bool?
 }
 
 // A message as GET /accounts/{id}/changes delivers it.
@@ -36,6 +60,8 @@ struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, Pers
     // What flags says, kept apart so unread and starred mail is found through an index.
     var seen = false
     var starred = false
+    var files: [Attachment] = []
+    var actions: [Action] = []
 
     var sender: String { fromName.isEmpty ? fromAddr : fromName }
     /// Sent from one of the reader's own addresses.
@@ -107,6 +133,9 @@ struct Conversation: Identifiable, Hashable, Sendable {
 enum Folder: Hashable, Sendable {
     case inbox, category(String), starred, role(String)
 
+    /// All inboxes leaves archived accounts out.
+    static let active = "accountId NOT IN (SELECT id FROM account WHERE archived = 1)"
+
     func conversations(_ db: GRDB.Database, categories: Bool, account: String?) throws -> [Conversation] {
         let inbox = "mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox')"
         let (sql, args): (String, StatementArguments) = switch self {
@@ -115,7 +144,7 @@ enum Folder: Hashable, Sendable {
         case .starred: ("starred = 1 AND mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", [])
         case .role(let role): ("mailboxId IN (SELECT id FROM mailbox WHERE role = ?)", [role])
         }
-        guard let account else { return try Conversation.fetch(db, sql, args) }
+        guard let account else { return try Conversation.fetch(db, "(\(sql)) AND \(Self.active)", args) }
         return try Conversation.fetch(db, "(\(sql)) AND accountId = ?", args + [account])
     }
 }
@@ -175,7 +204,7 @@ struct Unread: Equatable, Sendable {
     var recent: [Message] = []
 
     static func fetch(_ db: GRDB.Database) throws -> Unread {
-        let inbox = "seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox')"
+        let inbox = "seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.active)"
         let rows = try Row.fetchAll(db, sql: "SELECT category, COUNT(DISTINCT threadId) AS n FROM message WHERE \(inbox) GROUP BY category")
         return Unread(
             counts: Dictionary(uniqueKeysWithValues: rows.map { ($0["category"], $0["n"]) }),
@@ -186,7 +215,9 @@ struct Unread: Equatable, Sendable {
 
 enum Store {
     static let db: DatabasePool = {
-        var dir = URL.applicationSupportDirectory.appending(path: "Nouvex")
+        // Per bundle id: on the Mac, Application Support is shared, and a development build mustn't open the installed
+        // app's copy.
+        var dir = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "Nouvex")
         try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // A copy of the server's mail: it syncs back after a restore, so it stays out of device backups.
         var values = URLResourceValues()
@@ -241,6 +272,18 @@ enum Store {
                 t.add(column: "cc", .text).notNull().defaults(to: "[]")
             }
             try db.execute(sql: "DELETE FROM body; DELETE FROM message; DELETE FROM cursor")
+        }
+        // Attachments by name, codes and meetings, and archived accounts came later; messages are fetched again.
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "account") { t in
+                t.add(column: "archived", .boolean).notNull().defaults(to: false)
+                t.add(column: "syncError", .text)
+            }
+            try db.alter(table: "message") { t in
+                t.add(column: "files", .text).notNull().defaults(to: "[]")
+                t.add(column: "actions", .text).notNull().defaults(to: "[]")
+            }
+            try db.execute(sql: "DELETE FROM message; DELETE FROM cursor")
         }
         try! migrator.migrate(db)
         return db

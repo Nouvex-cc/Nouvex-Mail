@@ -23,29 +23,36 @@ targets:
     supportedDestinations: [iOS, macOS]
     sources: [Nouvex]
     settings:
-      SWIFT_VERSION: "6.0"
-      PRODUCT_NAME: Nouvex Mail
-      PRODUCT_MODULE_NAME: Nouvex
-      PRODUCT_BUNDLE_IDENTIFIER: cc.nouvex.Nouvex
-      MARKETING_VERSION: 0.1.0
-      CURRENT_PROJECT_VERSION: 1
-      DEVELOPMENT_TEAM: SQR8LP4972
-      CODE_SIGN_STYLE: Automatic
-      "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
-      SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
-      ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
-      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-      GENERATE_INFOPLIST_FILE: YES
-      # Only what the generated Info.plist can't say: plain http stays allowed on the local network.
-      INFOPLIST_FILE: Nouvex/Info.plist
-      INFOPLIST_KEY_CFBundleDisplayName: Nouvex Mail
-      INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
-      INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
-      INFOPLIST_KEY_UILaunchScreen_Generation: YES
-      INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-      INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
-      INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
-      INFOPLIST_KEY_NSLocalNetworkUsageDescription: Nouvex Mail connects to a mail server on your network when you sign in to one.
+      base:
+        SWIFT_VERSION: "6.0"
+        PRODUCT_NAME: Nouvex Mail
+        PRODUCT_MODULE_NAME: Nouvex
+        PRODUCT_BUNDLE_IDENTIFIER: cc.nouvex.Nouvex
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        DEVELOPMENT_TEAM: SQR8LP4972
+        CODE_SIGN_STYLE: Automatic
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "-"
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+        # Only what the generated Info.plist can't say: plain http stays allowed on the local network.
+        INFOPLIST_FILE: Nouvex/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Nouvex Mail
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: Nouvex Mail connects to a mail server on your network when you sign in to one.
+      # A development build keeps its own data and sign-in, apart from the installed app.
+      configs:
+        Debug:
+          PRODUCT_NAME: Nouvex Mail Dev
+          PRODUCT_BUNDLE_IDENTIFIER: cc.nouvex.Nouvex.dev
+          INFOPLIST_KEY_CFBundleDisplayName: Nouvex Mail Dev
     dependencies:
       - package: GRDB
       - package: OpenAPIRuntime
