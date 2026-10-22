@@ -489,12 +489,12 @@ private struct ProfilePage: View {
             switch ask {
             case .password:
                 Confirm(title: "Change password", action: "Change", newPassword: true) { password, new in
-                    try await API.auth("change-password", ["currentPassword": password, "newPassword": new, "revokeOtherSessions": true])
+                    try await Keys.changePassword(email: mail.me.email, current: password, new: new)
                     mail.toast("Password changed")
                 }
             case .delete:
                 Confirm(title: "Delete your Nouvex account?", action: "Delete for good") { password, _ in
-                    try await API.auth("delete-user", ["password": password])
+                    try await API.auth("delete-user", ["password": await Keys.derive(password, mail.me.email).authKey])
                     mail.settingsOpen = false
                     await mail.signOut()
                 }
@@ -602,18 +602,19 @@ private struct SecurityPage: View {
             switch ask {
             case .on:
                 Confirm(title: "Turn on two-factor", action: "Continue") { password, _ in
-                    let res = try await API.auth("two-factor/enable", ["password": password])
+                    let res = try await API.auth("two-factor/enable", ["password": await Keys.derive(password, mail.me.email).authKey])
                     if let uri = res["totpURI"] as? String { setup = (uri, res["backupCodes"] as? [String] ?? []) }
                 }
             case .off:
                 Confirm(title: "Turn off two-factor?", action: "Turn off") { password, _ in
-                    try await API.auth("two-factor/disable", ["password": password])
+                    try await API.auth("two-factor/disable", ["password": await Keys.derive(password, mail.me.email).authKey])
                     fresh = nil
                     await load()
                 }
             case .codes:
                 Confirm(title: "New backup codes", action: "Continue") { password, _ in
-                    fresh = try await API.auth("two-factor/generate-backup-codes", ["password": password])["backupCodes"] as? [String]
+                    let authKey = await Keys.derive(password, mail.me.email).authKey
+                    fresh = try await API.auth("two-factor/generate-backup-codes", ["password": authKey])["backupCodes"] as? [String]
                 }
             }
         }

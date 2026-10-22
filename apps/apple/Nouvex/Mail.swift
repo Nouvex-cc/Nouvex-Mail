@@ -51,6 +51,8 @@ struct Toast: Identifiable {
     /// The page Settings shows, and on iOS whether its sheet is up.
     var settings: SettingsPage? = .reading
     var settingsOpen = false
+    /// This device has the key to the user's mail (Keys.swift); a passkey alone doesn't bring it.
+    var unlocked = Keys.stored != nil
     var shortcutsOpen = false
     /// Every account, archived ones too.
     private(set) var accounts: [Account] = []
@@ -95,12 +97,15 @@ struct Toast: Identifiable {
     }
 
     func signedIn() {
+        unlocked = Keys.stored != nil
         stop()
         start()
     }
 
     func signOut() async {
         stop()
+        Keys.forget()
+        unlocked = false
         await API.signOut()
         _ = try? await Store.db.write { try Account.deleteAll($0) }
         state = .signedOut

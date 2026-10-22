@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import CryptoKit
 import SwiftUI
 
 struct MailView: View {
@@ -8,7 +9,7 @@ struct MailView: View {
         switch mail.state {
         case .loading: Color.sunken.ignoresSafeArea()
         case .signedOut: SignInView()
-        case .signedIn: Shell()
+        case .signedIn: if mail.unlocked { Shell() } else { UnlockView() }
         }
     }
 }
@@ -20,6 +21,8 @@ struct SignInView: View {
     @State private var password = ""
     @State private var code = ""
     @State private var askCode = false
+    /// Kept from the password until the code is in, to unlock the key then.
+    @State private var encKey: SymmetricKey?
     @State private var error: String?
     @State private var busy = false
     @FocusState private var focus: String?
@@ -108,21 +111,76 @@ struct SignInView: View {
         do {
             if askCode {
                 try await API.verify(code: code)
+                if let encKey { try await Keys.open(encKey) }
             } else {
                 guard let url = URL(string: server), url.scheme?.lowercased().hasPrefix("http") == true else {
                     error = "Enter the server's address, like https://mail.example.com."
                     return
                 }
                 Server.url = url
-                if try await API.signIn(email: email, password: password) {
+                let (authKey, encKey) = await Keys.derive(password, email)
+                if try await API.signIn(email: email, password: authKey) {
+                    self.encKey = encKey
                     askCode = true
                     error = nil
                     return
                 }
+                try await Keys.open(encKey)
             }
             mail.signedIn()
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+}
+
+/// After a passkey, or on a device that hasn't seen the password yet: mail is stored encrypted, and only the password
+/// opens the key to it.
+struct UnlockView: View {
+    @Environment(Mail.self) private var mail
+    @State private var password = ""
+    @State private var error: String?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Image(.logo).resizable().scaledToFit().frame(height: 20).foregroundStyle(.ink).padding(.bottom, 12)
+            Text("Unlock your mail").font(.system(size: 22, weight: .semibold)).foregroundStyle(.ink)
+            Text("It's stored encrypted. Enter the password for \(mail.me.email) once to open it on this device.")
+                .font(.sm).foregroundStyle(.muted)
+            SecureField("Password", text: $password, prompt: Text("Password").foregroundStyle(.faint))
+                .modifier(Field(focused: true))
+                #if os(iOS)
+                .textContentType(.password)
+                #endif
+                .onSubmit { Task { await unlock() } }
+            if let error { Text(error).font(.sm).foregroundStyle(.danger) }
+            HStack {
+                Button("Unlock") { Task { await unlock() } }
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || password.isEmpty)
+                Button("Sign Out") { Task { await mail.signOut() } }.buttonStyle(.glass)
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: 320)
+        .padding(32)
+        .background(.paper, in: .rect(cornerRadius: Radius.xl))
+        .overlay(RoundedRectangle(cornerRadius: Radius.xl).stroke(.line))
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.sunken)
+    }
+
+    private func unlock() async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await Keys.open(await Keys.derive(password, mail.me.email).encKey)
+            mail.unlocked = true
+        } catch {
+            self.error = error is DecodingError || error is CryptoKitError ? "That's not your password." : error.localizedDescription
         }
     }
 }
