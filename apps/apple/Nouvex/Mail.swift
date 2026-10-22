@@ -130,11 +130,11 @@ import AppKit
         }
         accountList = list
         if let account, !list.contains(where: { $0.id == account }) { self.account = nil }
-        // Asked once there's mail to tell about, not on the sign-in screen.
-        if state != .signedIn {
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-        }
+        let first = state != .signedIn
         state = .signedIn
+        // Asked once there's mail to tell about, not on the sign-in screen. Nothing waits for the answer: with Focus on,
+        // the question may not even show.
+        if first { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) } }
     }
 
     // Engine events (packages/schema), with only the fields used here.
