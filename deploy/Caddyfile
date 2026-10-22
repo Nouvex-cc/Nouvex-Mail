@@ -1,4 +1,4 @@
-{$DOMAIN} {
+{$SITE} {
 	encode zstd gzip
 
 	# The same paths the web app's dev server forwards; the Apple apps use them too.

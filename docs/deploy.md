@@ -23,6 +23,10 @@ docker compose -f deploy/compose.yml up -d --build
 
 The database schema is created on the first start. Open `https://<your domain>`, create an account, add a mailbox. In the Apple apps, enter the same address as the server when signing in.
 
+## Behind another reverse proxy
+
+If a proxy in front already takes ports 80 and 443 and does HTTPS, set `SITE=:80` in `deploy/.env` and point the proxy at port 80 of this machine, with WebSockets on. `DOMAIN` stays the public name, sign-in cookies and links use it.
+
 ## Updates
 
 ```sh
