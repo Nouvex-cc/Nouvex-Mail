@@ -94,6 +94,8 @@ func run() error {
 		MaxDeliver: 5,
 		// A first sync of a big mailbox takes a while; redelivering it meanwhile would start a second one.
 		AckWait: 15 * time.Minute,
+		// Also bounds the per-account queues below.
+		MaxAckPending: 1000,
 	})
 	if err != nil {
 		return err
@@ -140,26 +142,53 @@ func run() error {
 	}
 	go checkArchived(ctx, db.New(pool), js)
 
-	cc, err := cons.Consume(func(m jetstream.Msg) {
-		if m.Subject() == "cmd.message.send" {
-			send(ctx, m, nc, js, db.New(pool), get, master)
-			return
+	// syncAccount syncs an account and tells clients while it runs and once it's done. Every saved batch goes out
+	// right away, so they fill up during a long first sync.
+	syncAccount := func(id string) error {
+		start, _ := json.Marshal(msg.MailboxSyncing{AccountId: id})
+		_ = nc.Publish("evt.mailbox.syncing", start)
+		v, err := mail.Sync(ctx, pool, put, master, id, func(v int64) {
+			n := int(v)
+			ev, _ := json.Marshal(msg.MailboxSyncing{AccountId: id, Version: &n})
+			_ = nc.Publish("evt.mailbox.syncing", ev)
+		})
+		if err != nil {
+			slog.Error("sync failed", "account", id, "err", err)
+			failed(id, err)
+			return err
 		}
-		if m.Subject() == "cmd.draft.save" {
+		_ = db.New(pool).SetSyncError(ctx, db.SetSyncErrorParams{ID: id})
+		ev, _ := json.Marshal(msg.MailboxSynced{AccountId: id, Version: int(v)})
+		if err := nc.Publish("evt.mailbox.synced", ev); err != nil {
+			return err
+		}
+		slog.Info("synced", "account", id, "version", v)
+		watch(id)
+		return nil
+	}
+
+	// handle runs one command of an account and returns whether the account owes a sync: one that more queued
+	// commands would repeat right away is left for later.
+	handle := func(m jetstream.Msg, owed, queued bool) bool {
+		switch m.Subject() {
+		case "cmd.message.send":
+			send(ctx, m, nc, js, db.New(pool), get, master)
+			return owed
+		case "cmd.draft.save":
 			var d msg.DraftSave
 			if err := json.Unmarshal(m.Data(), &d); err != nil {
 				_ = m.Term()
-				return
+				return owed
 			}
 			if err := mail.SaveDraft(ctx, db.New(pool), master, d); err != nil {
 				slog.Error("draft failed", "account", d.AccountId, "err", err)
 				_ = m.NakWithDelay(10 * time.Second)
-				return
+				return owed
 			}
 			_ = m.Ack()
 			sync, _ := json.Marshal(msg.MailboxSync{AccountId: d.AccountId})
 			_, _ = js.Publish(ctx, "cmd.mailbox.sync", sync)
-			return
+			return owed
 		}
 		var cmd msg.MailboxSync
 		var update msg.MessageUpdate
@@ -173,43 +202,67 @@ func run() error {
 		if err != nil {
 			slog.Warn("bad command", "subject", m.Subject(), "err", err)
 			_ = m.Term()
-			return
+			return owed
 		}
 		if update.MessageId != "" {
 			// A message that is gone already can't be changed anymore.
 			if err := mail.Update(ctx, db.New(pool), master, update); errors.Is(err, pgx.ErrNoRows) {
 				_ = m.Term()
-				return
+				return owed
 			} else if err != nil {
 				slog.Error("update failed", "account", update.AccountId, "err", err)
 				_ = m.NakWithDelay(time.Minute)
-				return
+				return owed
+			}
+			if mail.Saved(update) {
+				if acc, err := db.New(pool).GetAccount(ctx, update.AccountId); err == nil {
+					ev, _ := json.Marshal(msg.MailboxSynced{AccountId: update.AccountId, Version: int(acc.Version)})
+					_ = nc.Publish("evt.mailbox.synced", ev)
+				}
+				_ = m.Ack()
+				return owed
 			}
 		}
-		// Clients show the sync running until the MailboxSynced below. Every saved batch goes out right away, so they
-		// fill up during a long first sync.
-		start, _ := json.Marshal(msg.MailboxSyncing{AccountId: cmd.AccountId})
-		_ = nc.Publish("evt.mailbox.syncing", start)
-		v, err := mail.Sync(ctx, pool, put, master, cmd.AccountId, func(v int64) {
-			n := int(v)
-			ev, _ := json.Marshal(msg.MailboxSyncing{AccountId: cmd.AccountId, Version: &n})
-			_ = nc.Publish("evt.mailbox.syncing", ev)
-		})
-		if err != nil {
-			slog.Error("sync failed", "account", cmd.AccountId, "err", err)
-			failed(cmd.AccountId, err)
+		if queued {
+			_ = m.Ack()
+			return true
+		}
+		if err := syncAccount(cmd.AccountId); err != nil {
 			_ = m.NakWithDelay(time.Minute)
-			return
+			return false
 		}
-		_ = db.New(pool).SetSyncError(ctx, db.SetSyncErrorParams{ID: cmd.AccountId})
-		ev, _ := json.Marshal(msg.MailboxSynced{AccountId: cmd.AccountId, Version: int(v)})
-		if err := nc.Publish("evt.mailbox.synced", ev); err != nil {
-			_ = m.Nak()
-			return
-		}
-		slog.Info("synced", "account", cmd.AccountId, "version", v)
 		_ = m.Ack()
-		watch(cmd.AccountId)
+		return false
+	}
+	// Commands of one account run in order, one at a time, so a message is sent after its draft was saved; accounts
+	// don't wait for each other.
+	// ponytail: a queue lives as long as the engine, one goroutine per account that ever had a command.
+	var qmu sync.Mutex
+	queues := map[string]chan jetstream.Msg{}
+	cc, err := cons.Consume(func(m jetstream.Msg) {
+		var cmd struct {
+			AccountId string `json:"accountId"`
+		}
+		_ = json.Unmarshal(m.Data(), &cmd)
+		qmu.Lock()
+		q, ok := queues[cmd.AccountId]
+		if !ok {
+			// Never fills up, see MaxAckPending.
+			q = make(chan jetstream.Msg, 1000)
+			queues[cmd.AccountId] = q
+			go func(id string) {
+				owed := false
+				for m := range q {
+					// A sync owed when the queue runs empty runs right away; its errors show on the account.
+					if owed = handle(m, owed, len(q) > 0); owed && len(q) == 0 {
+						_ = syncAccount(id)
+						owed = false
+					}
+				}
+			}(cmd.AccountId)
+		}
+		qmu.Unlock()
+		q <- m
 	})
 	if err != nil {
 		return err

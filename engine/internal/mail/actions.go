@@ -68,8 +68,13 @@ func code(subject, text string) string {
 		text = string(r[:600])
 	}
 	for _, s := range []string{subject, text} {
+		// The words are the slow part; most mail has no digits to look for them around.
+		digits := codeDigits.FindAllStringIndex(s, -1)
+		if digits == nil {
+			continue
+		}
 		words := codeWord.FindAllStringIndex(s, -1)
-		for _, d := range codeDigits.FindAllStringIndex(s, -1) {
+		for _, d := range digits {
 			m := s[d[0]:d[1]]
 			if len(m) == 4 && (strings.HasPrefix(m, "19") || strings.HasPrefix(m, "20")) {
 				continue // a year
