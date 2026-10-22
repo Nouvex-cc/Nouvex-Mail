@@ -1,6 +1,6 @@
 {
-  "id": "ed25509e-6913-471a-bc85-fb0829bc033e",
-  "prevId": "259ff2b6-5d13-48fe-a717-7eda63fa9e9f",
+  "id": "c8034fef-ea1d-4190-8bac-7c8d67a06abe",
+  "prevId": "9d0c2078-a179-4b61-8805-d16ae7228394",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -175,6 +175,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "sealed_to": {
+          "name": "sealed_to",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -239,6 +245,27 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "uid_next": {
+          "name": "uid_next",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "message_count": {
+          "name": "message_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "highest_mod_seq": {
+          "name": "highest_mod_seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {},

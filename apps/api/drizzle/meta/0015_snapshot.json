@@ -1,5 +1,5 @@
 {
-  "id": "259ff2b6-5d13-48fe-a717-7eda63fa9e9f",
+  "id": "9d0c2078-a179-4b61-8805-d16ae7228394",
   "prevId": "1a7cb27e-2569-4c66-bbc8-d47fe9a7fce5",
   "version": "7",
   "dialect": "postgresql",
@@ -239,6 +239,27 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": true
+        },
+        "uid_next": {
+          "name": "uid_next",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "message_count": {
+          "name": "message_count",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "highest_mod_seq": {
+          "name": "highest_mod_seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {},
@@ -581,58 +602,6 @@
           "tableTo": "mail_account",
           "columnsFrom": [
             "account_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.user_key": {
-      "name": "user_key",
-      "schema": "",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "public_key": {
-          "name": "public_key",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "wrapped_private": {
-          "name": "wrapped_private",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "user_key_user_id_user_id_fk": {
-          "name": "user_key_user_id_user_id_fk",
-          "tableFrom": "user_key",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
           ],
           "columnsTo": [
             "id"

@@ -58,6 +58,17 @@ func (q *Queries) ClearMailbox(ctx context.Context, mailboxID string) ([]string,
 	return items, nil
 }
 
+const countMessages = `-- name: CountMessages :one
+SELECT count(*) FROM message WHERE mailbox_id = $1
+`
+
+func (q *Queries) CountMessages(ctx context.Context, mailboxID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countMessages, mailboxID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createMailbox = `-- name: CreateMailbox :exec
 INSERT INTO mailbox (id, account_id, name, role, uid_validity) VALUES ($1, $2, $3, $4, $5)
 `
@@ -79,6 +90,36 @@ func (q *Queries) CreateMailbox(ctx context.Context, arg CreateMailboxParams) er
 		arg.UidValidity,
 	)
 	return err
+}
+
+const deleteGone = `-- name: DeleteGone :many
+DELETE FROM message WHERE mailbox_id = $1 AND uid <> ALL($2::bigint[]) RETURNING id
+`
+
+type DeleteGoneParams struct {
+	MailboxID string
+	Uids      []int64
+}
+
+// Messages of a folder whose UID the server doesn't list anymore.
+func (q *Queries) DeleteGone(ctx context.Context, arg DeleteGoneParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteGone, arg.MailboxID, arg.Uids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteMailbox = `-- name: DeleteMailbox :exec
@@ -142,28 +183,6 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.Signature,
 		&i.ArchivedAt,
 		&i.SealedTo,
-	)
-	return i, err
-}
-
-const getMailbox = `-- name: GetMailbox :one
-SELECT id, account_id, name, uid_validity, role FROM mailbox WHERE account_id = $1 AND name = $2
-`
-
-type GetMailboxParams struct {
-	AccountID string
-	Name      string
-}
-
-func (q *Queries) GetMailbox(ctx context.Context, arg GetMailboxParams) (Mailbox, error) {
-	row := q.db.QueryRow(ctx, getMailbox, arg.AccountID, arg.Name)
-	var i Mailbox
-	err := row.Scan(
-		&i.ID,
-		&i.AccountID,
-		&i.Name,
-		&i.UidValidity,
-		&i.Role,
 	)
 	return i, err
 }
@@ -362,8 +381,43 @@ func (q *Queries) ListFlags(ctx context.Context, mailboxID string) ([]ListFlagsR
 	return items, nil
 }
 
+const listFlagsFor = `-- name: ListFlagsFor :many
+SELECT id, uid, flags FROM message WHERE mailbox_id = $1 AND uid = ANY($2::bigint[])
+`
+
+type ListFlagsForParams struct {
+	MailboxID string
+	Uids      []int64
+}
+
+type ListFlagsForRow struct {
+	ID    string
+	Uid   int64
+	Flags []string
+}
+
+func (q *Queries) ListFlagsFor(ctx context.Context, arg ListFlagsForParams) ([]ListFlagsForRow, error) {
+	rows, err := q.db.Query(ctx, listFlagsFor, arg.MailboxID, arg.Uids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFlagsForRow
+	for rows.Next() {
+		var i ListFlagsForRow
+		if err := rows.Scan(&i.ID, &i.Uid, &i.Flags); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMailboxes = `-- name: ListMailboxes :many
-SELECT id, account_id, name, uid_validity, role FROM mailbox WHERE account_id = $1
+SELECT id, account_id, name, uid_validity, role, uid_next, message_count, highest_mod_seq FROM mailbox WHERE account_id = $1
 `
 
 func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbox, error) {
@@ -381,6 +435,9 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 			&i.Name,
 			&i.UidValidity,
 			&i.Role,
+			&i.UidNext,
+			&i.MessageCount,
+			&i.HighestModSeq,
 		); err != nil {
 			return nil, err
 		}
@@ -412,6 +469,38 @@ func (q *Queries) LogChange(ctx context.Context, arg LogChangeParams) (int64, er
 		arg.Entity,
 		arg.EntityID,
 		arg.Op,
+	)
+	var version int64
+	err := row.Scan(&version)
+	return version, err
+}
+
+const logChanges = `-- name: LogChanges :one
+WITH v AS (
+  UPDATE mail_account SET version = version + cardinality($1::text[]) WHERE id = $2 RETURNING version
+), logged AS (
+  INSERT INTO change_log (account_id, version, entity, entity_id, op)
+  SELECT $2, v.version - cardinality($1::text[]) + i,
+    ($3::text[])[i], ($1::text[])[i], ($4::text[])[i]
+  FROM v, generate_series(1, cardinality($1::text[])) AS i
+)
+SELECT version FROM v
+`
+
+type LogChangesParams struct {
+	EntityIds []string
+	AccountID string
+	Entities  []string
+	Ops       []string
+}
+
+// Logs the changes in order under the account's next versions and returns the last one.
+func (q *Queries) LogChanges(ctx context.Context, arg LogChangesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, logChanges,
+		arg.EntityIds,
+		arg.AccountID,
+		arg.Entities,
+		arg.Ops,
 	)
 	var version int64
 	err := row.Scan(&version)
@@ -459,6 +548,28 @@ func (q *Queries) MergeThread(ctx context.Context, arg MergeThreadParams) ([]str
 	return items, nil
 }
 
+const saveFlags = `-- name: SaveFlags :exec
+WITH changed AS (
+  UPDATE message SET flags = $3 WHERE id = $2 AND account_id = $1 AND flags <> $3 RETURNING id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = $1 AND EXISTS (SELECT FROM changed) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT $1, v.version, 'message', $2, 'upsert' FROM v
+`
+
+type SaveFlagsParams struct {
+	AccountID string
+	ID        string
+	Flags     []string
+}
+
+// Sets a message's flags and logs the change, unless it has them already.
+func (q *Queries) SaveFlags(ctx context.Context, arg SaveFlagsParams) error {
+	_, err := q.db.Exec(ctx, saveFlags, arg.AccountID, arg.ID, arg.Flags)
+	return err
+}
+
 const setFlags = `-- name: SetFlags :exec
 UPDATE message SET flags = $2 WHERE id = $1
 `
@@ -470,6 +581,27 @@ type SetFlagsParams struct {
 
 func (q *Queries) SetFlags(ctx context.Context, arg SetFlagsParams) error {
 	_, err := q.db.Exec(ctx, setFlags, arg.ID, arg.Flags)
+	return err
+}
+
+const setFolderState = `-- name: SetFolderState :exec
+UPDATE mailbox SET uid_next = $2, message_count = $3, highest_mod_seq = $4 WHERE id = $1
+`
+
+type SetFolderStateParams struct {
+	ID            string
+	UidNext       int64
+	MessageCount  int64
+	HighestModSeq int64
+}
+
+func (q *Queries) SetFolderState(ctx context.Context, arg SetFolderStateParams) error {
+	_, err := q.db.Exec(ctx, setFolderState,
+		arg.ID,
+		arg.UidNext,
+		arg.MessageCount,
+		arg.HighestModSeq,
+	)
 	return err
 }
 

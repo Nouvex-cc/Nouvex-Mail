@@ -53,11 +53,14 @@ type MailAccount struct {
 }
 
 type Mailbox struct {
-	ID          string
-	AccountID   string
-	Name        string
-	UidValidity int64
-	Role        string
+	ID            string
+	AccountID     string
+	Name          string
+	UidValidity   int64
+	Role          string
+	UidNext       int64
+	MessageCount  int64
+	HighestModSeq int64
 }
 
 type Message struct {

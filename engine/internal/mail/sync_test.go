@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -181,7 +182,10 @@ func TestSync(t *testing.T) {
 
 	master := bytes.Repeat([]byte{7}, 32)
 	stored := map[string][]byte{}
+	var mu sync.Mutex
 	put := func(_ context.Context, key string, data []byte, _ string) error {
+		mu.Lock()
+		defer mu.Unlock()
 		stored[key] = data
 		return nil
 	}
@@ -550,4 +554,125 @@ func TestDrafts(t *testing.T) {
 	if got := drafts(); len(got) != 0 {
 		t.Fatalf("drafts %v after discard", got)
 	}
+}
+
+// TestSyncCondstore runs the CONDSTORE path against a real server (IMAP_SERVER, see bench_test.go): after every
+// sync, the database holds exactly the server's messages and flags.
+func TestSyncCondstore(t *testing.T) {
+	e := benchEnv(t)
+	u := e.mailbox(t, map[string]int{"INBOX": 5, "Archive": 3})
+	if !u.c.Caps().Has(imap.CapCondStore) {
+		t.Skip("server without CONDSTORE")
+	}
+	id := e.account(t, u, e.imap)
+	var version int64
+	sync := func(what string, changes int64) {
+		t.Helper()
+		v, err := Sync(e.ctx, e.pool, Store{Put: e.put, Drop: noDrop}, e.master, id, func(int64) {})
+		if err != nil {
+			t.Fatal(what, err)
+		}
+		if changes >= 0 && v-version != changes {
+			t.Errorf("%s: %d changes, want %d", what, v-version, changes)
+		}
+		version = v
+		for _, folder := range []string{"INBOX", "Archive"} {
+			if _, err := u.c.Select(folder, &imap.SelectOptions{ReadOnly: true}).Wait(); err != nil {
+				t.Fatal(err)
+			}
+			var all imap.UIDSet
+			all.AddRange(1, 0)
+			msgs, err := u.c.Fetch(all, &imap.FetchOptions{UID: true, Flags: true}).Collect()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var server, stored []string
+			for _, m := range msgs {
+				server = append(server, fmt.Sprint(m.UID, flagStrings(m.Flags)))
+			}
+			rows, _ := e.pool.Query(e.ctx, `SELECT m.uid, m.flags FROM message m JOIN mailbox b ON b.id = m.mailbox_id
+				WHERE m.account_id = $1 AND b.name = $2 ORDER BY m.uid`, id, folder)
+			for rows.Next() {
+				var uid int64
+				var flags []string
+				_ = rows.Scan(&uid, &flags)
+				stored = append(stored, fmt.Sprint(uid, flags))
+			}
+			if !slices.Equal(server, stored) {
+				t.Fatalf("%s, %s:\nserver %v\nstored %v", what, folder, server, stored)
+			}
+		}
+	}
+	inbox := func() {
+		if _, err := u.c.Select("INBOX", nil).Wait(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := func(uid imap.UID, op imap.StoreFlagsOp, flag imap.Flag) {
+		if err := u.c.Store(imap.UIDSetNum(uid), &imap.StoreFlags{Op: op, Silent: true, Flags: []imap.Flag{flag}}, nil).Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sync("first sync", -1)
+	sync("nothing new", 0)
+	u.append(t, "INBOX", reply("new-1", "INBOX-0"))
+	u.append(t, "INBOX", newsletter("new-2"))
+	sync("new mail", 2)
+	inbox()
+	store(1, imap.StoreFlagsAdd, imap.FlagSeen)
+	store(2, imap.StoreFlagsAdd, imap.FlagFlagged)
+	sync("flags", 2)
+	inbox()
+	store(1, imap.StoreFlagsDel, imap.FlagSeen)
+	store(3, imap.StoreFlagsAdd, imap.FlagDeleted)
+	if err := u.c.Expunge().Close(); err != nil {
+		t.Fatal(err)
+	}
+	sync("flag and expunge", 2)
+	inbox()
+	if _, err := u.c.Move(imap.UIDSetNum(4), "Archive").Wait(); err != nil {
+		t.Fatal(err)
+	}
+	sync("move", 2)
+	// As many messages as before: only the UIDs tell that one is gone.
+	inbox()
+	store(5, imap.StoreFlagsAdd, imap.FlagDeleted)
+	if err := u.c.Expunge().Close(); err != nil {
+		t.Fatal(err)
+	}
+	u.append(t, "INBOX", reply("new-3", "new-1"))
+	sync("expunge and new mail", 2)
+	var msgID string
+	_ = e.pool.QueryRow(e.ctx, `SELECT id FROM message WHERE account_id = $1 ORDER BY uid LIMIT 1`, id).Scan(&msgID)
+	yes := true
+	if err := Update(e.ctx, db.New(e.pool), e.master, msg.MessageUpdate{AccountId: id, MessageId: msgID, Seen: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	// Saved right away, the sync finds nothing left to do.
+	var v int64
+	_ = e.pool.QueryRow(e.ctx, `SELECT version FROM mail_account WHERE id = $1`, id).Scan(&v)
+	if v != version+1 {
+		t.Fatalf("marked read: version %d, want %d", v, version+1)
+	}
+	version = v
+	sync("marked read", 0)
+	// No flags left: still saved right away.
+	no := false
+	if err := Update(e.ctx, db.New(e.pool), e.master, msg.MessageUpdate{AccountId: id, MessageId: msgID, Seen: &no}); err != nil {
+		t.Fatal(err)
+	}
+	_ = e.pool.QueryRow(e.ctx, `SELECT version FROM mail_account WHERE id = $1`, id).Scan(&v)
+	if v != version+1 {
+		t.Fatalf("marked unread: version %d, want %d", v, version+1)
+	}
+	version = v
+	sync("marked unread", 0)
+	// The kept connection broke meanwhile.
+	kept.Lock()
+	_ = kept.m[id].c.Close()
+	kept.Unlock()
+	u.append(t, "Archive", reply("new-4", "new-3"))
+	sync("after a dropped connection", 1)
+	sync("nothing new again", 0)
 }

@@ -29,9 +29,16 @@ func OpenBucket(ctx context.Context) (*Bucket, error) {
 	if err != nil {
 		return nil, err
 	}
+	tr, err := minio.DefaultTransport(u.Scheme == "https")
+	if err != nil {
+		return nil, err
+	}
+	// Fewer idle connections than parallel uploads, and every upload beyond them opens and drops a connection.
+	tr.MaxIdleConnsPerHost = uploads
 	c, err := minio.New(u.Host, &minio.Options{
-		Creds:  credentials.NewStaticV4(os.Getenv("S3_ACCESS_KEY_ID"), os.Getenv("S3_SECRET_ACCESS_KEY"), ""),
-		Secure: u.Scheme == "https",
+		Creds:     credentials.NewStaticV4(os.Getenv("S3_ACCESS_KEY_ID"), os.Getenv("S3_SECRET_ACCESS_KEY"), ""),
+		Secure:    u.Scheme == "https",
+		Transport: tr,
 	})
 	if err != nil {
 		return nil, err

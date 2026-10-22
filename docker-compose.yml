@@ -30,6 +30,14 @@ services:
       GREENMAIL_OPTS: -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled
     ports: ["993:3993", "465:3465"]
 
+  # IMAP server with CONDSTORE for engine tests and benchmarks: any user, password hunter2.
+  dovecot:
+    image: dovecot/dovecot:latest
+    profiles: [bench]
+    environment:
+      USER_PASSWORD: "{PLAIN}hunter2"
+    ports: ["31143:31143"]
+
   lgtm:
     image: grafana/otel-lgtm
     profiles: [obs]

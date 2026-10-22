@@ -137,7 +137,7 @@ func Send(ctx context.Context, q *db.Queries, get Get, master []byte, cmd msg.Me
 }
 
 // SaveSent appends a sent message to the folder marked \Sent, or to one named Sent, which is created if needed.
-func SaveSent(ctx context.Context, q *db.Queries, master []byte, accountID string, raw []byte) error {
+func SaveSent(ctx context.Context, q *db.Queries, master []byte, accountID string, raw []byte) (err error) {
 	acc, err := q.GetAccount(ctx, accountID)
 	if err != nil {
 		return err
@@ -146,11 +146,11 @@ func SaveSent(ctx context.Context, q *db.Queries, master []byte, accountID strin
 	if err != nil {
 		return err
 	}
-	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, nil)
+	c, err := connect(acc, pass, true)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = c.Logout().Wait() }()
+	defer func() { release(acc, c, err) }()
 	sent, err := specialFolder(c, "sent", "Sent")
 	if err != nil {
 		return err

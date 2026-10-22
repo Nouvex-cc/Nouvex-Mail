@@ -1,14 +1,14 @@
 -- name: GetAccount :one
 SELECT * FROM mail_account WHERE id = $1;
 
--- name: GetMailbox :one
-SELECT * FROM mailbox WHERE account_id = $1 AND name = $2;
-
 -- name: CreateMailbox :exec
 INSERT INTO mailbox (id, account_id, name, role, uid_validity) VALUES ($1, $2, $3, $4, $5);
 
 -- name: UpdateMailbox :exec
 UPDATE mailbox SET role = $2, uid_validity = $3 WHERE id = $1;
+
+-- name: SetFolderState :exec
+UPDATE mailbox SET uid_next = $2, message_count = $3, highest_mod_seq = $4 WHERE id = $1;
 
 -- name: ListMailboxes :many
 SELECT * FROM mailbox WHERE account_id = $1;
@@ -21,6 +21,9 @@ DELETE FROM message WHERE mailbox_id = $1 RETURNING id;
 
 -- name: MaxUID :one
 SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1;
+
+-- name: CountMessages :one
+SELECT count(*) FROM message WHERE mailbox_id = $1;
 
 -- name: InsertMessage :execrows
 INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed)
@@ -35,6 +38,18 @@ UPDATE mail_account SET sealed_to = $2 WHERE id = $1;
 
 -- name: KnownMessages :many
 SELECT id FROM message WHERE id = ANY(sqlc.arg(ids)::text[]);
+
+-- name: LogChanges :one
+-- Logs the changes in order under the account's next versions and returns the last one.
+WITH v AS (
+  UPDATE mail_account SET version = version + cardinality(sqlc.arg(entity_ids)::text[]) WHERE id = sqlc.arg(account_id) RETURNING version
+), logged AS (
+  INSERT INTO change_log (account_id, version, entity, entity_id, op)
+  SELECT sqlc.arg(account_id), v.version - cardinality(sqlc.arg(entity_ids)::text[]) + i,
+    (sqlc.arg(entities)::text[])[i], (sqlc.arg(entity_ids)::text[])[i], (sqlc.arg(ops)::text[])[i]
+  FROM v, generate_series(1, cardinality(sqlc.arg(entity_ids)::text[])) AS i
+)
+SELECT version FROM v;
 
 -- name: LogChange :one
 WITH v AS (UPDATE mail_account SET version = version + 1 WHERE id = $1 RETURNING version)
@@ -53,6 +68,23 @@ SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE 
 
 -- name: ListFlags :many
 SELECT id, uid, flags FROM message WHERE mailbox_id = $1;
+
+-- name: ListFlagsFor :many
+SELECT id, uid, flags FROM message WHERE mailbox_id = $1 AND uid = ANY(sqlc.arg(uids)::bigint[]);
+
+-- name: DeleteGone :many
+-- Messages of a folder whose UID the server doesn't list anymore.
+DELETE FROM message WHERE mailbox_id = $1 AND uid <> ALL(sqlc.arg(uids)::bigint[]) RETURNING id;
+
+-- name: SaveFlags :exec
+-- Sets a message's flags and logs the change, unless it has them already.
+WITH changed AS (
+  UPDATE message SET flags = sqlc.arg(flags) WHERE id = sqlc.arg(id) AND account_id = sqlc.arg(account_id) AND flags <> sqlc.arg(flags) RETURNING id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = sqlc.arg(account_id) AND EXISTS (SELECT FROM changed) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT sqlc.arg(account_id), v.version, 'message', sqlc.arg(id), 'upsert' FROM v;
 
 -- name: SetFlags :exec
 UPDATE message SET flags = $2 WHERE id = $1;

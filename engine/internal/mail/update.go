@@ -16,8 +16,9 @@ import (
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
-// Update applies a change the user made to one message on the server. The database follows with the next sync.
-func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUpdate) error {
+// Update applies a change the user made to one message on the server. Flags are saved in the database right away,
+// from the server's answer; everything else follows with the next sync.
+func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUpdate) (err error) {
 	acc, err := q.GetAccount(ctx, cmd.AccountId)
 	if err != nil {
 		return err
@@ -30,16 +31,21 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 	if err != nil {
 		return err
 	}
-	c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, nil)
+	c, err := connect(acc, pass, true)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = c.Logout().Wait() }()
-	if _, err := c.Select(place.Name, nil).Wait(); err != nil {
-		return err
-	}
+	defer func() { release(acc, c, err) }()
+	// Sent together with the commands below, which fail too if it does; its error says why.
+	selected := c.Select(place.Name, nil)
+	defer func() {
+		if _, serr := selected.Wait(); serr != nil {
+			err = serr
+		}
+	}()
 	uid := imap.UIDSetNum(imap.UID(place.Uid))
 
+	var stores []*imapclient.FetchCommand
 	for flag, on := range map[imap.Flag]*bool{imap.FlagSeen: cmd.Seen, imap.FlagFlagged: cmd.Flagged} {
 		if on == nil {
 			continue
@@ -48,9 +54,27 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		if !*on {
 			op = imap.StoreFlagsDel
 		}
-		if err := c.Store(uid, &imap.StoreFlags{Op: op, Silent: true, Flags: []imap.Flag{flag}}, nil).Close(); err != nil {
+		// Not silent: the answer has the message's flags.
+		stores = append(stores, c.Store(uid, &imap.StoreFlags{Op: op, Flags: []imap.Flag{flag}}, nil))
+	}
+	var flags []imap.Flag
+	answered := false
+	for _, s := range stores {
+		msgs, err := s.Collect()
+		if err != nil {
 			return err
 		}
+		for _, m := range msgs {
+			if m.UID == imap.UID(place.Uid) {
+				flags, answered = m.Flags, true
+			}
+		}
+	}
+	if Saved(cmd) {
+		if !answered {
+			return nil
+		}
+		return q.SaveFlags(ctx, db.SaveFlagsParams{AccountID: cmd.AccountId, ID: cmd.MessageId, Flags: flagStrings(flags)})
 	}
 	if cmd.Inbox != nil && *cmd.Inbox && place.Name != "INBOX" {
 		_, err := c.Move(uid, "INBOX").Wait()
@@ -107,6 +131,11 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		return c.Expunge().Close()
 	}
 	return nil
+}
+
+// Saved tells whether Update saves the change in the database itself, so no sync is needed for it.
+func Saved(cmd msg.MessageUpdate) bool {
+	return cmd.Inbox == nil && cmd.SnoozeUntil == nil && cmd.Archive == nil && cmd.Trash == nil
 }
 
 // specialFolder finds the folder with the given role, the same way Sync assigns roles. A missing one is created

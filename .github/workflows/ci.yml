@@ -48,8 +48,14 @@ jobs:
         env: { POSTGRES_USER: nouvex, POSTGRES_PASSWORD: nouvex, POSTGRES_DB: nouvex }
         ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U nouvex" --health-interval 2s
+      # A real IMAP server with CONDSTORE, the way most providers sync; see engine/internal/mail/bench_test.go.
+      dovecot:
+        image: dovecot/dovecot:latest
+        env: { USER_PASSWORD: "{PLAIN}hunter2" }
+        ports: ["31143:31143"]
     env:
       DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
+      IMAP_SERVER: 127.0.0.1:31143
     defaults:
       run:
         working-directory: engine

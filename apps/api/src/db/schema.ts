@@ -76,6 +76,10 @@ export const mailbox = pgTable(
 		// inbox, sent, drafts, trash, junk, archive, or empty for the user's own folders.
 		role: text("role").notNull().default(""),
 		uidValidity: bigint("uid_validity", { mode: "number" }).notNull(),
+		// The folder as of the last sync. On servers with CONDSTORE, a folder where none of them moved is skipped.
+		uidNext: bigint("uid_next", { mode: "number" }).notNull().default(0),
+		messageCount: bigint("message_count", { mode: "number" }).notNull().default(0),
+		highestModSeq: bigint("highest_mod_seq", { mode: "number" }).notNull().default(0),
 	},
 	(t) => [unique().on(t.accountId, t.name)],
 );
@@ -100,7 +104,8 @@ export const message = pgTable(
 		flags: text("flags").array().notNull(),
 		size: integer("size").notNull(),
 		// This message's own key, sealed to the user's public key (engine/internal/seal), and what only it opens: the
-		// fields in Meta (engine/internal/mail/sync.go). Body and attachments are in S3 as body/<id>.html and att/<id>/<index>, encrypted with it too.
+		// fields in Meta (engine/internal/mail/sync.go). Body and attachments are in S3 as body/<id>.html and
+		// att/<id>/<index>, encrypted with it too.
 		key: bytea("key").notNull(),
 		sealed: bytea("sealed").notNull(),
 		// The inbox tab, sorted by the engine from the headers (engine/internal/mail/category.go).
