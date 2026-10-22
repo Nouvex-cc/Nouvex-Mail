@@ -59,11 +59,18 @@ struct SignInView: View {
                     #endif
             }
             if let error { Text(error).font(.sm).foregroundStyle(.danger) }
-            Button(askCode ? "Verify" : "Sign in") { Task { await submit() } }
-                .buttonStyle(.glassProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(busy || email.isEmpty || password.isEmpty)
-                .padding(.top, 4)
+            HStack {
+                Button(askCode ? "Verify" : "Sign in") { Task { await submit() } }
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(busy || email.isEmpty || password.isEmpty)
+                if !askCode, Passkeys.available(on: URL(string: server)) {
+                    Button("Use a passkey", systemImage: "person.badge.key") { Task { await passkey() } }
+                        .buttonStyle(.glass)
+                        .disabled(busy)
+                }
+            }
+            .padding(.top, 4)
         }
         .onSubmit { if !busy, !email.isEmpty, !password.isEmpty { Task { await submit() } } }
         .frame(maxWidth: 320)
@@ -81,6 +88,18 @@ struct SignInView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             #endif
+    }
+
+    private func passkey() async {
+        busy = true
+        defer { busy = false }
+        do {
+            Server.url = URL(string: server)!
+            try await Passkeys.signIn()
+            mail.signedIn()
+        } catch {
+            if !Passkeys.cancelled(error) { self.error = error.localizedDescription }
+        }
     }
 
     private func submit() async {

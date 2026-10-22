@@ -26,6 +26,12 @@ let tapSize: CGFloat = 44
 #endif
 
 enum Device {
+    #if os(macOS)
+    static let platform = "macOS"
+    #else
+    static let platform = "iOS"
+    #endif
+
     /// Phones write in a sheet; iPad and Mac dock the composer next to the mail.
     @MainActor static var phone: Bool {
         #if os(iOS)

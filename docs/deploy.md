@@ -33,6 +33,10 @@ read -rs pw && echo "$pw" | docker compose -f deploy/compose.yml exec -T api bun
 
 `user.js password you@example.com` sets a new password the same way, for someone who forgot theirs. Then open `https://<your domain>` and sign in. In the Apple apps, enter the same address as the server when signing in.
 
+## Passkeys in the Apple apps
+
+Passkeys work in the web app on any domain. The Apple apps are tied to `mail.nouvex.cc` (`apps/apple/Nouvex/Nouvex.entitlements`), so on another domain they sign in with a password; for passkeys there, build the apps with your own team and domain in the entitlements, `deploy/` is unchanged apart from the team id in `apps/web/public/.well-known/apple-app-site-association`.
+
 ## Behind another reverse proxy
 
 If a proxy in front already takes ports 80 and 443 and does HTTPS, set `SITE=:80` in `deploy/.env` and point the proxy at port 80 of this machine, with WebSockets on. `DOMAIN` stays the public name, sign-in cookies and links use it.

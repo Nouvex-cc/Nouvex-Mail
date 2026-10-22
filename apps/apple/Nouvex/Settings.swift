@@ -515,6 +515,7 @@ private struct SecurityPage: View {
     @State private var twoFactor = false
     @State private var current = ""
     @State private var sessions: [Session] = []
+    @State private var passkeys: [Passkey] = []
     @State private var setup: (uri: String, codes: [String])?
     @State private var fresh: [String]?
     @State private var code = ""
@@ -524,6 +525,12 @@ private struct SecurityPage: View {
     private enum Ask: Identifiable {
         case on, off, codes
         var id: Self { self }
+    }
+
+    struct Passkey: Identifiable {
+        let id: String
+        let name: String
+        let added: Date
     }
 
     struct Session: Identifiable {
@@ -553,6 +560,22 @@ private struct SecurityPage: View {
                 }
                 if let setup { enroll(setup) }
                 if let fresh { backupCodes(fresh) }
+            }
+            Section("Passkeys") {
+                ForEach(passkeys) { p in
+                    LabeledContent {
+                        Button("Remove") { Task { await removePasskey(p.id) } }
+                    } label: {
+                        Text(p.name)
+                        Text("Added \(p.added.formatted(date: .abbreviated, time: .shortened))")
+                    }
+                }
+                LabeledContent {
+                    Button("Add passkey") { Task { await addPasskey() } }.disabled(!Passkeys.available(on: Server.url))
+                } label: {
+                    Text("Sign in with your fingerprint, face or device")
+                    Text(Passkeys.available(on: Server.url) ? "No password to type, nothing to phish" : "This app works with passkeys on \(Passkeys.domain) only")
+                }
             }
             Section("Where you're signed in") {
                 ForEach(sessions) { s in
@@ -651,6 +674,21 @@ private struct SecurityPage: View {
         }
     }
 
+    private func addPasskey() async {
+        do {
+            try await Passkeys.add(name: device("Nouvex Mail (\(Device.platform))"))
+            await load()
+        } catch {
+            if !Passkeys.cancelled(error) { mail.toast("Couldn't add the passkey", error.localizedDescription) }
+        }
+    }
+
+    private func removePasskey(_ id: String) async {
+        if (try? await API.auth("passkey/delete-passkey", ["id": id])) == nil { return mail.toast("Couldn't remove the passkey") }
+        mail.toast("Passkey removed")
+        await load()
+    }
+
     /// One session, or all but this one.
     private func revoke(_ token: String?) async {
         do {
@@ -665,6 +703,11 @@ private struct SecurityPage: View {
         if let session = try? await API.auth("get-session", nil) {
             twoFactor = (session["user"] as? [String: Any])?["twoFactorEnabled"] as? Bool == true
             current = (session["session"] as? [String: Any])?["token"] as? String ?? ""
+        }
+        passkeys = ((try? await API.authList("passkey/list-user-passkeys")) ?? []).compactMap { p in
+            guard let id = p["id"] as? String else { return nil }
+            let added = (p["createdAt"] as? String).flatMap { try? ISODates().decode($0) } ?? .distantPast
+            return Passkey(id: id, name: p["name"] as? String ?? "Passkey", added: added)
         }
         let list = (try? await API.authList("list-sessions")) ?? []
         sessions = list.compactMap { s in

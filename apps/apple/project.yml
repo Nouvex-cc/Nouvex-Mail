@@ -53,6 +53,10 @@ targets:
           PRODUCT_NAME: Nouvex Mail Dev
           PRODUCT_BUNDLE_IDENTIFIER: cc.nouvex.Nouvex.dev
           INFOPLIST_KEY_CFBundleDisplayName: Nouvex Mail Dev
+        # Passkeys need the app tied to mail.nouvex.cc, and that needs a real signature on the Mac too.
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Nouvex/Nouvex.entitlements
+          "CODE_SIGN_IDENTITY[sdk=macosx*]": Apple Development
     dependencies:
       - package: GRDB
       - package: OpenAPIRuntime

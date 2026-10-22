@@ -78,7 +78,7 @@ enum API {
         // With a session cookie around, BetterAuth turns away requests without an origin it trusts; the server's own is.
         req.setValue(URL(string: "/", relativeTo: Server.url)!.absoluteString.trimmingCharacters(in: ["/"]), forHTTPHeaderField: "origin")
         // Kept with the session, so Settings › Security can tell this app from a browser.
-        req.setValue("Nouvex Mail (\(platform))", forHTTPHeaderField: "user-agent")
+        req.setValue("Nouvex Mail (\(Device.platform))", forHTTPHeaderField: "user-agent")
         let (body, res) = try await URLSession.shared.data(for: req)
         let json = try? JSONSerialization.jsonObject(with: body)
         guard (res as? HTTPURLResponse)?.statusCode == 200 else {
@@ -86,10 +86,4 @@ enum API {
         }
         return json
     }
-
-    #if os(macOS)
-    private static let platform = "macOS"
-    #else
-    private static let platform = "iOS"
-    #endif
 }
