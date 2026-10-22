@@ -1,0 +1,1 @@
+ALTER TABLE "mail_account" ADD COLUMN "archived_at" timestamp with time zone;

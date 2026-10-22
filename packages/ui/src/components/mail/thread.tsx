@@ -101,13 +101,15 @@ export function ThreadMessage({
 }
 
 export type ThreadReply = {
-	/** Who a reply goes to, for the field's placeholder. */
+	/** Who a reply goes to, for the field's placeholder (everyone with allFirst). */
 	to: string;
 	/** A reply to this conversation is saved as a draft: the field continues it. */
 	drafted?: boolean;
 	onReply(): void;
 	onReplyAll?(): void;
 	onForward(): void;
+	/** R and the bar reply to everyone, when there's more than one other person; the button then replies to the sender. */
+	allFirst?: boolean;
 };
 
 // Floats at the bottom of the conversation while the mail scrolls under it.
@@ -120,8 +122,10 @@ function Floating({ children }: { children: ReactNode }) {
 }
 
 // R, A and F do the same from anywhere in the conversation.
-function ReplyBar({ to, drafted, onReply, onReplyAll, onForward }: ThreadReply) {
-	useShortcut("r", onReply);
+function ReplyBar({ to, drafted, onReply, onReplyAll, onForward, allFirst }: ThreadReply) {
+	const all = allFirst && onReplyAll && !drafted;
+	const main = all ? onReplyAll : onReply;
+	useShortcut("r", main);
 	useShortcut("a", () => onReplyAll?.());
 	useShortcut("f", onForward);
 	return (
@@ -129,18 +133,18 @@ function ReplyBar({ to, drafted, onReply, onReplyAll, onForward }: ThreadReply) 
 			<div className="flex items-center gap-1 rounded-xl border border-line bg-raised p-1.5 shadow-pop">
 				<button
 					type="button"
-					onClick={onReply}
+					onClick={main}
 					className="flex h-8 min-w-0 flex-1 items-center gap-3 rounded-md px-3 text-left text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink focus-visible:outline-2 [&_svg]:size-4 [&_svg]:shrink-0"
 				>
 					<Reply strokeWidth={1.75} />
 					<span className="flex-1 truncate">
-						{drafted ? "Continue your reply to" : "Reply to"} {to}…
+						{drafted ? "Continue your reply to" : all ? "Reply all to" : "Reply to"} {to}…
 					</span>
 					<Kbd>R</Kbd>
 				</button>
 				{onReplyAll && (
-					<Button variant="ghost" size="sm" onClick={onReplyAll}>
-						Reply all
+					<Button variant="ghost" size="sm" onClick={all ? onReply : onReplyAll}>
+						{all ? "Reply" : "Reply all"}
 					</Button>
 				)}
 				<Button variant="ghost" size="sm" onClick={onForward}>

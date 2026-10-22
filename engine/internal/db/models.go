@@ -48,6 +48,7 @@ type MailAccount struct {
 	SyncError   pgtype.Text
 	DisplayName string
 	Signature   string
+	ArchivedAt  pgtype.Timestamptz
 }
 
 type Mailbox struct {
@@ -130,6 +131,12 @@ type User struct {
 	CreatedAt        pgtype.Timestamp
 	UpdatedAt        pgtype.Timestamp
 	TwoFactorEnabled pgtype.Bool
+}
+
+type UserPref struct {
+	UserID    string
+	Prefs     []byte
+	UpdatedAt pgtype.Timestamptz
 }
 
 type Verification struct {

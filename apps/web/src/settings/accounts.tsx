@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, Input, Settings, Sidebar, Textarea } from "@nouvex/ui";
-import { Mail, Plus } from "@nouvex/ui/icons";
+import { Button, Input, Settings, Sidebar, Switch, Textarea } from "@nouvex/ui";
+import { Archive, Mail, Plus } from "@nouvex/ui/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { type Account, useAccounts } from "../accounts";
@@ -53,6 +53,24 @@ function AccountPage({ account: a }: { account: Account }) {
 
 			<Settings.Section>
 				<Settings.Row
+					id="archive"
+					label="Archive"
+					hint="Out of All inboxes and the account picker, checked for mail once a day. Still there under Archived."
+				>
+					<Switch
+						aria-label="Archive"
+						checked={!!a.archivedAt}
+						onCheckedChange={async (archived) => {
+							await fetch(`/accounts/${a.id}`, {
+								method: "PATCH",
+								headers: { "content-type": "application/json" },
+								body: JSON.stringify({ archived }),
+							});
+							void accounts.refetch();
+						}}
+					/>
+				</Settings.Row>
+				<Settings.Row
 					id="remove"
 					label="Remove account"
 					hint="Its mail is removed from Nouvex, the mailbox itself stays as it is"
@@ -88,18 +106,22 @@ function Add() {
 export const accounts: Module = {
 	title: "Accounts",
 	usePages: () =>
-		(useAccounts().data ?? []).map(
-			(a): Page => ({
-				id: a.email,
-				title: a.email,
-				icon: <Mail strokeWidth={1.75} />,
-				entries: [
-					{ id: "name", label: "Name", keywords: "sender display" },
-					{ id: "signature", label: "Signature" },
-					{ id: "remove", label: "Remove account", keywords: "delete" },
-				],
-				render: () => <AccountPage key={a.id} account={a} />,
-			}),
-		),
+		// Archived accounts come last, marked by their icon.
+		(useAccounts().data ?? [])
+			.toSorted((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt))
+			.map(
+				(a): Page => ({
+					id: a.email,
+					title: a.email,
+					icon: a.archivedAt ? <Archive strokeWidth={1.75} /> : <Mail strokeWidth={1.75} />,
+					entries: [
+						{ id: "name", label: "Name", keywords: "sender display" },
+						{ id: "signature", label: "Signature" },
+						{ id: "archive", label: "Archive", keywords: "hide rarely dormant" },
+						{ id: "remove", label: "Remove account", keywords: "delete" },
+					],
+					render: () => <AccountPage key={a.id} account={a} />,
+				}),
+			),
 	action: Add,
 };

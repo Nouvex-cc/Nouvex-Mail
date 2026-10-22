@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { type ReactNode, useRef, useState } from "react";
-import { CalendarDays, Mail, Paperclip, Search, Star, User, X } from "../../icons";
+import { Archive, CalendarDays, Mail, Paperclip, Search, Star, User, X } from "../../icons";
 import { cn, item } from "../../lib";
 import { parseDate } from "../../parse-date";
 import { useGlide } from "../glide";
@@ -20,6 +20,7 @@ const flags: (Chip & { match: string; icon: ReactNode })[] = [
 	{ key: "is", value: "unread", label: "Unread", match: "unread", icon: <Mail {...icon} /> },
 	{ key: "is", value: "starred", label: "Starred", match: "starred", icon: <Star {...icon} /> },
 	{ key: "has", value: "attachment", label: "Has attachment", match: "attachment", icon: <Paperclip {...icon} /> },
+	{ key: "in", value: "archived", label: "In archived accounts", match: "archived", icon: <Archive {...icon} /> },
 ];
 const people = { from: "From", to: "To" } as const;
 const dates = { after: "after", since: "after", before: "before" } as const;
@@ -60,12 +61,16 @@ function operatorChip(word: string): Chip | null {
 export function SearchField({
 	onSearch,
 	contacts = [],
+	archived = false,
 	className,
 }: {
 	onSearch: (query: SearchQuery) => void;
 	contacts?: { name: string; email: string }[];
+	/** There are archived accounts, so offer to search them too. */
+	archived?: boolean;
 	className?: string;
 }) {
+	const offered = archived ? flags : flags.filter((f) => f.key !== "in");
 	const [chips, setChips] = useState<Chip[]>([]);
 	const [text, setText] = useState("");
 	const [active, setActive] = useState(0);
@@ -94,13 +99,13 @@ export function SearchField({
 			const chip = dateChip(key, value);
 			return chip ? [{ chip, icon: <CalendarDays {...icon} />, words: used }] : [];
 		};
-		if (!text && !chips.length) return flags.map(({ match: _match, icon, ...chip }) => ({ chip, icon, words: 0 }));
+		if (!text && !chips.length) return offered.map(({ match: _match, icon, ...chip }) => ({ chip, icon, words: 0 }));
 		if (Object.hasOwn(people, before)) return person(before as "from" | "to", last, 2);
 		if (Object.hasOwn(people, last)) return person(last as "from" | "to", "", 1);
 		if (Object.hasOwn(dates, before) && last) return date(dates[before as keyof typeof dates], last, 2);
 		if (last.length < 2 || last.includes(":")) return [];
 		return [
-			...flags
+			...offered
 				.filter((f) => f.match.startsWith(last))
 				.map(({ match: _match, icon, ...chip }) => ({ chip, icon, words: 1 })),
 			...person("from", last, 1).slice(0, 3),

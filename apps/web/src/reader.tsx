@@ -15,6 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useAccounts } from "./accounts";
 import type { Message } from "./db";
+import { usePref } from "./prefs";
 import type { Draft } from "./write";
 
 const image = (url: string) => `/image?url=${encodeURIComponent(url)}`;
@@ -49,6 +50,7 @@ export function Reader({
 }) {
 	useShortcut("Escape", onClose);
 	const accounts = useAccounts();
+	const [replyTo] = usePref("replyDefault");
 	const newest = messages.at(-1);
 	const html = useQuery({
 		queryKey: ["body", newest?.id],
@@ -102,8 +104,14 @@ export function Reader({
 			}
 			composer={composer}
 			reply={{
-				to: ours ? newest.to.join(", ") : newest.fromName || newest.fromAddr,
+				to:
+					replyTo === "all" && others.length > 1
+						? `${ours ? others[0] : newest.fromName || newest.fromAddr} and ${others.length - 1} more`
+						: ours
+							? newest.to.join(", ")
+							: newest.fromName || newest.fromAddr,
 				drafted: !!draft,
+				allFirst: replyTo === "all",
 				onReply: () =>
 					draft ? onResume(draft) : write(reply(newest, quoted ?? "", ours ? newest.to : [newest.fromAddr])),
 				onReplyAll: others.length > 1 ? () => write(reply(newest, quoted ?? "", others)) : undefined,
@@ -135,11 +143,12 @@ export async function body(m: Message) {
 
 // The body of one message; it loads when the message is first shown.
 function Entry({ message: m }: { message: Message }) {
+	const [images] = usePref("remoteImages");
 	const html = useQuery({ queryKey: ["body", m.id], queryFn: () => body(m), staleTime: Number.POSITIVE_INFINITY });
 
 	return html.data !== undefined ? (
 		<>
-			<MailFrame html={html.data} proxy={image} />
+			<MailFrame html={html.data} proxy={image} ask={images === "ask"} />
 			{m.attachments.length > 0 && (
 				<AttachmentList>
 					{m.attachments.map((a, i) => (

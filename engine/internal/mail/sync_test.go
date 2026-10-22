@@ -271,6 +271,23 @@ func TestWatch(t *testing.T) {
 	}
 }
 
+func TestWatchSkipsArchived(t *testing.T) {
+	f := setup(t)
+	if _, err := f.pool.Exec(context.Background(), `UPDATE mail_account SET archived_at = now() WHERE id = $1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		Watch(context.Background(), db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { t.Error("synced an archived account") }, func(error) {})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Watch kept running for an archived account")
+	}
+}
+
 func TestSaveSent(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()

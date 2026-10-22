@@ -26,7 +26,7 @@ export function useShortcut(key: string, handler: (e: KeyboardEvent) => void) {
 export type ShortcutGroup = { title: string; items: { keys: string; label: string }[] };
 
 const apple = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-const keyLabel = (key: string) =>
+export const keyLabel = (key: string) =>
 	key
 		.split("+")
 		.map((k) =>
