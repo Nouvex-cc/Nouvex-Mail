@@ -38,7 +38,7 @@ struct Draft: Hashable {
             to: kind == .replyAll ? newest.others(accounts) : newest.ours(accounts) ? newest.to : [newest.fromAddr],
             subject: prefixed("Re:", newest.subject),
             quote: "\n\nOn \(date), \(sender) wrote:\n" + text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n"),
-            inReplyTo: newest.id
+            inReplyTo: newest.messageId.isEmpty ? nil : newest.messageId
         )
     }
 
@@ -47,7 +47,7 @@ struct Draft: Hashable {
         let earlier = try? await Store.db.read { db in try sent(m.threadId).reversed().fetchOne(db) }
         return Draft(
             draftId: m.draftId ?? UUID().uuidString.lowercased(), accountId: m.accountId, to: m.to, cc: m.cc,
-            subject: m.subject, body: await Html.load(m).map(Html.text) ?? "", inReplyTo: earlier?.id, saved: true
+            subject: m.subject, body: await Html.load(m).map(Html.text) ?? "", inReplyTo: earlier.flatMap { $0.messageId.isEmpty ? nil : $0.messageId }, saved: true
         )
     }
 
@@ -85,9 +85,11 @@ struct Composer: View {
     @State private var phase = Phase.writing
     @State private var stored: [String] = []
     @State private var leaving = false
+    /// A save on its way to the server; discarding waits for it, or the save would land after the discard.
+    @State private var saving: Task<Void, Never>?
     @FocusState private var focus: Field?
 
-    private enum Field { case to, cc, bcc, subject, body }
+    enum Field { case to, cc, bcc, subject, body }
     private enum Phase: Equatable { case writing, undo(Task<Void, Never>), sending }
 
     // Read when attached: at most 25 MB each, which the server takes.
@@ -185,7 +187,7 @@ struct Composer: View {
     }
 
     private var sendButton: some View {
-        SendButton(undoing: undoing, seconds: mail.undoSend) {
+        SendButton(undoing: undoing, seconds: mail.prefs.undoSend) {
             if case .undo(let task) = phase {
                 task.cancel()
                 phase = .writing
@@ -194,7 +196,7 @@ struct Composer: View {
             }
         }
         .keyboardShortcut(.return, modifiers: .command)
-        .disabled(phase == .sending || recipients(to).isEmpty)
+        .disabled(phase == .sending || recipients(to).isEmpty || !Recipients.valid(to, cc, bcc))
         .contextMenu {
             Button("Send later…", systemImage: "clock") { scheduling = true }
         }
@@ -203,22 +205,19 @@ struct Composer: View {
     @ViewBuilder private var addressing: some View {
         if mail.accountList.count > 1 { from }
         row("To") {
-            TextField("To", text: $to, prompt: Text("")).focused($focus, equals: .to).address()
-                .onKeyPress(.tab) { next(.to) }.onSubmit { _ = next(.to) }
+            Recipients(label: "To", text: $to, focus: $focus, field: .to) { next(.to) }
             if !copies {
                 Button("Cc") { copies = true }.buttonStyle(QuietButtonStyle())
                 Button("Bcc") { copies = true }.buttonStyle(QuietButtonStyle())
             }
         }
+        // Suggestions open below a field, over the rows that follow.
+        .zIndex(3)
         if copies {
-            row("Cc") {
-                TextField("Cc", text: $cc, prompt: Text("")).focused($focus, equals: .cc).address()
-                    .onKeyPress(.tab) { next(.cc) }.onSubmit { _ = next(.cc) }
-            }
-            row("Bcc") {
-                TextField("Bcc", text: $bcc, prompt: Text("")).focused($focus, equals: .bcc).address()
-                    .onKeyPress(.tab) { next(.bcc) }.onSubmit { _ = next(.bcc) }
-            }
+            row("Cc") { Recipients(label: "Cc", text: $cc, focus: $focus, field: .cc) { next(.cc) } }
+                .zIndex(2)
+            row("Bcc") { Recipients(label: "Bcc", text: $bcc, focus: $focus, field: .bcc) { next(.bcc) } }
+                .zIndex(1)
         }
         row(nil) {
             TextField("Subject", text: $draft.subject, prompt: Text("Subject").foregroundStyle(.faint))
@@ -357,7 +356,7 @@ struct Composer: View {
                 }
             IconButton(label: "Attach files", symbol: "paperclip") { picking = true }
             Spacer()
-            IconButton(label: "Discard", symbol: "trash") { Task { await discard() } }
+            HoldButton(title: "Discard", duration: 0.7) { Task { await discard() } }
         }
         .padding(.horizontal, 10)
         .frame(height: 52)
@@ -441,13 +440,14 @@ struct Composer: View {
         guard phase == .writing, !stored.isEmpty, snapshot != stored, let accountId = draft.accountId else { return }
         stored = snapshot
         draft.saved = true
-        _ = try? await API.client.saveDraft(
-            path: .init(accountId: accountId, draftId: draft.draftId),
-            body: .json(.init(
-                to: recipients(to), cc: recipients(cc), bcc: recipients(bcc), subject: draft.subject, text: draft.body + draft.quote,
-                inReplyTo: draft.inReplyTo
-            ))
+        let body = Operations.saveDraft.Input.Body.jsonPayload(
+            to: recipients(to), cc: recipients(cc), bcc: recipients(bcc), subject: draft.subject, text: draft.body + draft.quote,
+            inReplyTo: draft.inReplyTo
         )
+        let path = Operations.saveDraft.Input.Path(accountId: accountId, draftId: draft.draftId)
+        let task = Task { _ = try? await API.client.saveDraft(path: path, body: .json(body)) }
+        saving = task
+        await task.value
     }
 
     // Sending waits out the undo window first, then goes.
@@ -457,11 +457,11 @@ struct Composer: View {
     }
 
     private func send() {
-        guard mail.undoSend > 0 else {
+        guard mail.prefs.undoSend > 0 else {
             Task { await Background.keepAlive { await deliver() } }
             return
         }
-        let seconds = mail.undoSend
+        let seconds = mail.prefs.undoSend
         phase = .undo(Task {
             await Background.keepAlive {
                 guard (try? await Task.sleep(for: .seconds(seconds))) != nil else { return }
@@ -499,11 +499,13 @@ struct Composer: View {
             phase = .writing
             return
         }
+        if let sendAt { mail.toast("Scheduled for \(sendAt.when)") }
         dismiss()
     }
 
     private func discard() async {
         phase = .sending
+        await saving?.value
         if let accountId = draft.accountId, draft.saved {
             _ = try? await API.client.discardDraft(path: .init(accountId: accountId, draftId: draft.draftId))
         }
@@ -545,5 +547,151 @@ extension View {
         #else
         self
         #endif
+    }
+}
+
+/// Addresses as chips: Enter, a comma or leaving the field makes one, Backspace in an empty field takes the last one
+/// back, and typing suggests people from mail that's already here. It all stays one comma-separated text, whatever is
+/// being typed included, so sending and drafts see it too.
+struct Recipients: View {
+    let label: String
+    @Binding var text: String
+    var focus: FocusState<Composer.Field?>.Binding
+    let field: Composer.Field
+    let next: () -> KeyPress.Result
+    @State private var people: [Person] = []
+    @State private var highlighted = 0
+    /// What's in the field, after an invisible mark: the text field keeps Backspace to itself, so an empty field
+    /// losing the mark is how Backspace there shows. It becomes chips after the keystroke, which the field takes in.
+    @State private var entry = Self.mark
+    private static let mark = "\u{200B}"
+
+    private var focused: Bool { focus.wrappedValue == field }
+    private var parts: [String] { text.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+    // While typing, the last part is the text in the field; otherwise every part is a chip.
+    private var chips: [String] { (focused ? parts.dropLast() : parts[...]).filter { !$0.isEmpty } }
+
+    /// A bare address or "Name <address>".
+    static func valid(_ chip: String) -> Bool {
+        let address = chip.firstMatch(of: /<([^>]+)>/).map { String($0.1) } ?? chip
+        return address.wholeMatch(of: /[^\s@<>,]+@[^\s@<>,]+\.[^\s@<>,]+/) != nil
+    }
+
+    /// Every chip in these fields is an address.
+    static func valid(_ fields: String...) -> Bool {
+        fields.allSatisfy { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.allSatisfy(valid) }
+    }
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 4) {
+                ForEach(Array(chips.enumerated()), id: \.offset) { i, chip in
+                    HStack(spacing: 4) {
+                        Text(chip).font(.sm).foregroundStyle(Self.valid(chip) ? Color.ink : .danger)
+                        Button("Remove \(chip)", systemImage: "xmark") { remove(i) }
+                            .labelStyle(.iconOnly).buttonStyle(.plain).font(.system(size: 9, weight: .semibold)).foregroundStyle(.muted)
+                    }
+                    .padding(.horizontal, 8).frame(height: 24)
+                    .background(Self.valid(chip) ? Color.hover : Color.danger.opacity(0.12), in: .capsule)
+                }
+                TextField(label, text: $entry, prompt: Text(""))
+                    .focused(focus, equals: field)
+                    .address()
+                    .frame(minWidth: 140)
+                    .onSubmit { commit(people.indices.contains(highlighted) ? people[highlighted] : nil) }
+                    .onKeyPress(.tab) {
+                        commit()
+                        return next()
+                    }
+                    .onKeyPress(.downArrow) { move(1) }
+                    .onKeyPress(.upArrow) { move(-1) }
+                    .onKeyPress(.escape) {
+                        guard !people.isEmpty else { return .ignored }
+                        people = []
+                        return .handled
+                    }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .task(id: focused ? typed : nil) { await suggest() }
+        .onChange(of: entry) { old, new in
+            let now = new.replacingOccurrences(of: Self.mark, with: "")
+            if new.isEmpty, old == Self.mark, !chips.isEmpty {
+                remove(chips.count - 1)
+            } else if now.contains(",") || now.contains(";") {
+                let parts = now.split(whereSeparator: { ",;".contains($0) }).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                set(chips + parts, typing: "")
+            } else {
+                set(chips, typing: now)
+            }
+        }
+        .onChange(of: focused) { _, now in
+            // Coming in, what's there becomes chips; leaving, the last bit typed becomes one too.
+            let filled = parts.filter { !$0.isEmpty }
+            if now { set(filled, typing: "") } else { text = filled.joined(separator: ", ") }
+        }
+        .overlay(alignment: .topLeading) {
+            if focused, !people.isEmpty { suggestions.offset(y: 34) }
+        }
+    }
+
+    private var suggestions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(people.enumerated()), id: \.element) { i, p in suggestion(p, lit: i == highlighted) }
+        }
+        .padding(4)
+        .frame(width: 280)
+        .background(.raised, in: .rect(cornerRadius: Radius.md))
+        .overlay(RoundedRectangle(cornerRadius: Radius.md).stroke(.line))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+    }
+
+    private func suggestion(_ p: Person, lit: Bool) -> some View {
+        Button { commit(p) } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(p.name.isEmpty ? p.address : p.name).font(.sm).foregroundStyle(.ink)
+                if !p.name.isEmpty { Text(p.address).font(.xs).foregroundStyle(.muted) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(lit ? Color.hover : .clear, in: .rect(cornerRadius: Radius.md))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func move(_ step: Int) -> KeyPress.Result {
+        guard !people.isEmpty else { return .ignored }
+        highlighted = (highlighted + step + people.count) % people.count
+        return .handled
+    }
+
+    private var typed: String { entry.replacingOccurrences(of: Self.mark, with: "") }
+
+    private func set(_ chips: [String], typing: String) {
+        text = (chips + [typing]).joined(separator: ", ")
+        if entry != Self.mark + typing { entry = Self.mark + typing }
+    }
+
+    private func commit(_ person: Person? = nil) {
+        let typed = typed.trimmingCharacters(in: .whitespaces)
+        set(chips + [person?.address ?? typed].filter { !$0.isEmpty }, typing: "")
+        people = []
+    }
+
+    private func remove(_ i: Int) {
+        var rest = chips
+        rest.remove(at: i)
+        set(rest, typing: focused ? typed : "")
+    }
+
+    // Up to five, leaving out who's in already.
+    private func suggest() async {
+        let query = focused ? typed : ""
+        guard !query.isEmpty, (try? await Task.sleep(for: .milliseconds(80))) != nil else { return people = [] }
+        let taken = Set(chips.map { $0.lowercased() })
+        let found = await Store.people(matching: query, limit: 10)
+        people = Array(found.filter { !taken.contains($0.address.lowercased()) }.prefix(5))
+        highlighted = 0
     }
 }

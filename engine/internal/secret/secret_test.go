@@ -21,4 +21,7 @@ func TestOpen(t *testing.T) {
 	if _, err := Open(bytes.Repeat([]byte{8}, 32), raw); err == nil {
 		t.Fatal("opened with the wrong key")
 	}
+	if got, err := Open(master, Seal(master, []byte("hunter3"))); err != nil || got != "hunter3" {
+		t.Fatalf("round trip: %q, %v", got, err)
+	}
 }

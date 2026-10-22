@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { encode } from "uqr";
 import { auth } from "../auth";
+import { authKey, changePassword, signOut } from "../keys";
 import type { Module, Page } from "./registry";
 
 type Result = { error: { message?: string } | null };
@@ -121,13 +122,15 @@ function Profile() {
 				action="Change"
 				open={password}
 				onOpenChange={setPassword}
-				onConfirm={async (currentPassword) => {
-					const newPassword = (document.getElementById("new-password") as HTMLInputElement).value;
-					const problem = failed(
-						await auth.changePassword({ currentPassword, newPassword, revokeOtherSessions: true }),
-					);
-					if (!problem) toast.add({ title: "Password changed" });
-					return problem;
+				onConfirm={async (current) => {
+					const next = (document.getElementById("new-password") as HTMLInputElement).value;
+					try {
+						await changePassword(user.email, current, next);
+						toast.add({ title: "Password changed" });
+						return "";
+					} catch (e) {
+						return (e as Error).message;
+					}
 				}}
 			>
 				<Field.Root>
@@ -141,8 +144,8 @@ function Profile() {
 				open={leaving}
 				onOpenChange={setLeaving}
 				onConfirm={async (password) => {
-					const problem = failed(await auth.deleteUser({ password }));
-					if (!problem) location.assign("/login");
+					const problem = failed(await auth.deleteUser({ password: await authKey(password, user.email) }));
+					if (!problem) await signOut();
 					return problem;
 				}}
 			/>
@@ -166,7 +169,7 @@ function Qr({ text }: { text: string }) {
 	);
 }
 
-function TwoFactor({ on }: { on: boolean }) {
+function TwoFactor({ on, email }: { on: boolean; email: string }) {
 	const toast = useToast();
 	const [step, setStep] = useState<"password" | "off" | "codes">();
 	const [setup, setSetup] = useState<{ totpURI: string; backupCodes: string[] }>();
@@ -223,7 +226,8 @@ function TwoFactor({ on }: { on: boolean }) {
 				action={step === "off" ? "Turn off" : "Continue"}
 				open={step !== undefined}
 				onOpenChange={(o) => !o && setStep(undefined)}
-				onConfirm={async (password) => {
+				onConfirm={async (typed) => {
+					const password = await authKey(typed, email);
 					setFresh(undefined);
 					if (step === "off") return failed(await auth.twoFactor.disable({ password }));
 					if (step === "codes") {
@@ -254,15 +258,17 @@ function BackupCodes({ codes }: { codes: string[] }) {
 }
 
 // Enough to tell devices apart: the browser and the system it runs on. Edge says Chrome too, Chrome says Safari.
+// The Apple apps say "Nouvex Mail (macOS)" or "(iOS)".
 const browsers = [
+	[/^Nouvex Mail/, "Nouvex Mail"],
 	[/Edg\//, "Edge"],
 	[/Firefox\//, "Firefox"],
 	[/Chrome\//, "Chrome"],
 	[/Safari\//, "Safari"],
 ] as const;
 const systems = [
-	[/iPhone|iPad/, "iOS"],
-	[/Mac OS X/, "macOS"],
+	[/iPhone|iPad|\(iOS\)/, "iOS"],
+	[/Mac OS X|\(macOS\)/, "macOS"],
 	[/Android/, "Android"],
 	[/Windows/, "Windows"],
 	[/Linux/, "Linux"],
@@ -285,7 +291,7 @@ function Security() {
 	return (
 		<Settings.Page title="Security">
 			<Settings.Section>
-				<TwoFactor on={!!session.data?.user.twoFactorEnabled} />
+				<TwoFactor on={!!session.data?.user.twoFactorEnabled} email={session.data?.user.email ?? ""} />
 			</Settings.Section>
 
 			<Settings.Section title="Passkeys">

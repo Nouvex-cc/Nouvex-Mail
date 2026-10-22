@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
@@ -48,7 +49,7 @@ func BenchmarkSync(b *testing.B) {
 	small := env.mailbox(b, smallFolders)
 	// Synced once without delay, so the timed runs only see what changed.
 	bigAcc := env.account(b, big, env.imap)
-	if _, err := Sync(env.ctx, env.pool, env.put, env.master, bigAcc, func(int64) {}); err != nil {
+	if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
 		b.Fatal(err)
 	}
 	for _, rtt := range rtts() {
@@ -58,7 +59,7 @@ func BenchmarkSync(b *testing.B) {
 		}
 		env.point(b, bigAcc, addr)
 		// Connects through the proxy; the runs below find the connection kept, as a sync shortly after another does.
-		if _, err := Sync(env.ctx, env.pool, env.put, env.master, bigAcc, func(int64) {}); err != nil {
+		if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
 			b.Fatal(err)
 		}
 		name := fmt.Sprintf("rtt=%s", rtt)
@@ -67,14 +68,14 @@ func BenchmarkSync(b *testing.B) {
 				b.StopTimer()
 				id := env.account(b, small, addr)
 				b.StartTimer()
-				if _, err := Sync(env.ctx, env.pool, env.put, env.master, id, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, id, func(int64) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
 		})
 		b.Run("unchanged/9000/"+name, func(b *testing.B) {
 			for b.Loop() {
-				if _, err := Sync(env.ctx, env.pool, env.put, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -84,7 +85,7 @@ func BenchmarkSync(b *testing.B) {
 				b.StopTimer()
 				big.append(b, "INBOX", newsletter(rand.Text()))
 				b.StartTimer()
-				if _, err := Sync(env.ctx, env.pool, env.put, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -102,7 +103,7 @@ func BenchmarkSync(b *testing.B) {
 				}
 				kept.Unlock()
 				b.StartTimer()
-				if _, err := Sync(env.ctx, env.pool, env.put, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -126,7 +127,7 @@ func BenchmarkSync(b *testing.B) {
 				if Saved(cmd) {
 					continue
 				}
-				if _, err := Sync(env.ctx, env.pool, env.put, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -140,8 +141,7 @@ func BenchmarkContent(b *testing.B) {
 		b.Run(name, func(b *testing.B) {
 			b.SetBytes(int64(len(raw)))
 			for b.Loop() {
-				p, _ := Content(raw)
-				_, _ = p.columns()
+				_, _ = Content(raw)
 				_ = References(raw)
 			}
 		})
@@ -171,9 +171,11 @@ func benchEnv(b testing.TB) *benchmark {
 	b.Cleanup(pool.Close)
 	put := func(context.Context, string, []byte, string) error { return nil }
 	if os.Getenv("S3_ENDPOINT") != "" {
-		if put, _, err = Bucket(ctx); err != nil {
+		bucket, err := OpenBucket(ctx)
+		if err != nil {
 			b.Fatal(err)
 		}
+		put = bucket.Put
 	}
 	secret, _ := base64.StdEncoding.DecodeString(sealed)
 	return &benchmark{ctx, pool, put, bytes.Repeat([]byte{7}, 32), os.Getenv("IMAP_SERVER"), secret}
@@ -200,6 +202,10 @@ func (e *benchmark) account(b testing.TB, m *imapUser, addr string) string {
 	})
 	if _, err := e.pool.Exec(e.ctx, `INSERT INTO mail_account (id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret)
 		VALUES ($1, $1, $2 || '@bench', '127.0.0.1', 0, '127.0.0.1', 25, $2, $3)`, id, m.name, e.secret); err != nil {
+		b.Fatal(err)
+	}
+	key, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	if _, err := e.pool.Exec(e.ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, id, key.PublicKey().Bytes()); err != nil {
 		b.Fatal(err)
 	}
 	e.point(b, id, addr)

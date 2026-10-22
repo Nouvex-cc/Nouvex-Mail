@@ -62,10 +62,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	put, get, err := mail.Bucket(ctx)
+	bucket, err := mail.OpenBucket(ctx)
 	if err != nil {
 		return err
 	}
+	store := mail.Store{Put: bucket.Put, Drop: bucket.Drop}
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
@@ -82,9 +83,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	stream, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{Name: "COMMANDS", Subjects: []string{"cmd.>"}})
+	// A work queue: a command is gone once it's done, so messages to send don't stay in the stream's files.
+	commands := jetstream.StreamConfig{Name: "COMMANDS", Subjects: []string{"cmd.>"}, Retention: jetstream.WorkQueuePolicy}
+	stream, err := js.CreateOrUpdateStream(ctx, commands)
 	if err != nil {
-		return err
+		// A stream made before can't change its retention; what's queued in it is dropped with it.
+		_ = js.DeleteStream(ctx, commands.Name)
+		if stream, err = js.CreateStream(ctx, commands); err != nil {
+			return err
+		}
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:        "engine",
@@ -140,14 +147,18 @@ func run() error {
 	for _, id := range ids {
 		watch(id)
 	}
-	go checkArchived(ctx, db.New(pool), js)
+	go checkArchived(ctx, db.New(pool), js, bucket)
+
+	if err := bucket.Sweep(ctx, db.New(pool)); err != nil {
+		slog.Error("sweep", "err", err)
+	}
 
 	// syncAccount syncs an account and tells clients while it runs and once it's done. Every saved batch goes out
 	// right away, so they fill up during a long first sync.
 	syncAccount := func(id string) error {
 		start, _ := json.Marshal(msg.MailboxSyncing{AccountId: id})
 		_ = nc.Publish("evt.mailbox.syncing", start)
-		v, err := mail.Sync(ctx, pool, put, master, id, func(v int64) {
+		v, err := mail.Sync(ctx, pool, store, master, id, func(v int64) {
 			n := int(v)
 			ev, _ := json.Marshal(msg.MailboxSyncing{AccountId: id, Version: &n})
 			_ = nc.Publish("evt.mailbox.syncing", ev)
@@ -172,7 +183,7 @@ func run() error {
 	handle := func(m jetstream.Msg, owed, queued bool) bool {
 		switch m.Subject() {
 		case "cmd.message.send":
-			send(ctx, m, nc, js, db.New(pool), get, master)
+			send(ctx, m, nc, js, db.New(pool), bucket, master)
 			return owed
 		case "cmd.draft.save":
 			var d msg.DraftSave
@@ -291,7 +302,7 @@ func run() error {
 	}
 	defer func() { _ = check.Unsubscribe() }()
 
-	go runJobs(ctx, db.New(pool), js)
+	go runJobs(ctx, db.New(pool), js, master)
 
 	slog.Info("engine running")
 	<-ctx.Done()
@@ -300,7 +311,7 @@ func run() error {
 
 // send runs once and reports the outcome as evt.message.sent: the server may have taken a message even when we saw
 // an error, and sending it twice is worse than asking the user to try again.
-func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetStream, q *db.Queries, get mail.Get, master []byte) {
+func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetStream, q *db.Queries, bucket *mail.Bucket, master []byte) {
 	defer func() { _ = m.Ack() }()
 	var cmd msg.MessageSend
 	if err := json.Unmarshal(m.Data(), &cmd); err != nil {
@@ -311,7 +322,8 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 	if cmd.SendAt != nil && cmd.SendAt.After(time.Now()) {
 		at := *cmd.SendAt
 		cmd.SendAt = nil
-		payload, _ := json.Marshal(cmd)
+		plain, _ := json.Marshal(cmd)
+		payload, _ := json.Marshal(scheduled{Sealed: secret.Seal(master, plain)})
 		if err := q.AddJob(ctx, db.AddJobParams{
 			ID: rand.Text(), AccountID: cmd.AccountId, Kind: "send", Payload: payload,
 			RunAt: pgtype.Timestamptz{Time: at, Valid: true},
@@ -320,8 +332,8 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 		}
 		return
 	}
-	ev := msg.MessageSent{AccountId: cmd.AccountId, Subject: cmd.Subject}
-	raw, err := mail.Send(ctx, q, get, master, cmd)
+	ev := msg.MessageSent{AccountId: cmd.AccountId}
+	raw, err := mail.Send(ctx, q, bucket.Get, master, cmd)
 	if err != nil {
 		slog.Error("send failed", "account", cmd.AccountId, "err", err)
 		e := err.Error()
@@ -335,6 +347,9 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 		if err := mail.SaveSent(ctx, q, master, cmd.AccountId, raw); err != nil {
 			slog.Warn("saving to Sent failed", "account", cmd.AccountId, "err", err)
 		}
+		for _, a := range cmd.Attachments {
+			_ = bucket.Remove(ctx, "upload/"+cmd.AccountId+"/"+a.Id)
+		}
 		// So the copy shows up in Sent and the draft leaves Drafts.
 		sync, _ := json.Marshal(msg.MailboxSync{AccountId: cmd.AccountId})
 		_, _ = js.Publish(ctx, "cmd.mailbox.sync", sync)
@@ -343,9 +358,10 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 	_ = nc.Publish("evt.message.sent", b)
 }
 
-// checkArchived syncs archived accounts once a day; they have no watcher, and opening one syncs it too.
+// checkArchived syncs archived accounts once a day; they have no watcher, and opening one syncs it too. Uploads for
+// messages that were never sent go then as well.
 // ponytail: counts the day from the engine's start, a restart pushes the next check back.
-func checkArchived(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
+func checkArchived(ctx context.Context, q *db.Queries, js jetstream.JetStream, bucket *mail.Bucket) {
 	tick := time.NewTicker(24 * time.Hour)
 	defer tick.Stop()
 	for {
@@ -353,6 +369,9 @@ func checkArchived(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
+		}
+		if err := bucket.SweepUploads(ctx); err != nil {
+			slog.Error("sweep uploads", "err", err)
 		}
 		ids, err := q.ListArchivedAccountIDs(ctx)
 		if err != nil {
@@ -368,9 +387,14 @@ func checkArchived(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
 	}
 }
 
+// A message to send later is sealed with SECRETS_KEY while it waits: the engine has to read it when it's due.
+type scheduled struct {
+	Sealed []byte `json:"sealed"`
+}
+
 // runJobs turns due jobs back into commands: a message to send, a snoozed message to move back to the INBOX.
 // ponytail: polls every 20 seconds, so things happen up to 20 seconds late.
-func runJobs(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
+func runJobs(ctx context.Context, q *db.Queries, js jetstream.JetStream, master []byte) {
 	tick := time.NewTicker(20 * time.Second)
 	defer tick.Stop()
 	for {
@@ -386,9 +410,22 @@ func runJobs(ctx context.Context, q *db.Queries, js jetstream.JetStream) {
 		}
 		for _, j := range jobs {
 			subject, data := "cmd.message.send", j.Payload
+			var s scheduled
+			if _ = json.Unmarshal(j.Payload, &s); s.Sealed != nil {
+				plain, err := secret.Open(master, s.Sealed)
+				if err != nil {
+					slog.Error("job", "kind", j.Kind, "err", err)
+					continue
+				}
+				data = []byte(plain)
+			}
 			if j.Kind == "unsnooze" {
 				var p struct{ MessageID string }
 				_ = json.Unmarshal(j.Payload, &p)
+				// Jobs from before Message-IDs were stored hashed.
+				if len(p.MessageID) != 64 {
+					p.MessageID = mail.Hashed(p.MessageID)
+				}
 				// Moved out of Snoozed meanwhile: nothing to bring back.
 				id, err := q.FindByRole(ctx, db.FindByRoleParams{AccountID: j.AccountID, MessageID: p.MessageID, Role: "snoozed"})
 				if err != nil {

@@ -2,10 +2,34 @@
 import Foundation
 import GRDB
 import Observation
+import SwiftUI
 import UserNotifications
 #if os(macOS)
 import AppKit
 #endif
+
+/// Settings that follow the user to every device; the server leaves out whatever is at its default.
+struct Prefs {
+    var markRead = "instant"
+    var remoteImages = "always"
+    var afterArchive = "list"
+    var undoSend = 5
+    var replyDefault = "reply"
+    /// Replies to mail sent from an archived account still show in All inboxes.
+    var archivedReplies = true
+    /// Minutes before a meeting starts that it shows in the sidebar.
+    var meetingLead = 15
+    /// Minutes a sign-in code stays in the sidebar.
+    var codeLife = 5
+    var categories = true
+}
+
+/// A short word after something happened, at the bottom of the window.
+struct Toast: Identifiable {
+    let id = UUID()
+    let title: String
+    var detail: String?
+}
 
 /// The signed-in session: keeps the local copy in step with the server and changes mail there.
 @MainActor @Observable final class Mail {
@@ -16,21 +40,36 @@ import AppKit
     /// The account the sidebar shows, all of them when nil.
     var account: String?
     var thread: String?
+    /// The conversations in the list, in order, for moving on to the next one after archiving.
+    var order: [String] = []
     /// A new message, docked in the window's bottom right.
     var compose: Draft?
     /// A reply being written in the open conversation, in the reply bar's place.
     var reply: Draft?
     /// Who's signed in, for the profile at the bottom of the sidebar.
-    private(set) var me = (name: "", email: "")
-    private(set) var accountList: [Account] = []
-    /// Settings that follow the user from the web.
-    private(set) var categories = true
-    private(set) var undoSend = 5
+    var me = (name: "", email: "")
+    /// The page Settings shows, and on iOS whether its sheet is up.
+    var settings: SettingsPage? = .reading
+    var settingsOpen = false
+    /// This device has the key to the user's mail (Keys.swift); a passkey alone doesn't bring it.
+    var unlocked = Keys.stored != nil
+    var shortcutsOpen = false
+    /// Every account, archived ones too.
+    private(set) var accounts: [Account] = []
+    private(set) var prefs = Prefs()
     private(set) var unread = Unread()
+    /// Accounts the engine is syncing right now.
+    private(set) var syncing: Set<String> = []
+    private(set) var toasts: [Toast] = []
+
+    /// The accounts in All inboxes and the picker.
+    var accountList: [Account] { accounts.filter { !$0.archived } }
+    /// The account picked in the sidebar, or every active one.
+    var inView: [Account] { accounts.filter { a in account.map { $0 == a.id } ?? !a.archived } }
 
     /// Unread conversations in the inbox, the way the sidebar counts them.
-    var inboxUnread: Int { categories ? unread.counts["primary"] ?? 0 : unread.counts.values.reduce(0, +) }
-    var recent: [Message] { Array(unread.recent.filter { !categories || $0.category == "primary" }.prefix(5)) }
+    var inboxUnread: Int { prefs.categories ? unread.counts["primary"] ?? 0 : unread.counts.values.reduce(0, +) }
+    var recent: [Message] { Array(unread.recent.filter { !prefs.categories || $0.category == "primary" }.prefix(5)) }
 
     private var pulls: [String: Task<Void, Never>] = [:]
     private var again: Set<String> = []
@@ -53,17 +92,20 @@ import AppKit
     /// Pull to refresh: everything since the last pull, waiting until it's in.
     func refresh() async {
         resume()
-        for a in accountList { pull(a.id) }
+        for a in accounts { pull(a.id) }
         while !pulls.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
     }
 
     func signedIn() {
+        unlocked = Keys.stored != nil
         stop()
         start()
     }
 
     func signOut() async {
         stop()
+        Keys.forget()
+        unlocked = false
         await API.signOut()
         _ = try? await Store.db.write { try Account.deleteAll($0) }
         state = .signedOut
@@ -82,7 +124,7 @@ import AppKit
                 let socket = URLSession.shared.webSocketTask(with: socketURL)
                 socket.resume()
                 defer { socket.cancel() }
-                for a in accountList { pull(a.id) }
+                for a in accounts { pull(a.id) }
                 while !Task.isCancelled {
                     let message = try await withTaskCancellationHandler { try await socket.receive() } onCancel: { socket.cancel() }
                     if case .string(let text) = message { event(text) }
@@ -108,28 +150,18 @@ import AppKit
     }
 
     private func load() async throws {
-        let client = API.client
-        let list: [Account]
-        switch try await client.listAccounts() {
-        case .ok(let ok):
-            list = try ok.body.json.filter { $0.archivedAt == nil }.map {
-                Account(id: $0.id, email: $0.email, displayName: $0.displayName, signature: $0.signature)
-            }
-        case .undocumented(statusCode: 401, _): throw SignedOut()
-        case .undocumented: throw URLError(.badServerResponse)
-        }
-        if let prefs = try? await client.getPrefs().ok.body.json {
-            categories = prefs.categories ?? true
-            undoSend = Int(prefs.undoSend?.value1 ?? 5)
+        try await loadAccounts()
+        if let p = try? await API.client.getPrefs().ok.body.json {
+            let d = Prefs()
+            prefs = Prefs(
+                markRead: p.markRead?.rawValue ?? d.markRead, remoteImages: p.remoteImages?.rawValue ?? d.remoteImages,
+                afterArchive: p.afterArchive?.rawValue ?? d.afterArchive, undoSend: p.undoSend?.value1.map { Int($0) } ?? d.undoSend,
+                replyDefault: p.replyDefault?.rawValue ?? d.replyDefault, archivedReplies: p.archivedReplies ?? d.archivedReplies,
+                meetingLead: p.meetingLead?.value1.map { Int($0) } ?? d.meetingLead, codeLife: p.codeLife?.value1.map { Int($0) } ?? d.codeLife,
+                categories: p.categories ?? d.categories
+            )
         }
         if let user = await API.me() { me = user }
-        // Accounts removed or archived elsewhere take their mail with them.
-        try await Store.db.write { db in
-            try Account.filter(!list.map(\.id).contains(Column("id"))).deleteAll(db)
-            for a in list { try a.save(db) }
-        }
-        accountList = list
-        if let account, !list.contains(where: { $0.id == account }) { self.account = nil }
         let first = state != .signedIn
         state = .signedIn
         // Asked once there's mail to tell about, not on the sign-in screen. Nothing waits for the answer: with Focus on,
@@ -137,10 +169,64 @@ import AppKit
         if first { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) } }
     }
 
+    /// The accounts with their sync errors; one removed elsewhere takes its mail with it.
+    func loadAccounts() async throws {
+        let list: [Account]
+        switch try await API.client.listAccounts() {
+        case .ok(let ok):
+            list = try ok.body.json.map {
+                Account(
+                    id: $0.id, email: $0.email, displayName: $0.displayName, signature: $0.signature, archived: $0.archivedAt != nil,
+                    syncError: $0.syncError
+                )
+            }
+        case .undocumented(statusCode: 401, _): throw SignedOut()
+        case .undocumented: throw URLError(.badServerResponse)
+        }
+        try await Store.db.write { db in
+            try Account.filter(!list.map(\.id).contains(Column("id"))).deleteAll(db)
+            for a in list { try a.save(db) }
+        }
+        accounts = list
+        if let account, !list.contains(where: { $0.id == account }) { self.account = nil }
+    }
+
+    /// Changes a setting here right away and on the server, where every other device picks it up.
+    func set(_ change: (inout Prefs) -> Void) {
+        let before = prefs
+        change(&prefs)
+        let p = prefs
+        let body = Operations.updatePrefs.Input.Body.jsonPayload(
+            markRead: .init(rawValue: p.markRead), remoteImages: .init(rawValue: p.remoteImages), afterArchive: .init(rawValue: p.afterArchive),
+            undoSend: .init(value1: Double(p.undoSend)), replyDefault: .init(rawValue: p.replyDefault), archivedReplies: p.archivedReplies,
+            meetingLead: .init(value1: Double(p.meetingLead)), codeLife: .init(value1: Double(p.codeLife)), categories: p.categories
+        )
+        Task {
+            if case .noContent = try? await API.client.updatePrefs(body: .json(body)) { return }
+            prefs = before
+            toast("Couldn't save the setting")
+        }
+    }
+
+    /// A setting as a binding for a control; changing it saves it.
+    func binding<Value>(_ key: WritableKeyPath<Prefs, Value>) -> Binding<Value> {
+        Binding(get: { self.prefs[keyPath: key] }, set: { v in self.set { $0[keyPath: key] = v } })
+    }
+
+    func toast(_ title: String, _ detail: String? = nil) {
+        let t = Toast(title: title, detail: detail)
+        withAnimation(.quick) { toasts = Array((toasts + [t]).suffix(3)) }
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            withAnimation(.quick) { toasts.removeAll { $0.id == t.id } }
+        }
+    }
+
     // Engine events (packages/schema), with only the fields used here.
     private struct Event: Decodable {
         struct About: Decodable {
             let accountId: String
+            let version: Int?
             let subject: String?
             let error: String?
         }
@@ -149,16 +235,36 @@ import AppKit
     }
 
     private func event(_ text: String) {
-        guard let e = try? JSONDecoder().decode(Event.self, from: Data(text.utf8)), accountList.contains(where: { $0.id == e.data.accountId }) else { return }
-        if e.subject.hasPrefix("evt.mailbox.") { pull(e.data.accountId) }
-        // Sending happens after the composer closed, so only a failure is worth a word.
-        if e.subject == "evt.message.sent", let error = e.data.error {
-            let content = UNMutableNotificationContent()
-            content.title = "Couldn't send “\(e.data.subject ?? "")”"
-            content.body = error
-            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        guard let e = try? JSONDecoder().decode(Event.self, from: Data(text.utf8)), accounts.contains(where: { $0.id == e.data.accountId }) else { return }
+        let id = e.data.accountId
+        switch e.subject {
+        case "evt.mailbox.syncing":
+            if e.data.version != nil { pull(id) }
+            syncing.insert(id)
+        case "evt.mailbox.synced":
+            if e.data.error == nil { pull(id) }
+            syncing.remove(id)
+            // A sync that failed or worked again changes the account's error.
+            Task { try? await loadAccounts() }
+        case "evt.message.sent":
+            if let error = e.data.error { toast("Couldn't send", error) } else { toast("Sent") }
+        default: break
         }
     }
+
+    /// What the engine sealed for the user (Meta in engine/internal/mail/sync.go).
+    private struct Meta: Decodable {
+        let messageId, subject, snippet, fromName, fromAddr: String
+        let to, cc: [String]
+        let attachments: [Attachment]
+        let actions: [Action]
+    }
+
+    nonisolated private static let metaDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { try ISODates().decode($0.singleValueContainer().decode(String.self)) }
+        return d
+    }()
 
     /// Fetches everything after the stored cursor. A pull asked for while one runs follows right after it.
     func pull(_ accountId: String) {
@@ -179,11 +285,18 @@ import AppKit
         while true {
             let since = try await Store.db.read { try Cursor.fetchOne($0, key: accountId)?.version } ?? 0
             let page = try await API.client.getChanges(path: .init(accountId: accountId), query: .init(since: since)).ok.body.json
-            let messages = page.messages.upserted.map { m in
+            guard let mine = Keys.stored else { return fresh }
+            // One that doesn't open (sealed to a key from before a reset) is left out rather than holding up the rest.
+            let messages = page.messages.upserted.compactMap { m -> Message? in
+                let key = Data(base64Encoded: m.key) ?? Data()
+                guard let plain = try? Crypto.decrypt(Crypto.openKey(mine, key), "meta", Data(base64Encoded: m.sealed) ?? Data()),
+                      let meta = try? metaDecoder.decode(Meta.self, from: plain)
+                else { return nil }
                 var message = Message(
-                    id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: m.messageId, threadId: m.threadId,
-                    subject: m.subject, snippet: m.snippet, fromName: m.fromName, fromAddr: m.fromAddr, to: m.to, cc: m.cc, sentAt: m.sentAt,
-                    flags: m.flags, category: m.category.rawValue, attachments: m.attachments.count
+                    id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: meta.messageId, threadId: m.threadId,
+                    subject: meta.subject, snippet: meta.snippet, fromName: meta.fromName, fromAddr: meta.fromAddr, to: meta.to,
+                    cc: meta.cc, sentAt: m.sentAt, flags: m.flags, category: m.category.rawValue, attachments: meta.attachments.count,
+                    files: meta.attachments, actions: meta.actions, key: key
                 )
                 message.set()
                 return message
@@ -206,7 +319,7 @@ import AppKit
     }
 
     private func notify(_ fresh: [Message]) {
-        for m in fresh where !categories || m.category == "primary" {
+        for m in fresh where !prefs.categories || m.category == "primary" {
             let content = UNMutableNotificationContent()
             content.title = m.sender
             content.body = m.subject
@@ -229,10 +342,20 @@ import AppKit
         } catch {}
     }
 
+    /// Removes an account and everything synced from it; the mail server keeps its mail.
+    func remove(_ account: Account) async {
+        guard case .noContent = try? await API.client.deleteAccount(path: .init(accountId: account.id)) else {
+            return toast("Couldn't remove \(account.email)")
+        }
+        _ = try? await Store.db.write { try Account.deleteOne($0, key: account.id) }
+        try? await loadAccounts()
+    }
+
     /// Changes the local copy right away; a message the server refuses to change is put back as it was.
     func update(
         _ messages: [Message], seen: Bool? = nil, starred: Bool? = nil, archive: Bool = false, trash: Bool = false, snoozeUntil: Date? = nil
     ) {
+        if let snoozeUntil, !messages.isEmpty { toast("Snoozed until \(snoozeUntil.when)") }
         Task { await Background.keepAlive {
             try? await Store.db.write { db in
                 for var m in messages {

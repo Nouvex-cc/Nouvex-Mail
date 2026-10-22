@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as UnlockRouteImport } from './routes/unlock'
+import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsPageRouteImport } from './routes/settings.$page'
 
@@ -30,6 +32,16 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UnlockRoute = UnlockRouteImport.update({
+  id: '/unlock',
+  path: '/unlock',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelcomeRoute = WelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -45,12 +57,16 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/unlock': typeof UnlockRoute
+  '/welcome': typeof WelcomeRoute
   '/settings/$page': typeof SettingsPageRoute
   '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/unlock': typeof UnlockRoute
+  '/welcome': typeof WelcomeRoute
   '/settings/$page': typeof SettingsPageRoute
   '/settings': typeof SettingsIndexRoute
 }
@@ -59,22 +75,40 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/unlock': typeof UnlockRoute
+  '/welcome': typeof WelcomeRoute
   '/settings/$page': typeof SettingsPageRoute
   '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/settings' | '/settings/$page' | '/settings/'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/settings'
+    | '/unlock'
+    | '/welcome'
+    | '/settings/$page'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/settings/$page' | '/settings'
+  to: '/' | '/login' | '/unlock' | '/welcome' | '/settings/$page' | '/settings'
   id:
-    '__root__' | '/' | '/login' | '/settings' | '/settings/$page' | '/settings/'
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/settings'
+    | '/unlock'
+    | '/welcome'
+    | '/settings/$page'
+    | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  UnlockRoute: typeof UnlockRoute
+  WelcomeRoute: typeof WelcomeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -98,6 +132,20 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/unlock': {
+      id: '/unlock'
+      path: '/unlock'
+      fullPath: '/unlock'
+      preLoaderRoute: typeof UnlockRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welcome': {
+      id: '/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof WelcomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/': {
@@ -135,6 +183,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  UnlockRoute: UnlockRoute,
+  WelcomeRoute: WelcomeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

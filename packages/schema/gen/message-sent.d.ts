@@ -10,6 +10,5 @@
  */
 export interface MessageSent {
   accountId: string;
-  subject: string;
   error?: string;
 }

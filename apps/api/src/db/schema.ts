@@ -39,6 +39,9 @@ export const mailAccount = pgTable("mail_account", {
 	syncError: text("sync_error"),
 	// Archived accounts stay out of All inboxes and aren't watched; the engine checks them once a day.
 	archivedAt: timestamp("archived_at", { withTimezone: true }),
+	// The public key the stored mail is sealed to. When the user's key changes (a reset), the engine drops the mail
+	// and fetches it again for the new one.
+	sealedTo: bytea("sealed_to"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -49,6 +52,17 @@ export const userPrefs = pgTable("user_prefs", {
 		.references(() => user.id, { onDelete: "cascade" }),
 	prefs: jsonb("prefs").notNull().default({}),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// The user's key pair for mail encrypted at rest (engine/internal/seal). The private half is wrapped with a key that
+// only the user's password gives, on their device; the server never sees either.
+export const userKey = pgTable("user_key", {
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	publicKey: bytea("public_key").notNull(),
+	wrappedPrivate: bytea("wrapped_private").notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const mailbox = pgTable(
@@ -70,18 +84,6 @@ export const mailbox = pgTable(
 	(t) => [unique().on(t.accountId, t.name)],
 );
 
-export type Action = {
-	kind: "code" | "meeting";
-	code?: string;
-	title?: string;
-	start?: string;
-	end?: string;
-	url?: string;
-	provider?: string;
-	event?: string;
-	cancelled?: boolean;
-};
-
 export const message = pgTable(
 	"message",
 	{
@@ -93,23 +95,19 @@ export const message = pgTable(
 			.notNull()
 			.references(() => mailbox.id, { onDelete: "cascade" }),
 		uid: bigint("uid", { mode: "number" }).notNull(),
+		// SHA-256 of the Message-ID and of the ones this message answers (In-Reply-To and References): enough to put
+		// conversations together without keeping the headers. The conversation's id is one of them.
 		messageId: text("message_id").notNull(),
-		// Message-IDs this one answers (In-Reply-To and References), and the conversation it belongs to.
 		refs: text("refs").array().notNull().default([]),
 		threadId: text("thread_id").notNull().default(""),
-		subject: text("subject").notNull(),
-		snippet: text("snippet").notNull().default(""),
-		fromName: text("from_name").notNull(),
-		fromAddr: text("from_addr").notNull(),
-		to: text("to_addrs").array().notNull().default([]),
-		cc: text("cc_addrs").array().notNull().default([]),
 		sentAt: timestamp("sent_at", { withTimezone: true }).notNull(),
 		flags: text("flags").array().notNull(),
 		size: integer("size").notNull(),
-		// Stored in S3 as att/<message id>/<index>.
-		attachments: jsonb("attachments").$type<{ name: string; type: string; size: number }[]>().notNull().default([]),
-		// Sign-in codes and meetings found by the engine (Action in engine/internal/mail/actions.go).
-		actions: jsonb("actions").$type<Action[]>().notNull().default([]),
+		// This message's own key, sealed to the user's public key (engine/internal/seal), and what only it opens: the
+		// fields in Meta (engine/internal/mail/sync.go). Body and attachments are in S3 as body/<id>.html and
+		// att/<id>/<index>, encrypted with it too.
+		key: bytea("key").notNull(),
+		sealed: bytea("sealed").notNull(),
 		// The inbox tab, sorted by the engine from the headers (engine/internal/mail/category.go).
 		category: text("category", { enum: ["primary", "promotions", "social", "updates", "newsletters"] })
 			.notNull()

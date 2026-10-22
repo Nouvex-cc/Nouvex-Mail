@@ -3,8 +3,12 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,11 +23,41 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/seal"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
 // Put stores an object, e.g. in S3. It is called from several goroutines at once.
 type Put func(ctx context.Context, key string, data []byte, contentType string) error
+
+// Store keeps the parts of messages: Drop removes a message's body and attachments.
+type Store struct {
+	Put  Put
+	Drop func(ctx context.Context, messageID string) error
+}
+
+// Meta is what only the user can read about a message, sealed into message.sealed. The clients read the same
+// fields (packages/sdk, apps/apple).
+type Meta struct {
+	MessageID   string   `json:"messageId"`
+	Subject     string   `json:"subject"`
+	Snippet     string   `json:"snippet"`
+	FromName    string   `json:"fromName"`
+	FromAddr    string   `json:"fromAddr"`
+	To          []string `json:"to"`
+	Cc          []string `json:"cc"`
+	Attachments []File   `json:"attachments"`
+	Actions     []Action `json:"actions"`
+}
+
+// Hashed is how Message-IDs are stored: equal ones still match, for conversations, without keeping the header.
+func Hashed(id string) string {
+	if id == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(sum[:])
+}
 
 // batch is how many new messages are fetched and saved together: a dropped connection costs one batch, not the
 // whole first sync.
@@ -43,13 +77,36 @@ func newMailItems() *imap.FetchOptions {
 }
 
 // Sync brings every folder of the account up to date and returns the account's version afterwards. Each new
-// message is stored whole as raw/<id>.eml and the part to show as body/<id>.html. Work is saved folder by folder
-// and in batches of new messages; progress is called with the version after each save.
-func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accountID string, progress func(version int64)) (_ int64, err error) {
+// message is sealed to the user's public key: its Meta in the row, the part to show as body/<id>.html, attachments
+// as att/<id>/<index>. Work is saved folder by folder and in batches of new messages; progress is called with the
+// version after each save. Without a key nothing is fetched: the user hasn't set a password yet.
+func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, accountID string, progress func(version int64)) (_ int64, err error) {
 	acc, err := db.New(pool).GetAccount(ctx, accountID)
 	if err != nil {
 		return 0, err
 	}
+	pub, err := db.New(pool).GetUserKey(ctx, accountID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
+	s := &syncer{ctx: ctx, pool: pool, store: store, progress: progress, acc: acc, pub: pub}
+	if err := s.begin(); err != nil {
+		return 0, err
+	}
+	defer func() { _ = s.tx.Rollback(ctx) }()
+	// A new key (after a reset) can't open what was sealed to the old one: start over.
+	if !bytes.Equal(acc.SealedTo, pub) {
+		if err := s.restart(); err != nil {
+			return 0, err
+		}
+	}
+	if pub == nil {
+		if err := s.flush(); err != nil {
+			return 0, err
+		}
+		return s.acc.Version, s.tx.Commit(ctx)
+	}
+
 	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
 		return 0, err
@@ -71,11 +128,7 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 		}
 	}
 
-	s := &syncer{ctx: ctx, pool: pool, c: c, put: put, progress: progress, acc: acc}
-	if err := s.begin(); err != nil {
-		return 0, err
-	}
-	defer func() { _ = s.tx.Rollback(ctx) }()
+	s.c = c
 
 	stored, err := s.q.ListMailboxes(ctx, acc.ID)
 	if err != nil {
@@ -98,13 +151,9 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, put Put, master []byte, accou
 			continue
 		}
 		// Deleted or renamed on the server; a renamed one comes back as a new folder.
-		if err := s.clear(b.ID); err != nil {
+		if err := s.drop(b.ID); err != nil {
 			return 0, err
 		}
-		if err := s.q.DeleteMailbox(ctx, b.ID); err != nil {
-			return 0, err
-		}
-		s.log("mailbox", b.ID, "delete")
 	}
 	if err := s.flush(); err != nil {
 		return 0, err
@@ -153,9 +202,10 @@ type syncer struct {
 	tx       pgx.Tx
 	q        *db.Queries
 	c        *imapclient.Client
-	put      Put
+	store    Store
 	progress func(version int64)
 	acc      db.MailAccount
+	pub      []byte
 	changes  db.LogChangesParams
 }
 
@@ -197,10 +247,47 @@ func (s *syncer) flush() (err error) {
 // clear drops every message of a folder.
 func (s *syncer) clear(boxID string) error {
 	gone, err := s.q.ClearMailbox(s.ctx, boxID)
-	for _, id := range gone {
-		s.log("message", id, "delete")
+	if err != nil {
+		return err
 	}
-	return err
+	return s.forget(gone)
+}
+
+// forget logs deleted messages and removes their parts.
+func (s *syncer) forget(ids []string) error {
+	for _, id := range ids {
+		s.log("message", id, "delete")
+		if err := s.store.Drop(s.ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// drop removes a folder with its messages.
+func (s *syncer) drop(boxID string) error {
+	if err := s.clear(boxID); err != nil {
+		return err
+	}
+	if err := s.q.DeleteMailbox(s.ctx, boxID); err != nil {
+		return err
+	}
+	s.log("mailbox", boxID, "delete")
+	return nil
+}
+
+// restart drops everything stored for the account, sealed to a key that is gone, and notes the current one.
+func (s *syncer) restart() error {
+	stored, err := s.q.ListMailboxes(s.ctx, s.acc.ID)
+	if err != nil {
+		return err
+	}
+	for _, b := range stored {
+		if err := s.drop(b.ID); err != nil {
+			return err
+		}
+	}
+	return s.q.SetSealedTo(s.ctx, db.SetSealedToParams{ID: s.acc.ID, SealedTo: s.pub})
 }
 
 // folder syncs one folder. st is its status from the LIST, box what we stored for it; either may be nil.
@@ -421,15 +508,10 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 		AccountID: s.acc.ID,
 		MailboxID: boxID,
 		Uid:       int64(m.UID),
-		MessageID: m.Envelope.MessageID,
-		Subject:   m.Envelope.Subject,
+		MessageID: Hashed(m.Envelope.MessageID),
 		SentAt:    pgtype.Timestamptz{Time: sent, Valid: true},
 		Flags:     flagStrings(m.Flags),
 		Size:      int32(m.RFC822Size),
-	}
-	row.ToAddrs, row.CcAddrs = addrs(m.Envelope.To), addrs(m.Envelope.Cc)
-	if len(m.Envelope.From) > 0 {
-		row.FromName, row.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
 	}
 	raw := m.FindBodySection(whole)
 	// An unparsable message still shows up, just without a body to read.
@@ -437,19 +519,33 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 	if err != nil {
 		slog.Warn("can't read message", "id", row.ID, "err", err)
 	}
-	row.Snippet = parsed.Snippet
-	row.Attachments, row.Actions = parsed.columns()
+	meta := Meta{
+		MessageID: m.Envelope.MessageID, Subject: m.Envelope.Subject, Snippet: parsed.Snippet,
+		To: addrs(m.Envelope.To), Cc: addrs(m.Envelope.Cc),
+		// Empty lists rather than null.
+		Attachments: append([]File{}, parsed.Files...), Actions: append([]Action{}, parsed.Actions...),
+	}
+	if len(m.Envelope.From) > 0 {
+		meta.FromName, meta.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
+	}
 	row.Category = parsed.Category
-	row.Refs = References(raw)
+	refs := References(raw)
+	for i, r := range refs {
+		refs[i] = Hashed(r)
+	}
+	row.Refs = refs
+	key := seal.NewKey()
+	if row.Key, err = seal.Wrap(s.pub, key); err != nil {
+		return nil, err
+	}
+	plain, _ := json.Marshal(meta)
+	row.Sealed = seal.Encrypt(key, "meta", plain)
 	for i, f := range parsed.Files {
-		if err := s.put(s.ctx, fmt.Sprintf("att/%s/%d", row.ID, i), f.Data, f.Type); err != nil {
+		if err := s.store.Put(s.ctx, fmt.Sprintf("att/%s/%d", row.ID, i), seal.Encrypt(key, fmt.Sprintf("att/%d", i), f.Data), "application/octet-stream"); err != nil {
 			return nil, err
 		}
 	}
-	if err := s.put(s.ctx, "raw/"+row.ID+".eml", raw, "message/rfc822"); err != nil {
-		return nil, err
-	}
-	if err := s.put(s.ctx, "body/"+row.ID+".html", []byte(parsed.Body), "text/html; charset=utf-8"); err != nil {
+	if err := s.store.Put(s.ctx, "body/"+row.ID+".html", seal.Encrypt(key, "body", []byte(parsed.Body)), "application/octet-stream"); err != nil {
 		return nil, err
 	}
 	return &row, nil
@@ -501,10 +597,10 @@ func (s *syncer) gone(boxID string, onServer uint32) error {
 		uids = append(uids, int64(u))
 	}
 	ids, err := s.q.DeleteGone(s.ctx, db.DeleteGoneParams{MailboxID: boxID, Uids: uids})
-	for _, id := range ids {
-		s.log("message", id, "delete")
+	if err != nil {
+		return err
 	}
-	return err
+	return s.forget(ids)
 }
 
 // allFlags compares every UID's flags with what we stored, which also finds the messages that are gone.
@@ -527,20 +623,21 @@ func (s *syncer) allFlags(boxID string, onServer uint32) error {
 	}
 	for _, r := range stored {
 		flags, ok := server[r.Uid]
-		op := "upsert"
 		switch {
 		case !ok:
-			op = "delete"
-			err = s.q.DeleteMessage(s.ctx, r.ID)
+			if err = s.q.DeleteMessage(s.ctx, r.ID); err == nil {
+				err = s.forget([]string{r.ID})
+			}
 		case !slices.Equal(flags, r.Flags):
-			err = s.q.SetFlags(s.ctx, db.SetFlagsParams{ID: r.ID, Flags: flags})
+			if err = s.q.SetFlags(s.ctx, db.SetFlagsParams{ID: r.ID, Flags: flags}); err == nil {
+				s.log("message", r.ID, "upsert")
+			}
 		default:
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		s.log("message", r.ID, op)
 	}
 	return nil
 }

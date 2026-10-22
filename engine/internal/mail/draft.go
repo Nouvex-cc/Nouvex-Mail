@@ -47,9 +47,9 @@ func SaveDraft(ctx context.Context, q *db.Queries, master []byte, cmd msg.DraftS
 	if cmd.Discard != nil && *cmd.Discard {
 		return nil
 	}
-	var parent string
+	parent := ""
 	if cmd.InReplyTo != nil {
-		parent, _ = q.GetMessageID(ctx, db.GetMessageIDParams{ID: *cmd.InReplyTo, AccountID: cmd.AccountId})
+		parent = *cmd.InReplyTo
 	}
 	raw, err := Compose(mail.Address{Name: acc.DisplayName, Address: acc.Email}, msg.MessageSend{
 		AccountId: cmd.AccountId, To: cmd.To, Cc: cmd.Cc, Bcc: cmd.Bcc, Subject: cmd.Subject, Text: cmd.Text,

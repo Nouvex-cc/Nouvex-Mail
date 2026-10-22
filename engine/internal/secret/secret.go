@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/seal"
 )
 
 // Key reads the master key from SECRETS_KEY.
@@ -31,6 +33,12 @@ func Open(master, sealed []byte) (string, error) {
 	}
 	plain, err := open(dataKey, sealed[61:73], sealed[73:])
 	return string(plain), err
+}
+
+// Seal is the other way round, for what the engine keeps for later: a message to send at a set time.
+func Seal(master, plain []byte) []byte {
+	dataKey := seal.NewKey()
+	return append(append([]byte{1}, seal.Encrypt(master, "", dataKey)...), seal.Encrypt(dataKey, "", plain)...)
 }
 
 func open(key, nonce, sealed []byte) ([]byte, error) {

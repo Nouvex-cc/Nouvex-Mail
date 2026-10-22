@@ -25,7 +25,18 @@ let tapSize: CGFloat = 28
 let tapSize: CGFloat = 44
 #endif
 
+extension Date {
+    /// "Fri 09:00": when something is snoozed until or scheduled for.
+    var when: String { formatted(.dateTime.weekday(.abbreviated).hour().minute()) }
+}
+
 enum Device {
+    #if os(macOS)
+    static let platform = "macOS"
+    #else
+    static let platform = "iOS"
+    #endif
+
     /// Phones write in a sheet; iPad and Mac dock the composer next to the mail.
     @MainActor static var phone: Bool {
         #if os(iOS)
@@ -39,6 +50,69 @@ enum Device {
 extension EnvironmentValues {
     /// Narrow enough for the phone layout: an iPhone, a folded iPhone Duo, an iPad in Slide Over.
     @Entry var compact = false
+}
+
+/// A destructive action that has to be held, not clicked: the fill shows how long is left.
+struct HoldButton: View {
+    let title: String
+    var duration = 1.2
+    let action: () -> Void
+    @State private var progress: CGFloat = 0
+
+    var body: some View {
+        Text(title)
+            .font(.sm.weight(.medium))
+            .foregroundStyle(.danger)
+            .padding(.horizontal, 10)
+            .frame(minHeight: tapSize)
+            .background(alignment: .leading) {
+                GeometryReader { g in Color.danger.opacity(0.16).frame(width: g.size.width * progress) }
+            }
+            .background(.hover)
+            .clipShape(.rect(cornerRadius: Radius.md))
+            .contentShape(.rect)
+            .onLongPressGesture(minimumDuration: duration) {
+                progress = 0
+                action()
+            } onPressingChanged: { pressing in
+                withAnimation(pressing ? .linear(duration: duration) : .quick) { progress = pressing ? 1 : 0 }
+            }
+            .help("Hold to \(title.lowercased())")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+    }
+}
+
+/// Small notes at the bottom of the window: sent, snoozed, scheduled, or what went wrong.
+struct Toasts: View {
+    @Environment(Mail.self) private var mail
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(mail.toasts) { t in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t.title).font(.sm.weight(.medium)).foregroundStyle(.ink)
+                    if let detail = t.detail { Text(detail).font(.xs).foregroundStyle(.muted).lineLimit(2) }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(maxWidth: 420, alignment: .leading)
+                .glassEffect(.regular, in: .rect(cornerRadius: Radius.lg))
+                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+enum Clipboard {
+    static func copy(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
+    }
 }
 
 /// Keeps the app running for a while after it leaves the screen, so a send or a change that started still reaches the

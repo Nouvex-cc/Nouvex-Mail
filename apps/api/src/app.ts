@@ -10,7 +10,7 @@ import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
-import { changeLog, mailAccount, mailbox, message, userPrefs } from "./db/schema";
+import { changeLog, mailAccount, mailbox, message, userKey, userPrefs } from "./db/schema";
 import { fetchImage } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
@@ -21,6 +21,8 @@ export const app = new OpenAPIHono<Env>();
 app.use("*", httpInstrumentationMiddleware({ serviceName: "nouvex-api" }));
 app.use("*", cors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:5173", credentials: true }));
 
+// A new password also wraps the user's key again, so it only changes through POST /password.
+app.post("/api/auth/change-password", (c) => c.body(null, 404));
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
 app.use("/image", async (c, next) => {
@@ -36,6 +38,8 @@ const signedIn: MiddlewareHandler<Env> = async (c, next) => {
 	await next();
 };
 app.use("/prefs", signedIn);
+app.use("/keys", signedIn);
+app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
 
 // Someone else's account answers like a missing one.
@@ -224,6 +228,145 @@ app.openapi(
 	},
 );
 
+const Keys = z.object({ publicKey: z.base64(), wrappedPrivate: z.base64() });
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/invites/{token}",
+		operationId: "getInvite",
+		request: { params: z.object({ token: z.string() }) },
+		responses: {
+			200: {
+				description: "Who the link from src/user.ts is for",
+				content: { "application/json": { schema: z.object({ email: z.string() }) } },
+			},
+			404: { description: "Used or expired" },
+		},
+	}),
+	async (c) => {
+		const ctx = await auth.$context;
+		const row = await ctx.internalAdapter.findVerificationValue(`invite:${c.req.valid("param").token}`);
+		const user = row && row.expiresAt > new Date() && (await ctx.internalAdapter.findUserById(row.value));
+		if (!user) return c.body(null, 404);
+		return c.json({ email: user.email }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/invites/{token}",
+		operationId: "acceptInvite",
+		request: {
+			params: z.object({ token: z.string() }),
+			body: {
+				content: {
+					"application/json": {
+						// password is the authKey the client derived; the password itself stays on the device.
+						schema: Keys.extend({ password: z.string().min(8).max(128) }),
+					},
+				},
+			},
+		},
+		responses: { 204: { description: "Password and keys set, sign in next" }, 404: { description: "Used or expired" } },
+	}),
+	async (c) => {
+		const { password, publicKey, wrappedPrivate } = c.req.valid("json");
+		const ctx = await auth.$context;
+		const row = await ctx.internalAdapter.consumeVerificationValue(`invite:${c.req.valid("param").token}`);
+		if (!row) return c.body(null, 404);
+		const userId = row.value;
+		const hash = await ctx.password.hash(password);
+		if (await ctx.internalAdapter.findCredentialAccount(userId)) await ctx.internalAdapter.updatePassword(userId, hash);
+		else await ctx.internalAdapter.linkAccount({ userId, providerId: "credential", accountId: userId, password: hash });
+		const keys = {
+			publicKey: Uint8Array.fromBase64(publicKey),
+			wrappedPrivate: Uint8Array.fromBase64(wrappedPrivate),
+			createdAt: new Date(),
+		};
+		await db
+			.insert(userKey)
+			.values({ userId, ...keys })
+			.onConflictDoUpdate({ target: userKey.userId, set: keys });
+		// The engine waits for a key before it fetches anything.
+		const accounts = await db.select({ id: mailAccount.id }).from(mailAccount).where(eq(mailAccount.userId, userId));
+		for (const a of accounts) await sync(a.id);
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/keys",
+		operationId: "getKeys",
+		responses: {
+			200: {
+				description: "The user's key pair, the private half wrapped",
+				content: { "application/json": { schema: Keys } },
+			},
+			404: { description: "None yet" },
+		},
+	}),
+	async (c) => {
+		const [row] = await db
+			.select()
+			.from(userKey)
+			.where(eq(userKey.userId, c.get("userId")));
+		if (!row) return c.body(null, 404);
+		return c.json({ publicKey: row.publicKey.toBase64(), wrappedPrivate: row.wrappedPrivate.toBase64() }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/password",
+		operationId: "changePassword",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						// Both are authKeys; wrappedPrivate is the same private key, wrapped for the new password.
+						schema: z.object({
+							currentPassword: z.string(),
+							newPassword: z.string().min(8).max(128),
+							wrappedPrivate: z.base64(),
+						}),
+					},
+				},
+			},
+		},
+		responses: {
+			204: { description: "Changed, every other session signed out" },
+			400: {
+				description: "The current password is wrong",
+				content: { "application/json": { schema: z.object({ message: z.string() }) } },
+			},
+		},
+	}),
+	async (c) => {
+		const { currentPassword, newPassword, wrappedPrivate } = c.req.valid("json");
+		const res = await auth.api.changePassword({
+			body: { currentPassword, newPassword, revokeOtherSessions: true },
+			headers: c.req.raw.headers,
+			asResponse: true,
+		});
+		if (!res.ok) {
+			const { message } = (await res.json()) as { message?: string };
+			return c.json({ message: message ?? "Couldn't change the password." }, 400);
+		}
+		await db
+			.update(userKey)
+			.set({ wrappedPrivate: Uint8Array.fromBase64(wrappedPrivate) })
+			.where(eq(userKey.userId, c.get("userId")));
+		// This device keeps its session under a new token.
+		for (const cookie of res.headers.getSetCookie()) c.header("set-cookie", cookie, { append: true });
+		return c.body(null, 204);
+	},
+);
+
 app.openapi(
 	createRoute({
 		method: "patch",
@@ -305,34 +448,19 @@ const Mailbox = z.object({
 const Message = z.object({
 	id: z.string(),
 	mailboxId: z.string(),
-	messageId: z.string(),
 	threadId: z.string(),
-	subject: z.string(),
-	snippet: z.string(),
-	fromName: z.string(),
-	fromAddr: z.string(),
-	to: z.array(z.string()),
-	cc: z.array(z.string()),
 	sentAt: z.iso.datetime({ offset: true }),
 	flags: z.array(z.string()),
 	size: z.int(),
-	attachments: z.array(z.object({ name: z.string(), type: z.string(), size: z.int() })),
 	/** The inbox tab it belongs in, sorted by the engine from its headers. */
 	category: z.enum(["primary", "promotions", "social", "updates", "newsletters"]),
-	/** A sign-in code to copy or a meeting to join, found by the engine. How long it's useful is up to the client. */
-	actions: z.array(
-		z.object({
-			kind: z.enum(["code", "meeting"]),
-			code: z.string().optional(),
-			title: z.string().optional(),
-			start: z.iso.datetime({ offset: true }).optional(),
-			end: z.iso.datetime({ offset: true }).optional(),
-			url: z.url().optional(),
-			provider: z.string().optional(),
-			event: z.string().optional(),
-			cancelled: z.boolean().optional(),
-		}),
-	),
+	/** The message's own key, sealed to the user's public key (engine/internal/seal). */
+	key: z.base64(),
+	/**
+	 * Opened with that key (label "meta"): messageId, subject, snippet, fromName, fromAddr, to, cc, attachments and the
+	 * sign-in codes and meetings the engine found (Meta in engine/internal/mail/sync.go).
+	 */
+	sealed: z.base64(),
 });
 
 app.openapi(
@@ -399,10 +527,14 @@ app.openapi(
 				more: rows.length > limit,
 				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
-					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, ...m }) => ({
-						...m,
-						sentAt: sentAt.toISOString(),
-					})),
+					upserted: messages.map(
+						({ accountId: _, uid: __, refs: ___, messageId: ____, sentAt, key, sealed, ...m }) => ({
+							...m,
+							sentAt: sentAt.toISOString(),
+							key: key.toBase64(),
+							sealed: sealed.toBase64(),
+						}),
+					),
 					deleted: msgs.deleted,
 				},
 			},
@@ -455,12 +587,13 @@ app.openapi(
 		method: "get",
 		path: "/accounts/{accountId}/messages/{messageId}/body",
 		operationId: "getMessageBody",
-		description: "The HTML to show for a message, unsanitized. Render it only in a sandboxed frame after sanitizing.",
+		description:
+			"The HTML to show for a message, sealed with the message's key (label body). Unsanitized: render it only in a sandboxed frame after sanitizing.",
 		request: { params: z.object({ accountId: z.string(), messageId: z.string() }) },
 		responses: {
 			200: {
 				description: "Message body",
-				content: { "application/json": { schema: z.object({ html: z.string() }) } },
+				content: { "application/json": { schema: z.object({ sealed: z.base64() }) } },
 			},
 			404: { description: "No such message" },
 		},
@@ -472,8 +605,7 @@ app.openapi(
 			.from(message)
 			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
 		if (!found) return c.body(null, 404);
-		// JSON instead of text/html, so opening this URL directly can't run the mail's markup on our origin.
-		return c.json({ html: await s3.file(`body/${found.id}.html`).text() }, 200);
+		return c.json({ sealed: (await s3.file(`body/${found.id}.html`).bytes()).toBase64() }, 200);
 	},
 );
 
@@ -533,7 +665,7 @@ app.openapi(
 							bcc: z.array(z.email()).default([]),
 							subject: z.string(),
 							text: z.string(),
-							inReplyTo: z.string().optional(),
+							inReplyTo: z.string().optional().describe("Message-ID header of the message this answers"),
 							draftId: z.uuid().optional(),
 							sendAt: z.iso.datetime().optional(),
 							attachments: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string() })).optional(),
@@ -561,27 +693,20 @@ app.openapi(
 			params: z.object({ accountId: z.string(), messageId: z.string(), index: whole }),
 		},
 		responses: {
-			200: { description: "The file, as a download", content: { "application/octet-stream": { schema: z.any() } } },
+			// Sealed with the message's key (label att/<index>); name and type are in its Meta.
+			200: { description: "The file", content: { "application/octet-stream": { schema: z.any() } } },
 			404: { description: "No such attachment" },
 		},
 	}),
 	async (c) => {
 		const { accountId, messageId, index } = c.req.valid("param");
 		const [found] = await db
-			.select({ attachments: message.attachments })
+			.select({ id: message.id })
 			.from(message)
 			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
-		const file = found?.attachments[index];
-		if (!file) return c.body(null, 404);
-		// Always a download, never rendered on our origin.
-		return new Response(s3.file(`att/${messageId}/${index}`).stream(), {
-			headers: {
-				"content-type": file.type || "application/octet-stream",
-				"content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-				"x-content-type-options": "nosniff",
-				"content-security-policy": "sandbox",
-			},
-		});
+		const file = s3.file(`att/${messageId}/${index}`);
+		if (!found || !(await file.exists())) return c.body(null, 404);
+		return new Response(file.stream(), { headers: { "content-type": "application/octet-stream" } });
 	},
 );
 
@@ -623,7 +748,7 @@ const Draft = z.object({
 	bcc: z.array(z.string()).default([]),
 	subject: z.string(),
 	text: z.string(),
-	inReplyTo: z.string().optional(),
+	inReplyTo: z.string().optional().describe("Message-ID header of the message this answers"),
 });
 
 const draft = async (cmd: DraftSave) => {

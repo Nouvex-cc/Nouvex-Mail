@@ -23,6 +23,7 @@ packages/sdk     Headless client core (Apache-2.0)
 packages/ui      Our UI library on Base UI, tokens in src/styles.css (Apache-2.0)
 apps/playground  Temporary component playground, will be deleted
 docs/design.md   Design language, read before any UI work
+docs/security.md What the server can and can't read; mail is stored sealed for its owner
 deploy           Production compose and Caddyfile, see docs/deploy.md
 ```
 
@@ -41,6 +42,7 @@ bun run e2e                         # e2e tests
 bun run --cwd apps/playground dev   # component playground on :5174
 cd apps/apple && xcodegen           # generate the Xcode project
 bun apps/apple/tokens.ts            # Apple colors from the tokens in packages/ui
+cd apps/apple && xcodebuild -scheme Nouvex -destination platform=macOS test   # Swift crypto against the engine
 apps/apple/testflight.sh            # iOS build to TestFlight (ASC_KEY_ID, ASC_ISSUER_ID)
 docker compose -f deploy/compose.yml up -d --build   # production, see docs/deploy.md
 ```
@@ -64,6 +66,7 @@ docker compose -f deploy/compose.yml up -d --build   # production, see docs/depl
 - The API contract is OpenAPI generated from Zod schemas. Every route needs an `operationId`. The Swift client is generated from it, never maintained by hand.
 - Define NATS messages only in `packages/schema`, never duplicate the types by hand.
 - Always store credentials and tokens encrypted (envelope encryption) and never log them.
+- Mail content is only stored sealed to its owner (docs/security.md). Nothing readable of a message goes into the database, S3, NATS events or logs, and the server never sees a user's password.
 - Render HTML mail only in a sandboxed iframe with DOMPurify, remote images go through the image proxy.
 - Go: golangci-lint must pass, tests run with -race. TypeScript: bun test, Vitest in web. E2E tests with e2e by TesterArmy (docs offline in `node_modules/e2e/docs`).
 - Manage and run packages only with bun and bunx, never npm, npx, pnpm or yarn.

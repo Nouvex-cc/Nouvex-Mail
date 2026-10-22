@@ -7,6 +7,7 @@ const at = (iso: string) => Date.parse(iso);
 const mail = (id: string, sentAt: string, ...actions: Action[]): Message => ({
 	id,
 	accountId: "a",
+	key: "",
 	mailboxId: "b",
 	messageId: id,
 	threadId: id,

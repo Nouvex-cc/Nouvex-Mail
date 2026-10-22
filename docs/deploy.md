@@ -25,13 +25,17 @@ The database schema is created on the first start.
 
 ## Accounts
 
-Nobody can sign up on the server's page; accounts are added here. The password is read from stdin, so it stays out of the shell history:
+Nobody can sign up on the server's page; accounts are added here. You never set or see anyone's password: the command prints a link, valid once within a week, where the person picks their own.
 
 ```sh
-read -rs pw && echo "$pw" | docker compose -f deploy/compose.yml exec -T api bun dist/user.js add you@example.com "Your Name"
+docker compose -f deploy/compose.yml exec api bun dist/user.js add you@example.com "Your Name"
 ```
 
-`user.js password you@example.com` sets a new password the same way, for someone who forgot theirs. Then open `https://<your domain>` and sign in. In the Apple apps, enter the same address as the server when signing in.
+For someone who forgot their password, `user.js reset you@example.com` prints a new link. Their mail is stored encrypted with a key only their password opens, so a reset drops what was stored and fetches it again from their mailboxes.
+
+## Passkeys in the Apple apps
+
+Passkeys work in the web app on any domain. The Apple apps are tied to `mail.nouvex.cc` (`apps/apple/Nouvex/Nouvex.entitlements`), so on another domain they sign in with a password; for passkeys there, build the apps with your own team and domain in the entitlements, `deploy/` is unchanged apart from the team id in `apps/web/public/.well-known/apple-app-site-association`.
 
 ## Behind another reverse proxy
 

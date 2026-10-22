@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -71,6 +72,10 @@ func TestLatency(t *testing.T) {
 		})
 		if _, err := pool.Exec(ctx, `INSERT INTO mail_account (id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret)
 			VALUES ($1, $1, $2 || '@bench', $3, $4, '127.0.0.1', 25, $2, $5)`, a.id, a.user, host, port, secret); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := ecdh.X25519().GenerateKey(rand.Reader)
+		if _, err := pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, a.id, key.PublicKey().Bytes()); err != nil {
 			t.Fatal(err)
 		}
 		accounts = append(accounts, a)

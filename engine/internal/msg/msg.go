@@ -86,7 +86,7 @@ type DraftSave struct {
 	// DraftId corresponds to the JSON schema field "draftId".
 	DraftId string `json:"draftId"`
 
-	// InReplyTo corresponds to the JSON schema field "inReplyTo".
+	// Message-ID header of the message this answers, for the thread headers.
 	InReplyTo *string `json:"inReplyTo,omitempty,omitzero"`
 
 	// Subject corresponds to the JSON schema field "subject".
@@ -237,7 +237,7 @@ type MessageSend struct {
 	// The draft this was written in; it is deleted once sent.
 	DraftId *string `json:"draftId,omitempty,omitzero"`
 
-	// Id of the message this answers, for the thread headers.
+	// Message-ID header of the message this answers, for the thread headers.
 	InReplyTo *string `json:"inReplyTo,omitempty,omitzero"`
 
 	// Send then instead of now.
@@ -328,9 +328,6 @@ type MessageSent struct {
 
 	// Error corresponds to the JSON schema field "error".
 	Error *string `json:"error,omitempty,omitzero"`
-
-	// Subject corresponds to the JSON schema field "subject".
-	Subject string `json:"subject"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -341,9 +338,6 @@ func (j *MessageSent) UnmarshalJSON(value []byte) error {
 	}
 	if _, ok := raw["accountId"]; raw != nil && !ok {
 		return fmt.Errorf("field accountId in MessageSent: required")
-	}
-	if _, ok := raw["subject"]; raw != nil && !ok {
-		return fmt.Errorf("field subject in MessageSent: required")
 	}
 	type Plain MessageSent
 	var plain Plain

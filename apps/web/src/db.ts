@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { Keys } from "@nouvex/sdk/crypto";
 import { Dexie, type EntityTable } from "dexie";
 
-// A message as GET /accounts/{id}/changes delivers it.
+// A message as GET /accounts/{id}/changes delivers it, with what was sealed in it opened (sync.ts).
 export interface Message {
 	id: string;
+	/** The message's own key, sealed to the user: it opens the body and the attachments too (keys.ts). */
+	key: string;
 	accountId: string;
 	mailboxId: string;
 	messageId: string;
@@ -75,6 +78,8 @@ export const db = new Dexie("nouvex") as Dexie & {
 	messages: EntityTable<Message, "id">;
 	mailboxes: EntityTable<Mailbox, "id">;
 	cursor: EntityTable<{ accountId: string; version: number }, "accountId">;
+	/** This device's copy of the user's keys, unlocked with the password (keys.ts). */
+	keys: EntityTable<Keys & { id: "me" }, "id">;
 };
 
 db.version(1).stores({
@@ -129,4 +134,11 @@ db.version(8)
 			.modify((m: Message) => {
 				m.category ??= "primary";
 			}),
+	);
+// The user's keys, once this device is unlocked. Mail comes sealed for the user now; what was stored before is fetched
+// again.
+db.version(9)
+	.stores({ keys: "id" })
+	.upgrade((tx) =>
+		Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
 	);

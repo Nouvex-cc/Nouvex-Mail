@@ -11,7 +11,7 @@
 		"bcc": { "type": "array", "items": { "type": "string" } },
 		"subject": { "type": "string" },
 		"text": { "type": "string" },
-		"inReplyTo": { "type": "string" },
+		"inReplyTo": { "type": "string", "description": "Message-ID header of the message this answers, for the thread headers." },
 		"discard": { "type": "boolean", "description": "Delete the draft instead of storing it." }
 	},
 	"required": ["accountId", "draftId", "to", "cc", "bcc", "subject", "text"],

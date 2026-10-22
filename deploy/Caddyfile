@@ -4,10 +4,13 @@
 	header X-Robots-Tag "noindex, nofollow"
 
 	# The same paths the web app's dev server forwards; the Apple apps use them too.
-	@api path /api/* /accounts /accounts/* /prefs /image /ws /health
+	@api path /api/* /accounts /accounts/* /prefs /keys /password /invites/* /image /ws /health
 	handle @api {
 		reverse_proxy api:3000
 	}
+
+	# Ties the Apple apps to this domain for passkeys; Apple only reads it as JSON.
+	header /.well-known/apple-app-site-association Content-Type application/json
 
 	handle {
 		root * /srv
