@@ -60,13 +60,12 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 			accountId: id,
 			mailboxId: `${id}-in`,
 			uid: n,
-			messageId: `<${n}@x>`,
-			subject: `Mail ${n}`,
-			fromName: "Lena",
-			fromAddr: "lena@x",
+			messageId: `hash-${n}`,
 			sentAt: new Date("2026-10-08T07:12:00Z"),
 			flags: [],
 			size: 10,
+			key: new Uint8Array([n]),
+			sealed: new Uint8Array([n, n]),
 		});
 		await db.insert(message).values([row(1), row(2)]);
 		await db.insert(changeLog).values([
@@ -79,7 +78,12 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 		const get = async (q: string) => (await app.request(`/accounts/${id}/changes?${q}`, { headers })).json();
 		const first = await get("since=0&limit=2");
 		expect(first).toMatchObject({ version: 2, more: true, messages: { deleted: [] } });
-		expect(first.messages.upserted.map((m: { subject: string }) => m.subject).sort()).toEqual(["Mail 1", "Mail 2"]);
+		// Only what the engine sealed goes out, and nothing of the headers.
+		expect(first.messages.upserted.map((m: { sealed: string }) => m.sealed).sort()).toEqual([
+			btoa("\x01\x01"),
+			btoa("\x02\x02"),
+		]);
+		expect(first.messages.upserted[0]).not.toHaveProperty("messageId");
 		expect(await get("since=2")).toEqual({
 			version: 4,
 			more: false,
@@ -99,21 +103,16 @@ test.skipIf(!process.env.DATABASE_URL)("changes page through the change log", as
 		expect(other.status).toBe(404);
 
 		const { s3 } = await import("bun");
-		await s3.file(`body/${id}-2.html`).write("<p>Hi</p>");
+		await s3.file(`body/${id}-2.html`).write("sealed");
 		const body = await app.request(`/accounts/${id}/messages/${id}-2/body`, { headers });
-		expect(await body.json()).toEqual({ html: "<p>Hi</p>" });
+		expect(await body.json()).toEqual({ sealed: btoa("sealed") });
 		expect((await app.request(`/accounts/${id}/messages/nope/body`, { headers })).status).toBe(404);
 		await s3.file(`body/${id}-2.html`).delete();
 
-		await db
-			.update(message)
-			.set({ attachments: [{ name: "Übergabe.pdf", type: "application/pdf", size: 6 }] })
-			.where(eq(message.id, `${id}-2`));
-		await s3.file(`att/${id}-2/0`).write("%PDF-1");
+		await s3.file(`att/${id}-2/0`).write("sealed");
 		const att = await app.request(`/accounts/${id}/messages/${id}-2/attachments/0`, { headers });
-		expect(await att.text()).toBe("%PDF-1");
-		expect(att.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''%C3%9Cbergabe.pdf");
-		expect(att.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(await att.text()).toBe("sealed");
+		expect(att.headers.get("content-type")).toBe("application/octet-stream");
 		expect((await app.request(`/accounts/${id}/messages/${id}-2/attachments/1`, { headers })).status).toBe(404);
 		await s3.file(`att/${id}-2/0`).delete();
 

@@ -16,6 +16,9 @@ export interface DraftSave {
   bcc: string[];
   subject: string;
   text: string;
+  /**
+   * Message-ID header of the message this answers, for the thread headers.
+   */
   inReplyTo?: string;
   /**
    * Delete the draft instead of storing it.

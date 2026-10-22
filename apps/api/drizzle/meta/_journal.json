@@ -113,6 +113,20 @@
       "when": 1792695342601,
       "tag": "0015_user_key",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792696097259,
+      "tag": "0016_no_plaintext",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792696097724,
+      "tag": "0017_sealed",
+      "breakpoints": true
     }
   ]
 }

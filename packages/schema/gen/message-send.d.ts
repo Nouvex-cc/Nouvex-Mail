@@ -24,7 +24,7 @@ export interface MessageSend {
    */
   sendAt?: string;
   /**
-   * Id of the message this answers, for the thread headers.
+   * Message-ID header of the message this answers, for the thread headers.
    */
   inReplyTo?: string;
   /**

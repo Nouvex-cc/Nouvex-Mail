@@ -119,7 +119,7 @@ func (q *Queries) FindByRole(ctx context.Context, arg FindByRoleParams) (string,
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at FROM mail_account WHERE id = $1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to FROM mail_account WHERE id = $1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
@@ -141,6 +141,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.DisplayName,
 		&i.Signature,
 		&i.ArchivedAt,
+		&i.SealedTo,
 	)
 	return i, err
 }
@@ -204,32 +205,37 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 	return i, err
 }
 
+const getUserKey = `-- name: GetUserKey :one
+SELECT k.public_key FROM user_key k JOIN mail_account a ON a.user_id = k.user_id WHERE a.id = $1
+`
+
+func (q *Queries) GetUserKey(ctx context.Context, id string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getUserKey, id)
+	var public_key []byte
+	err := row.Scan(&public_key)
+	return public_key, err
+}
+
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, subject, snippet, from_name, from_addr, sent_at, flags, size, attachments, refs, thread_id, to_addrs, cc_addrs, actions, category)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
 type InsertMessageParams struct {
-	ID          string
-	AccountID   string
-	MailboxID   string
-	Uid         int64
-	MessageID   string
-	Subject     string
-	Snippet     string
-	FromName    string
-	FromAddr    string
-	SentAt      pgtype.Timestamptz
-	Flags       []string
-	Size        int32
-	Attachments []byte
-	Refs        []string
-	ThreadID    string
-	ToAddrs     []string
-	CcAddrs     []string
-	Actions     []byte
-	Category    string
+	ID        string
+	AccountID string
+	MailboxID string
+	Uid       int64
+	MessageID string
+	SentAt    pgtype.Timestamptz
+	Flags     []string
+	Size      int32
+	Refs      []string
+	ThreadID  string
+	Category  string
+	Key       []byte
+	Sealed    []byte
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -239,25 +245,43 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.MailboxID,
 		arg.Uid,
 		arg.MessageID,
-		arg.Subject,
-		arg.Snippet,
-		arg.FromName,
-		arg.FromAddr,
 		arg.SentAt,
 		arg.Flags,
 		arg.Size,
-		arg.Attachments,
 		arg.Refs,
 		arg.ThreadID,
-		arg.ToAddrs,
-		arg.CcAddrs,
-		arg.Actions,
 		arg.Category,
+		arg.Key,
+		arg.Sealed,
 	)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const knownMessages = `-- name: KnownMessages :many
+SELECT id FROM message WHERE id = ANY($1::text[])
+`
+
+func (q *Queries) KnownMessages(ctx context.Context, ids []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, knownMessages, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAccountIDs = `-- name: ListAccountIDs :many
@@ -301,46 +325,6 @@ func (q *Queries) ListArchivedAccountIDs(ctx context.Context) ([]string, error) 
 			return nil, err
 		}
 		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listContent = `-- name: ListContent :many
-SELECT id, account_id, snippet, attachments, actions, category FROM message WHERE $1::text = '' OR account_id = $1
-`
-
-type ListContentRow struct {
-	ID          string
-	AccountID   string
-	Snippet     string
-	Attachments []byte
-	Actions     []byte
-	Category    string
-}
-
-func (q *Queries) ListContent(ctx context.Context, accountID string) ([]ListContentRow, error) {
-	rows, err := q.db.Query(ctx, listContent, accountID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListContentRow
-	for rows.Next() {
-		var i ListContentRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.AccountID,
-			&i.Snippet,
-			&i.Attachments,
-			&i.Actions,
-			&i.Category,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -475,29 +459,6 @@ func (q *Queries) MergeThread(ctx context.Context, arg MergeThreadParams) ([]str
 	return items, nil
 }
 
-const setContent = `-- name: SetContent :exec
-UPDATE message SET snippet = $2, attachments = $3, actions = $4, category = $5 WHERE id = $1
-`
-
-type SetContentParams struct {
-	ID          string
-	Snippet     string
-	Attachments []byte
-	Actions     []byte
-	Category    string
-}
-
-func (q *Queries) SetContent(ctx context.Context, arg SetContentParams) error {
-	_, err := q.db.Exec(ctx, setContent,
-		arg.ID,
-		arg.Snippet,
-		arg.Attachments,
-		arg.Actions,
-		arg.Category,
-	)
-	return err
-}
-
 const setFlags = `-- name: SetFlags :exec
 UPDATE message SET flags = $2 WHERE id = $1
 `
@@ -509,6 +470,20 @@ type SetFlagsParams struct {
 
 func (q *Queries) SetFlags(ctx context.Context, arg SetFlagsParams) error {
 	_, err := q.db.Exec(ctx, setFlags, arg.ID, arg.Flags)
+	return err
+}
+
+const setSealedTo = `-- name: SetSealedTo :exec
+UPDATE mail_account SET sealed_to = $2 WHERE id = $1
+`
+
+type SetSealedToParams struct {
+	ID       string
+	SealedTo []byte
+}
+
+func (q *Queries) SetSealedTo(ctx context.Context, arg SetSealedToParams) error {
+	_, err := q.db.Exec(ctx, setSealedTo, arg.ID, arg.SealedTo)
 	return err
 }
 

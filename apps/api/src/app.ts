@@ -287,6 +287,9 @@ app.openapi(
 			.insert(userKey)
 			.values({ userId, ...keys })
 			.onConflictDoUpdate({ target: userKey.userId, set: keys });
+		// The engine waits for a key before it fetches anything.
+		const accounts = await db.select({ id: mailAccount.id }).from(mailAccount).where(eq(mailAccount.userId, userId));
+		for (const a of accounts) await sync(a.id);
 		return c.body(null, 204);
 	},
 );
@@ -443,34 +446,19 @@ const Mailbox = z.object({
 const Message = z.object({
 	id: z.string(),
 	mailboxId: z.string(),
-	messageId: z.string(),
 	threadId: z.string(),
-	subject: z.string(),
-	snippet: z.string(),
-	fromName: z.string(),
-	fromAddr: z.string(),
-	to: z.array(z.string()),
-	cc: z.array(z.string()),
 	sentAt: z.iso.datetime({ offset: true }),
 	flags: z.array(z.string()),
 	size: z.int(),
-	attachments: z.array(z.object({ name: z.string(), type: z.string(), size: z.int() })),
 	/** The inbox tab it belongs in, sorted by the engine from its headers. */
 	category: z.enum(["primary", "promotions", "social", "updates", "newsletters"]),
-	/** A sign-in code to copy or a meeting to join, found by the engine. How long it's useful is up to the client. */
-	actions: z.array(
-		z.object({
-			kind: z.enum(["code", "meeting"]),
-			code: z.string().optional(),
-			title: z.string().optional(),
-			start: z.iso.datetime({ offset: true }).optional(),
-			end: z.iso.datetime({ offset: true }).optional(),
-			url: z.url().optional(),
-			provider: z.string().optional(),
-			event: z.string().optional(),
-			cancelled: z.boolean().optional(),
-		}),
-	),
+	/** The message's own key, sealed to the user's public key (engine/internal/seal). */
+	key: z.base64(),
+	/**
+	 * Opened with that key (label "meta"): messageId, subject, snippet, fromName, fromAddr, to, cc, attachments and the
+	 * sign-in codes and meetings the engine found (Meta in engine/internal/mail/sync.go).
+	 */
+	sealed: z.base64(),
 });
 
 app.openapi(
@@ -537,10 +525,14 @@ app.openapi(
 				more: rows.length > limit,
 				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
-					upserted: messages.map(({ accountId: _, uid: __, refs: ___, sentAt, ...m }) => ({
-						...m,
-						sentAt: sentAt.toISOString(),
-					})),
+					upserted: messages.map(
+						({ accountId: _, uid: __, refs: ___, messageId: ____, sentAt, key, sealed, ...m }) => ({
+							...m,
+							sentAt: sentAt.toISOString(),
+							key: base64(key),
+							sealed: base64(sealed),
+						}),
+					),
 					deleted: msgs.deleted,
 				},
 			},
@@ -593,12 +585,13 @@ app.openapi(
 		method: "get",
 		path: "/accounts/{accountId}/messages/{messageId}/body",
 		operationId: "getMessageBody",
-		description: "The HTML to show for a message, unsanitized. Render it only in a sandboxed frame after sanitizing.",
+		description:
+			"The HTML to show for a message, sealed with the message's key (label body). Unsanitized: render it only in a sandboxed frame after sanitizing.",
 		request: { params: z.object({ accountId: z.string(), messageId: z.string() }) },
 		responses: {
 			200: {
 				description: "Message body",
-				content: { "application/json": { schema: z.object({ html: z.string() }) } },
+				content: { "application/json": { schema: z.object({ sealed: z.base64() }) } },
 			},
 			404: { description: "No such message" },
 		},
@@ -610,8 +603,7 @@ app.openapi(
 			.from(message)
 			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
 		if (!found) return c.body(null, 404);
-		// JSON instead of text/html, so opening this URL directly can't run the mail's markup on our origin.
-		return c.json({ html: await s3.file(`body/${found.id}.html`).text() }, 200);
+		return c.json({ sealed: base64(new Uint8Array(await s3.file(`body/${found.id}.html`).arrayBuffer())) }, 200);
 	},
 );
 
@@ -671,7 +663,7 @@ app.openapi(
 							bcc: z.array(z.email()).default([]),
 							subject: z.string(),
 							text: z.string(),
-							inReplyTo: z.string().optional(),
+							inReplyTo: z.string().optional().describe("Message-ID header of the message this answers"),
 							draftId: z.uuid().optional(),
 							sendAt: z.iso.datetime().optional(),
 							attachments: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string() })).optional(),
@@ -699,28 +691,20 @@ app.openapi(
 			params: z.object({ accountId: z.string(), messageId: z.string(), index: whole }),
 		},
 		responses: {
-			// Sent with its own type, whatever that is.
-			200: { description: "The file, as a download", content: { "*/*": { schema: z.any() } } },
+			// Sealed with the message's key (label att/<index>); name and type are in its Meta.
+			200: { description: "The file", content: { "application/octet-stream": { schema: z.any() } } },
 			404: { description: "No such attachment" },
 		},
 	}),
 	async (c) => {
 		const { accountId, messageId, index } = c.req.valid("param");
 		const [found] = await db
-			.select({ attachments: message.attachments })
+			.select({ id: message.id })
 			.from(message)
 			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
-		const file = found?.attachments[index];
-		if (!file) return c.body(null, 404);
-		// Always a download, never rendered on our origin.
-		return new Response(s3.file(`att/${messageId}/${index}`).stream(), {
-			headers: {
-				"content-type": file.type || "application/octet-stream",
-				"content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-				"x-content-type-options": "nosniff",
-				"content-security-policy": "sandbox",
-			},
-		});
+		const file = s3.file(`att/${messageId}/${index}`);
+		if (!found || !(await file.exists())) return c.body(null, 404);
+		return new Response(file.stream(), { headers: { "content-type": "application/octet-stream" } });
 	},
 );
 
@@ -762,7 +746,7 @@ const Draft = z.object({
 	bcc: z.array(z.string()).default([]),
 	subject: z.string(),
 	text: z.string(),
-	inReplyTo: z.string().optional(),
+	inReplyTo: z.string().optional().describe("Message-ID header of the message this answers"),
 });
 
 const draft = async (cmd: DraftSave) => {

@@ -6,6 +6,7 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"os"
@@ -31,6 +32,23 @@ func Open(master, sealed []byte) (string, error) {
 	}
 	plain, err := open(dataKey, sealed[61:73], sealed[73:])
 	return string(plain), err
+}
+
+// Seal is the other way round, for what the engine keeps for later: a message to send at a set time.
+func Seal(master, plain []byte) []byte {
+	dataKey := make([]byte, 32)
+	_, _ = rand.Read(dataKey)
+	out := append([]byte{1}, seal(master, dataKey)...)
+	return append(out, seal(dataKey, plain)...)
+}
+
+// seal returns the nonce, then the sealed data.
+func seal(key, plain []byte) []byte {
+	block, _ := aes.NewCipher(key)
+	gcm, _ := cipher.NewGCM(block)
+	nonce := make([]byte, gcm.NonceSize())
+	_, _ = rand.Read(nonce)
+	return gcm.Seal(nonce, nonce, plain, nil)
 }
 
 func open(key, nonce, sealed []byte) ([]byte, error) {

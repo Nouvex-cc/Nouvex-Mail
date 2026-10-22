@@ -5,8 +5,12 @@ package mail
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hpke"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -28,17 +32,76 @@ import (
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/seal"
 )
 
 // "hunter2" sealed with a master key of 32 bytes of 7, same vector as in the secret package.
 const sealed = "AeVCfofwDm5ahJCtI82tdCIIVvFGf4BwyDIroAsv8BzQ4CPCXPqq675SlWplhAG7PyMZWGLwU3IYPM2t518oWtrlmqUm0PUvih+KsT87w8xD94X40wD1NabVp54hDhIi"
 
-// fixture is an IMAP server with one user and a mail_account row pointing at it.
+// fixture is an IMAP server with one user and a mail_account row pointing at it, and the user's key pair.
 type fixture struct {
 	pool   *pgxpool.Pool
 	id     string
 	add    func(subject string)
 	addRaw func(raw string)
+	key    *ecdh.PrivateKey
+}
+
+var noDrop = func(context.Context, string) error { return nil }
+
+// opened is a stored message with its Meta opened again, the way a client does.
+type opened struct {
+	ID, Role, ThreadID string
+	Meta
+}
+
+func (f fixture) messages(t *testing.T) []opened {
+	t.Helper()
+	rows, err := f.pool.Query(context.Background(), `SELECT m.id, b.role, m.thread_id, m.key, m.sealed FROM message m
+		JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 ORDER BY m.uid`, f.id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []opened
+	for rows.Next() {
+		var o opened
+		var wrapped, sealed []byte
+		if err := rows.Scan(&o.ID, &o.Role, &o.ThreadID, &wrapped, &sealed); err != nil {
+			t.Fatal(err)
+		}
+		plain, err := open(unwrap(t, f.key, wrapped), "meta", sealed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.Unmarshal(plain, &o.Meta)
+		out = append(out, o)
+	}
+	return out
+}
+
+// find is the first stored message with the subject, or an empty one.
+func (f fixture) find(t *testing.T, subject string) opened {
+	for _, m := range f.messages(t) {
+		if m.Subject == subject {
+			return m
+		}
+	}
+	return opened{}
+}
+
+func unwrap(t *testing.T, private *ecdh.PrivateKey, wrapped []byte) []byte {
+	k, _ := hpke.NewDHKEMPrivateKey(private)
+	key, err := hpke.Open(k, hpke.HKDFSHA256(), hpke.AES256GCM(), []byte(seal.Info), wrapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func open(key []byte, label string, sealed []byte) ([]byte, error) {
+	block, _ := aes.NewCipher(key)
+	gcm, _ := cipher.NewGCM(block)
+	return gcm.Open(nil, sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():], []byte(label))
 }
 
 // Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
@@ -103,7 +166,11 @@ func setup(t *testing.T) fixture {
 		VALUES ($1, $1, 'lena@example.com', '127.0.0.1', $2, '127.0.0.1', 25, 'lena', $3)`, id, port, secret); err != nil {
 		t.Fatal(err)
 	}
-	return fixture{pool, id, add, addRaw}
+	key, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	if _, err := pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, id, key.PublicKey().Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	return fixture{pool, id, add, addRaw, key}
 }
 
 func TestSync(t *testing.T) {
@@ -120,12 +187,12 @@ func TestSync(t *testing.T) {
 	}
 	// INBOX and Trash, then the two messages.
 	for _, want := range []int64{4, 4} {
-		if v, err := Sync(ctx, pool, put, master, id, func(int64) {}); err != nil || v != want {
+		if v, err := Sync(ctx, pool, Store{Put: put, Drop: noDrop}, master, id, func(int64) {}); err != nil || v != want {
 			t.Fatalf("version %d, %v; want %d", v, err, want)
 		}
 	}
 	add("Invoice")
-	if v, err := Sync(ctx, pool, put, master, id, func(int64) {}); err != nil || v != 5 {
+	if v, err := Sync(ctx, pool, Store{Put: put, Drop: noDrop}, master, id, func(int64) {}); err != nil || v != 5 {
 		t.Fatalf("version %d, %v; want 5", v, err)
 	}
 	var roles []string
@@ -133,15 +200,50 @@ func TestSync(t *testing.T) {
 	if !slices.Equal(roles, []string{"INBOX:inbox", "Trash:trash"}) {
 		t.Fatalf("roles %v", roles)
 	}
-	var msgID, from, subject, snippet string
-	if err := pool.QueryRow(ctx, `SELECT id, from_addr, subject, snippet FROM message WHERE account_id = $1 ORDER BY uid LIMIT 1`, id).Scan(&msgID, &from, &subject, &snippet); err != nil {
+	first := f.messages(t)[0]
+	if first.FromAddr != "lena@example.com" || first.Subject != "Keys for the new flat" || first.Snippet != "Hi" {
+		t.Fatalf("got %+v", first.Meta)
+	}
+	// Nothing readable is stored: the body only opens with the message's key.
+	var wrapped []byte
+	_ = pool.QueryRow(ctx, `SELECT key FROM message WHERE id = $1`, first.ID).Scan(&wrapped)
+	body, err := open(unwrap(t, f.key, wrapped), "body", stored["body/"+first.ID+".html"])
+	if len(stored) != 3 || err != nil || !bytes.Contains(body, []byte(">Hi</div>")) {
+		t.Fatalf("stored %d objects, %q %v", len(stored), body, err)
+	}
+	for k, v := range stored {
+		if bytes.Contains(v, []byte("Hi")) {
+			t.Fatalf("%s readable", k)
+		}
+	}
+}
+
+// Without a key nothing is fetched; a new key (after a reset) drops what was sealed to the old one.
+func TestKeyChange(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	put := func(context.Context, string, []byte, string) error { return nil }
+	var dropped []string
+	store := Store{Put: put, Drop: func(_ context.Context, id string) error { dropped = append(dropped, id); return nil }}
+	master := bytes.Repeat([]byte{7}, 32)
+	f.add("Before the reset")
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
-	if from != "lena@example.com" || subject != "Keys for the new flat" || snippet != "Hi" {
-		t.Fatalf("got %q %q %q", from, subject, snippet)
+	_, _ = f.pool.Exec(ctx, `DELETE FROM user_key WHERE user_id = $1`, f.id)
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
 	}
-	if len(stored) != 6 || !bytes.Contains(stored["raw/"+msgID+".eml"], []byte("Subject: Keys for the new flat")) || !bytes.Contains(stored["body/"+msgID+".html"], []byte(">Hi</div>")) {
-		t.Fatalf("stored %d objects", len(stored))
+	if len(f.messages(t)) != 0 || len(dropped) != 1 {
+		t.Fatalf("%d messages left, %d dropped", len(f.messages(t)), len(dropped))
+	}
+	f.key, _ = ecdh.X25519().GenerateKey(rand.Reader)
+	_, _ = f.pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, f.id, f.key.PublicKey().Bytes())
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
+	}
+	if m := f.messages(t); len(m) != 1 || m[0].Subject != "Before the reset" {
+		t.Fatalf("got %+v", m)
 	}
 }
 
@@ -162,7 +264,7 @@ func TestUIDValidityChange(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("One")
 	f.add("Two")
-	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE mailbox SET uid_validity = uid_validity + 1 WHERE account_id = $1`, f.id); err != nil {
@@ -170,7 +272,7 @@ func TestUIDValidityChange(t *testing.T) {
 	}
 	// Both folders were renumbered: both old rows are deleted, both messages come back as new rows, and both
 	// folders are logged as changed.
-	if v, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil || v != 10 {
+	if v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil || v != 10 {
 		t.Fatalf("version %d, %v; want 10", v, err)
 	}
 	var deletes, rows int
@@ -189,15 +291,12 @@ func TestUpdate(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("Read me")
 	f.add("Throw me away")
-	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
-	rows, _ := f.pool.Query(ctx, `SELECT subject, id FROM message WHERE account_id = $1`, f.id)
-	for rows.Next() {
-		var subject, id string
-		_ = rows.Scan(&subject, &id)
-		ids[subject] = id
+	for _, m := range f.messages(t) {
+		ids[m.Subject] = m.ID
 	}
 	yes := true
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: ids["Read me"], Seen: &yes, Flagged: &yes}); err != nil {
@@ -207,30 +306,25 @@ func TestUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One flag change, one message gone from the INBOX and the same one new in Trash.
-	if v, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil || v != 7 {
+	if v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil || v != 7 {
 		t.Fatalf("version %d, %v; want 7", v, err)
 	}
 	f.add("Keep me")
-	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
-	var keep string
-	_ = f.pool.QueryRow(ctx, `SELECT id FROM message WHERE account_id = $1 AND subject = 'Keep me'`, f.id).Scan(&keep)
+	keep := f.find(t, "Keep me").ID
 	// No archive folder on the test server: it gets created.
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: keep, Archive: &yes}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
 		t.Fatal(err)
 	}
-	var archived int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 AND b.role = 'archive' AND m.subject = 'Keep me'`, f.id).Scan(&archived)
-	if archived != 1 {
+	if f.find(t, "Keep me").Role != "archive" {
 		t.Fatal("archived message not in Archive")
 	}
-	var inTrash int
-	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 AND b.role = 'trash' AND m.subject = 'Throw me away'`, f.id).Scan(&inTrash)
-	if inTrash != 1 {
+	if f.find(t, "Throw me away").Role != "trash" {
 		t.Fatal("trashed message not in Trash")
 	}
 	var flags []string
@@ -315,37 +409,10 @@ func TestSyncInBatches(t *testing.T) {
 	}
 	var saves []int64
 	put := func(context.Context, string, []byte, string) error { return nil }
-	v, err := Sync(ctx, f.pool, put, bytes.Repeat([]byte{7}, 32), f.id, func(v int64) { saves = append(saves, v) })
+	v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(v int64) { saves = append(saves, v) })
 	// INBOX: one save per batch of 50, then the folder; Trash: the folder.
 	if err != nil || v != 62 || !slices.Contains(saves, 51) || !slices.Contains(saves, 61) {
 		t.Fatalf("version %d, %v, saves %v", v, err, saves)
-	}
-}
-
-func TestReparse(t *testing.T) {
-	f := setup(t)
-	ctx := context.Background()
-	stored := map[string][]byte{}
-	put := func(_ context.Context, key string, data []byte, _ string) error {
-		stored[key] = data
-		return nil
-	}
-	get := func(_ context.Context, key string) ([]byte, error) { return stored[key], nil }
-	f.add("Read me again")
-	if _, err := Sync(ctx, f.pool, put, bytes.Repeat([]byte{7}, 32), f.id, func(int64) {}); err != nil {
-		t.Fatal(err)
-	}
-	// As if an older engine couldn't read it.
-	var id string
-	_ = f.pool.QueryRow(ctx, `UPDATE message SET snippet = '' WHERE account_id = $1 RETURNING id`, f.id).Scan(&id)
-	stored["body/"+id+".html"] = nil
-	if n, err := Reparse(ctx, f.pool, put, get, f.id); err != nil || n != 1 {
-		t.Fatalf("%d %v", n, err)
-	}
-	var snippet string
-	_ = f.pool.QueryRow(ctx, `SELECT snippet FROM message WHERE id = $1`, id).Scan(&snippet)
-	if snippet != "Hi" || !bytes.Contains(stored["body/"+id+".html"], []byte("Hi")) {
-		t.Fatalf("%q %q", snippet, stored["body/"+id+".html"])
 	}
 }
 
@@ -358,14 +425,11 @@ func TestThreads(t *testing.T) {
 		return "From: Lena <lena@example.com>\r\nSubject: " + subject + "\r\nMessage-ID: <" + id + ">\r\n" + headers + "\r\nHi"
 	}
 	sync := func() {
-		if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+		if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	threadOf := func(subject string) (id string) {
-		_ = f.pool.QueryRow(ctx, `SELECT thread_id FROM message WHERE account_id = $1 AND subject = $2`, f.id, subject).Scan(&id)
-		return id
-	}
+	threadOf := func(subject string) string { return f.find(t, subject).ThreadID }
 
 	f.addRaw(mail("a@x", "Keys", ""))
 	f.addRaw(mail("b@x", "Re: Keys", "In-Reply-To: <a@x>\r\nReferences: <a@x>\r\n"))
@@ -397,18 +461,14 @@ func TestSnooze(t *testing.T) {
 	put := func(context.Context, string, []byte, string) error { return nil }
 	master := bytes.Repeat([]byte{7}, 32)
 	sync := func() {
-		if _, err := Sync(ctx, f.pool, put, master, f.id, func(int64) {}); err != nil {
+		if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	roleOf := func() (role string) {
-		_ = f.pool.QueryRow(ctx, `SELECT b.role FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.account_id = $1 AND m.subject = 'Later'`, f.id).Scan(&role)
-		return role
-	}
+	roleOf := func() string { return f.find(t, "Later").Role }
 	f.add("Later")
 	sync()
-	var id string
-	_ = f.pool.QueryRow(ctx, `SELECT id FROM message WHERE account_id = $1 AND subject = 'Later'`, f.id).Scan(&id)
+	id := f.find(t, "Later").ID
 
 	until := time.Now().Add(-time.Second)
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: id, SnoozeUntil: &until}); err != nil {

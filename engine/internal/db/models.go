@@ -49,6 +49,7 @@ type MailAccount struct {
 	DisplayName string
 	Signature   string
 	ArchivedAt  pgtype.Timestamptz
+	SealedTo    []byte
 }
 
 type Mailbox struct {
@@ -60,25 +61,19 @@ type Mailbox struct {
 }
 
 type Message struct {
-	ID          string
-	AccountID   string
-	MailboxID   string
-	Uid         int64
-	MessageID   string
-	Subject     string
-	FromName    string
-	FromAddr    string
-	SentAt      pgtype.Timestamptz
-	Flags       []string
-	Size        int32
-	Snippet     string
-	Attachments []byte
-	Refs        []string
-	ThreadID    string
-	ToAddrs     []string
-	CcAddrs     []string
-	Actions     []byte
-	Category    string
+	ID        string
+	AccountID string
+	MailboxID string
+	Uid       int64
+	MessageID string
+	SentAt    pgtype.Timestamptz
+	Flags     []string
+	Size      int32
+	Refs      []string
+	ThreadID  string
+	Category  string
+	Key       []byte
+	Sealed    []byte
 }
 
 type Passkey struct {
@@ -133,6 +128,13 @@ type User struct {
 	CreatedAt        pgtype.Timestamp
 	UpdatedAt        pgtype.Timestamp
 	TwoFactorEnabled pgtype.Bool
+}
+
+type UserKey struct {
+	UserID         string
+	PublicKey      []byte
+	WrappedPrivate []byte
+	CreatedAt      pgtype.Timestamptz
 }
 
 type UserPref struct {

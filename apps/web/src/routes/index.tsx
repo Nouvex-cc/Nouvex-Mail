@@ -141,10 +141,7 @@ function Inbox() {
 		for (const id of list) void pull(id);
 		return listen(
 			list,
-			(e) =>
-				toast.add(
-					e.error ? { title: `Couldn't send “${e.subject}”`, description: e.error } : { title: `Sent “${e.subject}”` },
-				),
+			(e) => toast.add(e.error ? { title: "Couldn't send", description: e.error } : { title: "Sent" }),
 			// A sync that failed or worked again changes the account's error.
 			() => void accounts.refetch(),
 			(id, running) =>

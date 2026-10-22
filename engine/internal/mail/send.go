@@ -108,10 +108,9 @@ func Send(ctx context.Context, q *db.Queries, get Get, master []byte, cmd msg.Me
 	if err != nil {
 		return nil, err
 	}
-	var parent string
+	parent := ""
 	if cmd.InReplyTo != nil {
-		// A parent that is gone by now just means no thread headers.
-		parent, _ = q.GetMessageID(ctx, db.GetMessageIDParams{ID: *cmd.InReplyTo, AccountID: cmd.AccountId})
+		parent = *cmd.InReplyTo
 	}
 	files := make([]File, len(cmd.Attachments))
 	for i, a := range cmd.Attachments {

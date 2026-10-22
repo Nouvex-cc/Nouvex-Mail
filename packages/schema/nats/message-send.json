@@ -12,7 +12,7 @@
 		"text": { "type": "string" },
 		"draftId": { "type": "string", "description": "The draft this was written in; it is deleted once sent." },
 		"sendAt": { "type": "string", "format": "date-time", "description": "Send then instead of now." },
-		"inReplyTo": { "type": "string", "description": "Id of the message this answers, for the thread headers." },
+		"inReplyTo": { "type": "string", "description": "Message-ID header of the message this answers, for the thread headers." },
 		"attachments": {
 			"type": "array",
 			"description": "Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.",

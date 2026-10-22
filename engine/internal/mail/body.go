@@ -4,7 +4,6 @@ package mail
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"html"
 	"io"
@@ -48,20 +47,6 @@ type Parsed struct {
 	Files    []File
 	Actions  []Action
 	Category string
-}
-
-// columns are the attachments and actions as stored in the message table, empty lists rather than null.
-func (p Parsed) columns() (attachments, actions []byte) {
-	files, acts := p.Files, p.Actions
-	if files == nil {
-		files = []File{}
-	}
-	if acts == nil {
-		acts = []Action{}
-	}
-	attachments, _ = json.Marshal(files)
-	actions, _ = json.Marshal(acts)
-	return attachments, actions
 }
 
 // Content reads a raw message. Sanitizing happens where it is shown.

@@ -5,9 +5,8 @@
 	"type": "object",
 	"properties": {
 		"accountId": { "type": "string" },
-		"subject": { "type": "string" },
 		"error": { "type": "string" }
 	},
-	"required": ["accountId", "subject"],
+	"required": ["accountId"],
 	"additionalProperties": false
 }
