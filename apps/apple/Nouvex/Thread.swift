@@ -434,7 +434,9 @@ struct AttachmentTile: View {
         busy = true
         defer { busy = false }
         let res = try? await API.client.getAttachment(path: .init(accountId: message.accountId, messageId: message.id, index: index))
-        guard case .ok(let ok) = res, let data = try? await Data(collecting: ok.body.any, upTo: 100 << 20) else {
+        guard case .ok(let ok) = res, let sealed = try? await Data(collecting: ok.body.binary, upTo: 100 << 20),
+              let data = try? Crypto.decrypt(message.open(), "att/\(index)", sealed)
+        else {
             return mail.toast("Couldn't download “\(file.name)”")
         }
         // On the Mac the file is meant to stay; on a phone the preview shares it from a temporary copy.

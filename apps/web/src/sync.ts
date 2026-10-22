@@ -37,8 +37,11 @@ export function pull(accountId: string) {
 				const res = await fetch(`/accounts/${accountId}/changes?since=${since}`);
 				if (!res.ok) throw new Error(`changes: ${res.status}`);
 				const { version, more, mailboxes, messages }: Changes = await res.json();
-				// Before the transaction: IndexedDB ends one that waits for anything else.
-				const upserted = await Promise.all(messages.upserted.map(open));
+				// Before the transaction: IndexedDB ends one that waits for anything else. One that doesn't open (sealed to
+				// a key from before a reset) is left out rather than holding up the rest.
+				const upserted = (await Promise.allSettled(messages.upserted.map(open))).flatMap((r) =>
+					r.status === "fulfilled" ? [r.value] : [],
+				);
 				await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
 					const known = await db.messages.bulkGet(upserted.map((m) => m.id));
 					for (const [i, m] of upserted.entries()) if (!known[i]) arrived.set(m.id, Date.now());

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import CryptoKit
 import Foundation
 import GRDB
 
@@ -40,7 +41,7 @@ struct Action: Codable, Hashable, Sendable {
     var cancelled: Bool?
 }
 
-// A message as GET /accounts/{id}/changes delivers it.
+// A message as GET /accounts/{id}/changes delivers it, with what was sealed in it opened (Mail.changes).
 struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, PersistableRecord {
     var id: String
     var accountId: String
@@ -62,6 +63,14 @@ struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, Pers
     var starred = false
     var files: [Attachment] = []
     var actions: [Action] = []
+    /// The message's own key, sealed to the user: it opens the body and the attachments too.
+    var key = Data()
+
+    /// Opens the message's key with this device's private key.
+    func open() throws -> SymmetricKey {
+        guard let mine = Keys.stored else { throw AuthError(errorDescription: "This device is locked.") }
+        return try Crypto.openKey(mine, key)
+    }
 
     var sender: String { fromName.isEmpty ? fromAddr : fromName }
     /// Sent from one of the reader's own addresses.
@@ -100,8 +109,10 @@ struct Html: Codable, FetchableRecord, PersistableRecord {
     static func load(_ m: Message) async -> String? {
         let id = m.id
         if let stored = try? await Store.db.read({ try Html.fetchOne($0, key: id) }) { return stored.html }
-        guard let html = try? await API.client.getMessageBody(path: .init(accountId: m.accountId, messageId: id)).ok.body.json.html
+        guard let sealed = try? await API.client.getMessageBody(path: .init(accountId: m.accountId, messageId: id)).ok.body.json.sealed,
+              let opened = try? Crypto.decrypt(m.open(), "body", Data(base64Encoded: sealed) ?? Data())
         else { return nil }
+        let html = String(decoding: opened, as: UTF8.self)
         try? await Store.db.write { try Html(id: id, html: html).save($0) }
         return html
     }
@@ -311,6 +322,11 @@ enum Store {
                 t.add(column: "actions", .text).notNull().defaults(to: "[]")
             }
             try db.execute(sql: "DELETE FROM message; DELETE FROM cursor")
+        }
+        // Mail comes sealed for the user now; what was stored before is fetched again.
+        migrator.registerMigration("v4") { db in
+            try db.alter(table: "message") { t in t.add(column: "key", .blob).notNull().defaults(to: Data()) }
+            try db.execute(sql: "DELETE FROM body; DELETE FROM message; DELETE FROM mailbox; DELETE FROM cursor")
         }
         try! migrator.migrate(db)
         return db

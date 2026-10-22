@@ -38,7 +38,7 @@ struct Draft: Hashable {
             to: kind == .replyAll ? newest.others(accounts) : newest.ours(accounts) ? newest.to : [newest.fromAddr],
             subject: prefixed("Re:", newest.subject),
             quote: "\n\nOn \(date), \(sender) wrote:\n" + text.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n"),
-            inReplyTo: newest.id
+            inReplyTo: newest.messageId.isEmpty ? nil : newest.messageId
         )
     }
 
@@ -47,7 +47,7 @@ struct Draft: Hashable {
         let earlier = try? await Store.db.read { db in try sent(m.threadId).reversed().fetchOne(db) }
         return Draft(
             draftId: m.draftId ?? UUID().uuidString.lowercased(), accountId: m.accountId, to: m.to, cc: m.cc,
-            subject: m.subject, body: await Html.load(m).map(Html.text) ?? "", inReplyTo: earlier?.id, saved: true
+            subject: m.subject, body: await Html.load(m).map(Html.text) ?? "", inReplyTo: earlier.flatMap { $0.messageId.isEmpty ? nil : $0.messageId }, saved: true
         )
     }
 

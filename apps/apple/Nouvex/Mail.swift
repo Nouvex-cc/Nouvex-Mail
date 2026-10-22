@@ -247,11 +247,24 @@ struct Toast: Identifiable {
             // A sync that failed or worked again changes the account's error.
             Task { try? await loadAccounts() }
         case "evt.message.sent":
-            let subject = e.data.subject ?? ""
-            if let error = e.data.error { toast("Couldn't send “\(subject)”", error) } else { toast("Sent “\(subject)”") }
+            if let error = e.data.error { toast("Couldn't send", error) } else { toast("Sent") }
         default: break
         }
     }
+
+    /// What the engine sealed for the user (Meta in engine/internal/mail/sync.go).
+    private struct Meta: Decodable {
+        let messageId, subject, snippet, fromName, fromAddr: String
+        let to, cc: [String]
+        let attachments: [Attachment]
+        let actions: [Action]
+    }
+
+    nonisolated private static let metaDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { try ISODates().decode($0.singleValueContainer().decode(String.self)) }
+        return d
+    }()
 
     /// Fetches everything after the stored cursor. A pull asked for while one runs follows right after it.
     func pull(_ accountId: String) {
@@ -272,18 +285,18 @@ struct Toast: Identifiable {
         while true {
             let since = try await Store.db.read { try Cursor.fetchOne($0, key: accountId)?.version } ?? 0
             let page = try await API.client.getChanges(path: .init(accountId: accountId), query: .init(since: since)).ok.body.json
-            let messages = page.messages.upserted.map { m in
+            guard let mine = Keys.stored else { return fresh }
+            // One that doesn't open (sealed to a key from before a reset) is left out rather than holding up the rest.
+            let messages = page.messages.upserted.compactMap { m -> Message? in
+                let key = Data(base64Encoded: m.key) ?? Data()
+                guard let plain = try? Crypto.decrypt(Crypto.openKey(mine, key), "meta", Data(base64Encoded: m.sealed) ?? Data()),
+                      let meta = try? metaDecoder.decode(Meta.self, from: plain)
+                else { return nil }
                 var message = Message(
-                    id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: m.messageId, threadId: m.threadId,
-                    subject: m.subject, snippet: m.snippet, fromName: m.fromName, fromAddr: m.fromAddr, to: m.to, cc: m.cc, sentAt: m.sentAt,
-                    flags: m.flags, category: m.category.rawValue, attachments: m.attachments.count,
-                    files: m.attachments.map { Attachment(name: $0.name, type: $0._type, size: $0.size) },
-                    actions: m.actions.map {
-                        Action(
-                            kind: $0.kind.rawValue, code: $0.code, title: $0.title, start: $0.start, end: $0.end, url: $0.url,
-                            provider: $0.provider, event: $0.event, cancelled: $0.cancelled
-                        )
-                    }
+                    id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: meta.messageId, threadId: m.threadId,
+                    subject: meta.subject, snippet: meta.snippet, fromName: meta.fromName, fromAddr: meta.fromAddr, to: meta.to,
+                    cc: meta.cc, sentAt: m.sentAt, flags: m.flags, category: m.category.rawValue, attachments: meta.attachments.count,
+                    files: meta.attachments, actions: meta.actions, key: key
                 )
                 message.set()
                 return message
