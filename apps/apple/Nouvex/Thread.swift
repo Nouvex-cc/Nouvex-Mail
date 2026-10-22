@@ -253,6 +253,7 @@ struct ThreadView: View {
         case "r": answer(mail.prefs.replyDefault == "all" && (newest?.others(mail.accountList).count ?? 0) > 1 ? .replyAll : .reply)
         case "a": answer(.replyAll)
         case "f": answer(.forward)
+        case "?": mail.shortcutsOpen = true
         default: return .ignored
         }
         return .handled

@@ -254,15 +254,17 @@ function BackupCodes({ codes }: { codes: string[] }) {
 }
 
 // Enough to tell devices apart: the browser and the system it runs on. Edge says Chrome too, Chrome says Safari.
+// The Apple apps say "Nouvex Mail (macOS)" or "(iOS)".
 const browsers = [
+	[/^Nouvex Mail/, "Nouvex Mail"],
 	[/Edg\//, "Edge"],
 	[/Firefox\//, "Firefox"],
 	[/Chrome\//, "Chrome"],
 	[/Safari\//, "Safari"],
 ] as const;
 const systems = [
-	[/iPhone|iPad/, "iOS"],
-	[/Mac OS X/, "macOS"],
+	[/iPhone|iPad|\(iOS\)/, "iOS"],
+	[/Mac OS X|\(macOS\)/, "macOS"],
 	[/Android/, "Android"],
 	[/Windows/, "Windows"],
 	[/Linux/, "Linux"],

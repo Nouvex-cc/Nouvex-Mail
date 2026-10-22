@@ -251,6 +251,10 @@ struct MailList: View {
             searching.wrappedValue = true
             return .handled
         }
+        if char == "?" {
+            mail.shortcutsOpen = true
+            return .handled
+        }
         if press.modifiers.contains(.command) {
             guard char == "a" else { return .ignored }
             withAnimation(.quick) { selection = Set(conversations.map(\.id)) }

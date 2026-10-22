@@ -33,6 +33,10 @@ struct Shell: View {
         )) {
             Composer(placement: .sheet)
         }
+        .sheet(isPresented: Binding(get: { mail.shortcutsOpen }, set: { mail.shortcutsOpen = $0 })) { ShortcutsSheet() }
+        #if os(iOS)
+        .sheet(isPresented: Binding(get: { mail.settingsOpen }, set: { mail.settingsOpen = $0 })) { SettingsView() }
+        #endif
         .overlay(alignment: .bottom) { Toasts().padding(.bottom, 84) }
         .background {
             Button("Search") { searching = true }.keyboardShortcut("f").hidden()
@@ -249,6 +253,18 @@ struct AccountPicker: View {
                     .font(.sm).foregroundStyle(.muted)
                     .padding(.horizontal, 8).padding(.top, 4)
                 }
+                Rectangle().fill(.line).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 8)
+                SettingsButton(page: .addAccount, before: { open = false }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus").font(.system(size: 12)).foregroundStyle(.muted).frame(width: 28, height: 28)
+                        Text("Add account…").font(.sm).foregroundStyle(.ink)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 40)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(SidebarItemStyle())
             }
             .padding(6)
             .frame(width: 272)
@@ -302,10 +318,11 @@ struct Profile: View {
 
     var body: some View {
         Menu {
+            SettingsButton { Text("Settings…") }
             #if os(macOS)
             LoginToggle()
-            Divider()
             #endif
+            Divider()
             Button("Sign Out") { Task { await mail.signOut() } }
         } label: {
             HStack(spacing: 10) {

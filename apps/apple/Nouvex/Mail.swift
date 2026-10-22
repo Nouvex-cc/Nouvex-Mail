@@ -47,7 +47,11 @@ struct Toast: Identifiable, Equatable {
     /// A reply being written in the open conversation, in the reply bar's place.
     var reply: Draft?
     /// Who's signed in, for the profile at the bottom of the sidebar.
-    private(set) var me = (name: "", email: "")
+    var me = (name: "", email: "")
+    /// The page Settings shows, and on iOS whether its sheet is up.
+    var settings: SettingsPage? = .reading
+    var settingsOpen = false
+    var shortcutsOpen = false
     /// Every account, archived ones too.
     private(set) var accounts: [Account] = []
     private(set) var prefs = Prefs()

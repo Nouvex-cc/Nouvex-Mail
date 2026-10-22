@@ -44,14 +44,12 @@ enum API {
     }
 
     static func verify(code: String) async throws {
-        _ = try await auth("two-factor/verify-totp", ["code": code])
+        try await auth("two-factor/verify-totp", ["code": code])
     }
 
     /// The signed-in user's name and address.
     static func me() async -> (name: String, email: String)? {
-        guard let (body, _) = try? await URLSession.shared.data(from: Server.url.appending(path: "api/auth/get-session")),
-              let user = ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any])?["user"] as? [String: Any]
-        else { return nil }
+        guard let user = try? await auth("get-session", nil)["user"] as? [String: Any] else { return nil }
         return (user["name"] as? String ?? "", user["email"] as? String ?? "")
     }
 
@@ -59,19 +57,39 @@ enum API {
         _ = try? await auth("sign-out", [:])
     }
 
-    // Sign-in is BetterAuth's and not part of the OpenAPI document.
-    private static func auth(_ path: String, _ fields: [String: String]) async throws -> [String: Any] {
+    /// BetterAuth's own endpoints, which aren't part of the OpenAPI document: a GET without fields, a POST with them.
+    @discardableResult
+    static func auth(_ path: String, _ fields: [String: Any]?) async throws -> [String: Any] {
+        let json = try await authJSON(path, fields)
+        return json as? [String: Any] ?? [:]
+    }
+
+    static func authList(_ path: String) async throws -> [[String: Any]] {
+        try await authJSON(path, nil) as? [[String: Any]] ?? []
+    }
+
+    private static func authJSON(_ path: String, _ fields: [String: Any]?) async throws -> Any? {
         var req = URLRequest(url: Server.url.appending(path: "api/auth/\(path)"))
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        if let fields {
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "content-type")
+            req.httpBody = try JSONSerialization.data(withJSONObject: fields)
+        }
         // With a session cookie around, BetterAuth turns away requests without an origin it trusts; the server's own is.
         req.setValue(URL(string: "/", relativeTo: Server.url)!.absoluteString.trimmingCharacters(in: ["/"]), forHTTPHeaderField: "origin")
-        req.httpBody = try JSONEncoder().encode(fields)
+        // Kept with the session, so Settings › Security can tell this app from a browser.
+        req.setValue("Nouvex Mail (\(platform))", forHTTPHeaderField: "user-agent")
         let (body, res) = try await URLSession.shared.data(for: req)
-        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+        let json = try? JSONSerialization.jsonObject(with: body)
         guard (res as? HTTPURLResponse)?.statusCode == 200 else {
-            throw AuthError(errorDescription: json["message"] as? String ?? "Couldn't sign in.")
+            throw AuthError(errorDescription: (json as? [String: Any])?["message"] as? String ?? "That didn't work.")
         }
         return json
     }
+
+    #if os(macOS)
+    private static let platform = "macOS"
+    #else
+    private static let platform = "iOS"
+    #endif
 }

@@ -24,13 +24,25 @@ struct NouvexApp: App {
         WindowGroup("Nouvex Mail", id: "mail") {
             MailView()
                 .environment(mail)
+                .modifier(Appearance())
         }
         .onChange(of: phase) { _, phase in if phase == .active { mail.resume() } }
         .defaultSize(width: 1280, height: 800)
         .commands {
             CommandGroup(replacing: .newItem) { NewMessage().environment(mail) }
+            #if os(iOS)
+            CommandGroup(replacing: .appSettings) {
+                SettingsButton { Text("Settings…") }.keyboardShortcut(",").environment(mail)
+            }
+            #endif
         }
         #if os(macOS)
+        Settings {
+            SettingsView()
+                .environment(mail)
+                .modifier(Appearance())
+        }
+        .windowResizability(.contentMinSize)
         // Closing the window keeps the app running here, so new mail still shows up.
         MenuBarExtra {
             MenuBarContent().environment(mail)
