@@ -63,7 +63,12 @@ struct ThreadView: View {
                 Composer(placement: .reply).padding(.horizontal, 24).padding(.bottom, 16)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
             } else if let newest {
-                ReplyBar(to: replyTo(newest), others: newest.others(mail.accountList), write: answer).padding(.horizontal, 16).padding(.bottom, 16)
+                let others = newest.others(mail.accountList)
+                ReplyBar(
+                    to: replyTo(newest), others: others, everyone: mail.prefs.replyDefault == "all" && others.count > 1,
+                    resuming: saved != nil, write: answer
+                )
+                .padding(.horizontal, 16).padding(.bottom, 16)
             }
         }
         .focusable()
@@ -245,7 +250,7 @@ struct ThreadView: View {
             mail.update(messages, seen: false)
             back()
         case "h": snoozing = true
-        case "r": answer(.reply)
+        case "r": answer(mail.prefs.replyDefault == "all" && (newest?.others(mail.accountList).count ?? 0) > 1 ? .replyAll : .reply)
         case "a": answer(.replyAll)
         case "f": answer(.forward)
         default: return .ignored
@@ -253,9 +258,12 @@ struct ThreadView: View {
         return .handled
     }
 
+    /// A reply already saved in this conversation, to carry on with.
+    private var saved: Message? { messages.last { drafts.contains($0.mailboxId) } }
+
     private func answer(_ kind: Draft.Answer) {
         Task {
-            let draft = await Draft.answer(kind, thread: threadId)
+            let draft = if let saved, kind != .forward { await Draft.resume(saved) } else { await Draft.answer(kind, thread: threadId) }
             withAnimation(.quick) { mail.reply = draft }
         }
     }
@@ -312,15 +320,20 @@ struct ThreadView: View {
 struct ReplyBar: View {
     let to: String
     let others: [String]
+    /// R replies to everyone, as set.
+    var everyone = false
+    /// A reply is saved already and R carries on with it.
+    var resuming = false
     let write: (Draft.Answer) -> Void
 
     var body: some View {
         GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
-                Button { write(.reply) } label: {
+                Button { write(everyone ? .replyAll : .reply) } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "arrowshape.turn.up.left").font(.sm).foregroundStyle(.muted)
-                        Text("Reply to \(to)…").lineLimit(1).font(.md).foregroundStyle(.muted)
+                        Image(systemName: everyone ? "arrowshape.turn.up.left.2" : "arrowshape.turn.up.left").font(.sm).foregroundStyle(.muted)
+                        Text(resuming ? "Continue your reply to \(to)…" : everyone ? "Reply to everyone…" : "Reply to \(to)…")
+                            .lineLimit(1).font(.md).foregroundStyle(.muted)
                         Spacer()
                         if !Device.phone {
                             Text("R").font(.xs).foregroundStyle(.muted).frame(minWidth: 18, minHeight: 18)
@@ -334,7 +347,11 @@ struct ReplyBar: View {
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .capsule)
                 if others.count > 1 {
-                    Button("Reply all", systemImage: "arrowshape.turn.up.left.2") { write(.replyAll) }.help("Reply all (A)")
+                    if everyone {
+                        Button("Reply", systemImage: "arrowshape.turn.up.left") { write(.reply) }.help("Reply to \(to)")
+                    } else {
+                        Button("Reply all", systemImage: "arrowshape.turn.up.left.2") { write(.replyAll) }.help("Reply all (A)")
+                    }
                 }
                 Button("Forward", systemImage: "arrowshape.turn.up.right") { write(.forward) }.help("Forward (F)")
             }
