@@ -1,0 +1,30 @@
+{
+	"name": "@nouvex/rich",
+	"version": "0.0.0",
+	"license": "Apache-2.0",
+	"type": "module",
+	"bin": {
+		"nouvex-rich": "./src/cli.ts"
+	},
+	"exports": {
+		".": "./src/build.ts",
+		"./runtime": "./src/runtime.ts",
+		"./runtime.js": "./runtime.js"
+	},
+	"scripts": {
+		"test": "bun test",
+		"lint": "biome check .",
+		"typecheck": "tsc",
+		"runtime": "bun build src/start.ts --minify --target browser --banner \"// SPDX-License-Identifier: Apache-2.0\" --outfile runtime.js && cp runtime.js ../../apps/apple/Nouvex/RichRuntime.js"
+	},
+	"dependencies": {
+		"@tailwindcss/node": "^4.3.3",
+		"@tailwindcss/oxide": "^4.3.3",
+		"juice": "^12.2.0",
+		"linkedom": "^0.18.14",
+		"tailwindcss": "^4.3.3"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.4.4"
+	}
+}

@@ -11,6 +11,7 @@
 			"!**/routeTree.gen.ts",
 			"!packages/schema/gen",
 			"!apps/api/drizzle",
+			"!packages/rich/runtime.js",
 			"!apps/api/src/db/auth-schema.ts",
 			"!apps/apple",
 			"!**/components/ui",

@@ -21,9 +21,11 @@ engine           Go module: go-imap v2, go-smtp, go-message, go-msgauth, pgx + s
 packages/schema  JSON schemas for NATS messages, TS and Go types are generated from them
 packages/sdk     Headless client core (Apache-2.0)
 packages/ui      Our UI library on Base UI, tokens in src/styles.css (Apache-2.0)
+packages/rich    Rich mail: builder, CLI and the runtime clients load (Apache-2.0), see docs/rich-mail.md
 apps/playground  Temporary component playground, will be deleted
 docs/design.md   Design language, read before any UI work
 docs/security.md What the server can and can't read; mail is stored sealed for its owner
+docs/rich-mail.md The rich mail format: a designed part next to text/html, and its components
 deploy           Production compose and Caddyfile, see docs/deploy.md
 ```
 
@@ -39,6 +41,7 @@ bun run db:generate                 # new migration from src/db/schema.ts
 bun run db:migrate
 bun run gen                         # TS/Go types from packages/schema + sqlc
 bun run openapi                     # rewrite apps/apple/Nouvex/openapi.json
+bun run --cwd packages/rich runtime # rebuild runtime.js and its copy in apps/apple
 bun run e2e                         # e2e tests
 bun run --cwd apps/playground dev   # component playground on :5174
 cd apps/apple && xcodegen           # generate the Xcode project

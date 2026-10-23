@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Your accounts, sorted the way you work</title>
+		<meta name="color-scheme" content="light dark" />
+	</head>
+	<body class="m-0 bg-stone-50 font-sans text-stone-900 antialiased dark:bg-stone-950 dark:text-stone-100">
+		<main class="mx-auto max-w-3xl px-6 py-16">
+			<p class="text-sm font-medium text-stone-500">New in Nouvex</p>
+			<h1 class="mt-3 text-5xl font-semibold tracking-tight text-balance">Your accounts, sorted the way you work.</h1>
+			<p class="mt-5 max-w-xl text-lg text-stone-600 dark:text-stone-400">
+				Groups read several accounts as one inbox, colors tell you where a mail came in, and focus times keep work out of
+				your evening.
+			</p>
+
+			<nx-carousel class="mt-12 block overflow-hidden rounded-3xl bg-stone-900 text-stone-50 dark:bg-stone-800 [&_[data-nx-dots]]:flex [&_[data-nx-dots]]:justify-center [&_[data-nx-dots]]:gap-2 [&_[data-nx-dots]]:pb-6 [&_[data-nx-dot]]:size-2 [&_[data-nx-dot]]:rounded-full [&_[data-nx-dot]]:bg-stone-600 [&_[data-nx-dot][aria-current=true]]:bg-stone-50">
+				<section class="p-10">
+					<h2 class="text-2xl font-semibold">Groups</h2>
+					<p class="mt-3 text-stone-300">Put Crowdnio and ACG into "Business" and read them together, Sent and Archive included.</p>
+				</section>
+				<section class="p-10">
+					<h2 class="text-2xl font-semibold">Colors</h2>
+					<p class="mt-3 text-stone-300">Give an account a color, and its senders wear it wherever accounts mix.</p>
+				</section>
+				<section class="p-10">
+					<h2 class="text-2xl font-semibold">Focus times</h2>
+					<p class="mt-3 text-stone-300">Outside the hours you set, a group rests: no dots, no notifications, no work at dinner.</p>
+				</section>
+			</nx-carousel>
+
+			<div class="mt-12 flex flex-wrap items-center gap-4">
+				<nx-action
+					href="nouvex:settings/order"
+					web="https://mail.nouvex.cc/settings/order"
+					class="cursor-pointer rounded-xl bg-stone-900 px-5 py-3 font-medium text-stone-50 hover:bg-stone-700 dark:bg-stone-50 dark:text-stone-900"
+					>Make your first group</nx-action
+				>
+				<span class="text-sm text-stone-500">Keys 1 to 9 switch between them.</span>
+			</div>
+
+			<h2 class="mt-20 text-2xl font-semibold">Questions</h2>
+			<nx-accordion class="mt-4 block divide-y [&>nx-item]:block divide-stone-200 dark:divide-stone-800 [&_button]:w-full [&_button]:py-4 [&_button]:text-left [&_button]:font-medium [&_[hidden]]:hidden">
+				<nx-item label="Can an account be in more than one group?">
+					<p class="pb-4 text-stone-600 dark:text-stone-400">Yes. "Business" and "Everything but newsletters" can share accounts.</p>
+				</nx-item>
+				<nx-item label="Do my other mail apps see groups?">
+					<p class="pb-4 text-stone-600 dark:text-stone-400">No. Groups, colors and focus times live in Nouvex; your mailboxes stay as they are.</p>
+				</nx-item>
+			</nx-accordion>
+
+			<nx-form
+				action="https://nouvex.cc/feedback"
+				web="https://nouvex.cc/feedback"
+				label="Tell us on the web"
+				class="group mt-20 block rounded-3xl border border-stone-200 p-8 dark:border-stone-800"
+			>
+				<h2 class="text-xl font-semibold">How do you sort your mail?</h2>
+				<div class="mt-4 group-data-[state=sent]:hidden">
+					<textarea name="answer" required rows="3" class="w-full rounded-xl border border-stone-300 bg-transparent p-3 dark:border-stone-700"></textarea>
+					<button type="submit" class="mt-3 rounded-xl bg-stone-900 px-5 py-2.5 font-medium text-stone-50 dark:bg-stone-50 dark:text-stone-900">Send</button>
+					<p class="mt-2 hidden text-sm text-red-600 group-data-[state=error]:block">That didn't go through. Try again in a moment.</p>
+				</div>
+				<p class="mt-4 hidden text-stone-600 group-data-[state=sent]:block">Thank you, we read every answer.</p>
+			</nx-form>
+		</main>
+	</body>
+</html>
