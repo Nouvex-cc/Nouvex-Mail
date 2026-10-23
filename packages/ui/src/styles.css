@@ -473,9 +473,11 @@
 	mix-blend-mode: overlay;
 }
 
-/* Avatars are neutral; a theme that colors people ([data-people="color"]) gives every name its label hue. */
+/* Avatars are neutral; a theme that colors people ([data-people="color"]) gives every name its label hue, and an
+   account keeps the color the user gave it. */
 @utility avatar-tone {
-	[data-people="color"] & {
+	[data-people="color"] &,
+	&[data-colored] {
 		background: color-mix(in oklab, var(--label) 22%, var(--paper));
 		color: color-mix(in oklab, var(--label) 72%, var(--ink));
 	}
@@ -489,6 +491,11 @@
 
 @utility label-icon {
 	color: var(--label, var(--label-gray));
+}
+
+/* Text in a label's hue, as dark as a chip's text, e.g. the sender of a mail from a colored account. */
+@utility label-text {
+	color: color-mix(in oklab, var(--label, var(--label-gray)) 70%, var(--ink));
 }
 
 /* Opens by growing a grid row, which follows the content as it loads, so there's no measured height to overshoot.

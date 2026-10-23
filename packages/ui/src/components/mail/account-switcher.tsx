@@ -1,18 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { Fragment, type ReactNode, useRef, useState } from "react";
-import { Archive, Check, ChevronRight, ChevronsUpDown, Layers, Plus } from "../../icons";
+import { Archive, Check, ChevronRight, ChevronsUpDown, Folder, Layers, Plus } from "../../icons";
 import { cn, item as itemClass } from "../../lib";
 import { Avatar } from "../avatar";
 import { Select } from "../select";
+import type { LabelColor } from "./label";
 
-export type Account = { id: string; name: string; email: string; avatarUrl?: string; unread?: boolean };
+export type Account = {
+	id: string;
+	name: string;
+	email: string;
+	avatarUrl?: string;
+	color?: LabelColor | null;
+	unread?: boolean;
+	shortcut?: string;
+};
+
+/** Accounts read together; its id is what onChange gets when it's picked. */
+export type AccountGroup = { id: string; name: string; detail: string; unread?: boolean; shortcut?: string };
 
 const add = "__add";
 
-// Dot and chevron/check share one column so the dots line up.
-const End = ({ unread, trigger, children }: { unread?: boolean; trigger?: boolean; children?: ReactNode }) => (
+// Shortcut, dot and chevron/check each keep their column so they line up.
+const End = ({
+	unread,
+	trigger,
+	shortcut,
+	children,
+}: {
+	unread?: boolean;
+	trigger?: boolean;
+	shortcut?: string;
+	children?: ReactNode;
+}) => (
 	<span className="flex shrink-0 items-center gap-2 text-muted">
+		{shortcut && <kbd className="font-sans text-xs text-faint">{shortcut}</kbd>}
 		<span
 			aria-hidden
 			data-fold-hide={trigger || undefined}
@@ -35,18 +58,22 @@ function Identity({ picture, name, detail }: { picture: ReactNode; name: string;
 }
 
 /**
- * Picks one account or all of them. Archived accounts wait behind a row at the end, like archived chats, and fold
- * out under it.
+ * Picks one account, a group of them or all of them. Archived accounts wait behind a row at the end, like archived
+ * chats, and fold out under it.
  */
 export function AccountSwitcher({
 	accounts,
+	groups = [],
 	archived = [],
+	allShortcut,
 	current,
 	onChange,
 	onAddAccount,
 }: {
 	accounts: Account[];
+	groups?: AccountGroup[];
 	archived?: Account[];
+	allShortcut?: string;
 	current: string | "all";
 	onChange: (id: string | "all") => void;
 	onAddAccount?: () => void;
@@ -58,27 +85,39 @@ export function AccountSwitcher({
 			name: "All inboxes",
 			detail: `${accounts.length} ${accounts.length === 1 ? "account" : "accounts"}`,
 			unread: accounts.some((a) => a.unread),
+			shortcut: allShortcut,
 			picture: (
 				<span className="grid size-8 place-items-center rounded-full bg-selected text-muted">
 					<Layers strokeWidth={1.75} className="size-4" />
 				</span>
 			),
 		},
+		...groups.map((g) => ({
+			...g,
+			picture: (
+				<span className="grid size-8 place-items-center rounded-full bg-selected text-muted">
+					<Folder strokeWidth={1.75} className="size-4" />
+				</span>
+			),
+		})),
 		...accounts.map((a) => ({
 			id: a.id,
 			name: a.name,
 			detail: a.email,
 			unread: a.unread,
-			picture: <Avatar src={a.avatarUrl} name={a.name} />,
+			shortcut: a.shortcut,
+			picture: <Avatar src={a.avatarUrl} name={a.name} color={a.color ?? undefined} />,
 		})),
 	];
+	// Separators follow "All inboxes" and the last group.
+	const breaks = groups.length ? [0, groups.length] : [0];
 	const index = Math.max(
 		0,
 		entries.findIndex((e) => e.id === current),
 	);
 	const shown = entries[index];
 	// Opening over the trigger needs room above it for the entries before the current one (48px rows, plus the
-	// separator after "All inboxes"); otherwise the list drops down below.
+	// separators); otherwise the list drops down below.
 	const [around, setAround] = useState(true);
 	const trigger = useRef<HTMLButtonElement>(null);
 
@@ -87,7 +126,7 @@ export function AccountSwitcher({
 			value={current}
 			onOpenChange={(open) => {
 				const top = trigger.current?.getBoundingClientRect().top ?? 0;
-				if (open) setAround(top - 8 >= index * 48 + (index ? 9 : 0));
+				if (open) setAround(top - 8 >= index * 48 + breaks.filter((b) => b < index).length * 9);
 			}}
 			onValueChange={(id, details) => {
 				if (id === add) {
@@ -116,13 +155,13 @@ export function AccountSwitcher({
 							<BaseSelect.ItemText className="min-w-0">
 								<Identity {...e} />
 							</BaseSelect.ItemText>
-							<End unread={e.unread}>
+							<End unread={e.unread} shortcut={e.shortcut}>
 								<BaseSelect.ItemIndicator data-fold-fade className="text-ink">
 									<Check strokeWidth={2} />
 								</BaseSelect.ItemIndicator>
 							</End>
 						</BaseSelect.Item>
-						{i === 0 && <Select.Separator className="my-0" />}
+						{breaks.includes(i) && <Select.Separator className="my-0" />}
 					</Fragment>
 				))}
 				{archived.length > 0 && (
@@ -148,7 +187,11 @@ export function AccountSwitcher({
 							archived.map((a) => (
 								<BaseSelect.Item key={a.id} value={a.id} className={cn(itemClass, "h-12 justify-between rounded-none")}>
 									<BaseSelect.ItemText className="min-w-0">
-										<Identity name={a.name} detail={a.email} picture={<Avatar src={a.avatarUrl} name={a.name} />} />
+										<Identity
+											name={a.name}
+											detail={a.email}
+											picture={<Avatar src={a.avatarUrl} name={a.name} color={a.color ?? undefined} />}
+										/>
 									</BaseSelect.ItemText>
 									<End unread={a.unread} />
 								</BaseSelect.Item>

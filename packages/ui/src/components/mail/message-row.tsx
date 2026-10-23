@@ -6,7 +6,7 @@ import { cn } from "../../lib";
 import { formatMailDate, formatMailDateLong } from "../../mail-date";
 import { Checkbox } from "../checkbox";
 import { Tooltip } from "../tooltip";
-import { LabelChip, type MailLabel } from "./label";
+import { LabelChip, type LabelColor, type MailLabel } from "./label";
 import { SenderCard } from "./sender-card";
 import { SnoozePicker } from "./snooze-picker";
 
@@ -18,6 +18,8 @@ export type MessageRowProps = {
 	snippet?: string;
 	/** Shown as chips in front of the subject, at most two. */
 	labels?: MailLabel[];
+	/** The account it came to, where several are mixed: its name is read out, its color tints the sender. */
+	account?: { name: string; color?: LabelColor | null };
 	date: Date;
 	unread?: boolean;
 	/** Just came in: the list marks it with a short glow. */
@@ -55,6 +57,7 @@ export function MessageRow({
 	subject,
 	snippet,
 	labels = [],
+	account,
 	date,
 	unread = false,
 	fresh,
@@ -133,7 +136,7 @@ export function MessageRow({
 			role="option"
 			tabIndex={0}
 			aria-selected={selected}
-			aria-label={`${unread ? "Unread, " : ""}${from}${count > 1 ? `, ${count} messages` : ""}, ${subject}, ${formatMailDateLong(date)}`}
+			aria-label={`${unread ? "Unread, " : ""}${from}${count > 1 ? `, ${count} messages` : ""}${account ? `, to ${account.name}` : ""}, ${subject}, ${formatMailDateLong(date)}`}
 			// A hairline between rows, starting at the sender so the checkbox column stays open.
 			className="group relative touch-pan-y overflow-hidden rounded-md outline-none select-none after:absolute after:right-4 after:bottom-0 after:left-15 after:h-px after:bg-line last:after:hidden focus-visible:outline-2 focus-visible:-outline-offset-2"
 			onClick={() => onOpen?.()}
@@ -192,7 +195,10 @@ export function MessageRow({
 				</span>
 				<span aria-hidden className={cn("size-1.5 shrink-0 rounded-full bg-accent", !unread && "invisible")} />
 				<span className={cn("flex w-40 shrink-0 items-baseline gap-1.5", unread ? "font-semibold" : "text-muted")}>
-					<span className="truncate">
+					<span
+						data-label-color={account?.color ?? undefined}
+						className={cn("truncate", account?.color && "label-text")}
+					>
 						{email ? (
 							<SenderCard name={from} email={email} onWrite={onWrite} onShowMessages={onShowMessages}>
 								{from}

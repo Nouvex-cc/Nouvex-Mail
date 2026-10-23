@@ -155,6 +155,7 @@ export function InboxDemo() {
 							key={m.id}
 							{...m}
 							email={emails[m.from]}
+							account={m.id % 2 ? { name: "Work", color: "blue" } : { name: "Private", color: "green" }}
 							onWrite={() => toast.add({ title: `New message to ${m.from}` })}
 							onShowMessages={() => toast.add({ title: `Search: from:${emails[m.from]}` })}
 							selected={selected.has(m.id)}
