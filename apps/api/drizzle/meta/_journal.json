@@ -134,6 +134,13 @@
       "when": 1792738720191,
       "tag": "0018_account_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792751319476,
+      "tag": "0019_local_mailbox",
+      "breakpoints": true
     }
   ]
 }

@@ -95,7 +95,7 @@ func run() error {
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:        "engine",
-		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save"},
+		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save", "cmd.message.seed"},
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
@@ -196,6 +196,30 @@ func run() error {
 		switch m.Subject() {
 		case "cmd.message.send":
 			send(ctx, m, nc, js, db.New(pool), bucket, master)
+			return owed
+		case "cmd.message.seed":
+			// Seeds have no account yet, so they share one queue and run one after another.
+			var cmd msg.MessageSeed
+			if err := json.Unmarshal(m.Data(), &cmd); err != nil {
+				_ = m.Term()
+				return owed
+			}
+			raw, err := bucket.Get(ctx, "upload/"+cmd.UploadId)
+			var id string
+			var v int64
+			if err == nil {
+				id, v, err = mail.Seed(ctx, pool, store, cmd.UserId, raw)
+			}
+			if err != nil {
+				slog.Error("seed failed", "user", cmd.UserId, "err", err)
+				_ = m.NakWithDelay(time.Minute)
+				return owed
+			}
+			if id != "" {
+				ev, _ := json.Marshal(msg.MailboxSynced{AccountId: id, Version: int(v)})
+				_ = nc.Publish("evt.mailbox.synced", ev)
+			}
+			_ = m.Ack()
 			return owed
 		case "cmd.draft.save":
 			var d msg.DraftSave

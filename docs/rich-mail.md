@@ -15,11 +15,11 @@ multipart/alternative
 
 Mail apps show the last part they understand, so `text/html` goes last and apps that don't know `text/x-nouvex-html` skip it. AMP for Email works the same way with `text/x-amp-html`.
 
-`packages/rich` builds the message from one HTML file:
+`packages/rich` builds the message from one HTML file, run from a checkout of this repository:
 
 ```sh
-bunx nouvex-rich build mail.html --from "Nouvex <hello@nouvex.cc>" -o mail.eml
-bunx nouvex-rich check mail.html
+bun packages/rich/src/cli.ts build mail.html --from "Nouvex <hello@nouvex.cc>" -o mail.eml
+bun packages/rich/src/cli.ts check mail.html
 ```
 
 It compiles the Tailwind classes the file uses into a `<style>`, builds the classic version (or takes yours with `--fallback`) and the plain text, and takes the subject from `<title>`.

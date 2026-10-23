@@ -27,6 +27,9 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 	if err != nil {
 		return err
 	}
+	if place.Local {
+		return updateLocal(ctx, q, cmd, place.Flags)
+	}
 	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
 		return err
@@ -154,4 +157,29 @@ func specialFolder(c *imapclient.Client, want, create string) (string, error) {
 		return "", nil
 	}
 	return create, c.Create(create, nil).Wait()
+}
+
+// updateLocal changes mail that only lives in Nouvex, in the database alone: read and starred set its flags,
+// archiving or deleting removes it. Snoozing doesn't apply.
+// ponytail: a removed message's parts stay in the bucket until the engine's next start sweeps them.
+func updateLocal(ctx context.Context, q *db.Queries, cmd msg.MessageUpdate, flags []string) error {
+	if (cmd.Archive != nil && *cmd.Archive) || (cmd.Trash != nil && *cmd.Trash) {
+		return q.DeleteLocalMessage(ctx, db.DeleteLocalMessageParams{ID: cmd.MessageId, AccountID: cmd.AccountId})
+	}
+	set := map[imap.Flag]bool{}
+	for _, f := range flags {
+		set[imap.Flag(f)] = true
+	}
+	for flag, on := range map[imap.Flag]*bool{imap.FlagSeen: cmd.Seen, imap.FlagFlagged: cmd.Flagged} {
+		if on != nil {
+			set[flag] = *on
+		}
+	}
+	var next []imap.Flag
+	for f, on := range set {
+		if on {
+			next = append(next, f)
+		}
+	}
+	return q.SaveFlags(ctx, db.SaveFlagsParams{AccountID: cmd.AccountId, ID: cmd.MessageId, Flags: flagStrings(next)})
 }
