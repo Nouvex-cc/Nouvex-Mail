@@ -175,12 +175,7 @@ func folders(c *imapclient.Client) ([]*imap.ListData, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Virtual folders (\All, \Flagged) would show every message twice.
-	boxes := slices.DeleteFunc(all, func(b *imap.ListData) bool {
-		return slices.ContainsFunc(b.Attrs, func(a imap.MailboxAttr) bool {
-			return a == imap.MailboxAttrNoSelect || a == imap.MailboxAttrNonExistent || a == imap.MailboxAttrAll || a == imap.MailboxAttrFlagged
-		})
-	})
+	boxes := skipVirtual(all)
 	if condstore && opts.ReturnStatus == nil {
 		cmds := make([]*imapclient.StatusCommand, len(boxes))
 		for i, b := range boxes {
@@ -648,6 +643,7 @@ var roles = map[imap.MailboxAttr]string{
 	imap.MailboxAttrTrash:   "trash",
 	imap.MailboxAttrJunk:    "junk",
 	imap.MailboxAttrArchive: "archive",
+	imap.MailboxAttrAll:     "archive",
 }
 
 // Names servers without SPECIAL-USE commonly use.
@@ -658,6 +654,18 @@ var roleNames = map[string]string{
 	"junk": "junk", "spam": "junk",
 	"archive": "archive",
 	"snoozed": "snoozed",
+}
+
+// skipVirtual leaves out folders that only show messages from other folders, which would show them twice. Except
+// \All where there's no archive: archived mail in Gmail is only there.
+func skipVirtual(all []*imap.ListData) []*imap.ListData {
+	archive := slices.ContainsFunc(all, func(b *imap.ListData) bool { return slices.Contains(b.Attrs, imap.MailboxAttrArchive) })
+	return slices.DeleteFunc(all, func(b *imap.ListData) bool {
+		return slices.ContainsFunc(b.Attrs, func(a imap.MailboxAttr) bool {
+			return a == imap.MailboxAttrNoSelect || a == imap.MailboxAttrNonExistent || a == imap.MailboxAttrFlagged ||
+				a == imap.MailboxAttrAll && archive
+		})
+	})
 }
 
 func role(b *imap.ListData) string {
