@@ -405,6 +405,8 @@ enum Store {
                 t.primaryKey("id", .text).references("message", onDelete: .cascade)
                 t.column("html", .text).notNull()
             }
+            // Messages pulled before didn't keep the flags; they're fetched again to get them.
+            try db.execute(sql: "DELETE FROM message; DELETE FROM cursor")
         }
         try! migrator.migrate(db)
         return db
