@@ -73,13 +73,16 @@ export interface Mailbox {
 	role: "inbox" | "sent" | "drafts" | "trash" | "junk" | "archive" | "snoozed" | "";
 }
 
+/** The private key sealed with a key of this device's that the page can use but not read back (keys.ts). */
+export type Device = { publicKey: Uint8Array<ArrayBuffer>; deviceKey: CryptoKey; sealed: Uint8Array<ArrayBuffer> };
+
 // Local copy of what the delta sync has delivered so far; `cursor` stores the last change_log version per account.
 export const db = new Dexie("nouvex") as Dexie & {
 	messages: EntityTable<Message, "id">;
 	mailboxes: EntityTable<Mailbox, "id">;
 	cursor: EntityTable<{ accountId: string; version: number }, "accountId">;
 	/** This device's copy of the user's keys, unlocked with the password (keys.ts). */
-	keys: EntityTable<Keys & { id: "me" }, "id">;
+	keys: EntityTable<(Keys | Device) & { id: "me" }, "id">;
 };
 
 db.version(1).stores({
