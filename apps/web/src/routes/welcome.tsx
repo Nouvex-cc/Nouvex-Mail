@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { auth } from "../auth";
-import { db } from "../db";
+import { open } from "../keys";
 
 // The link from apps/api/src/user.ts. The password is picked here and stays here: the server gets authKey and the
 // private key wrapped with it, so nobody running the server ever knows either.
@@ -56,7 +56,7 @@ function Welcome() {
 							return setError("This link has been used or is too old. Ask for a new one.");
 						}
 						await auth.signIn.email({ email, password: authKey });
-						await db.keys.put({ id: "me", ...made.keys });
+						await open(encKey);
 						navigate({ to: "/" });
 					}}
 				>

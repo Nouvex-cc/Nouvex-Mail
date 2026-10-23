@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The password never leaves this device: it becomes authKey, which the server takes as the password, and encKey,
-// which opens the user's private key (packages/sdk/src/crypto.ts). The unlocked key stays in IndexedDB as a key the
-// page can use but not read back, until signing out.
-import { derive, openKey, openPrivate, unlock, wrapPrivate } from "@nouvex/sdk/crypto";
+// which opens the user's private key (packages/sdk/src/crypto.ts). The unlocked key stays in IndexedDB until signing
+// out, sealed with a key of this device's that the page can use but not read back: Safari can't keep an X25519 key
+// there itself.
+import { decrypt, derive, encrypt, type Keys, openKey, openPrivate, unlock, wrapPrivate } from "@nouvex/sdk/crypto";
 import { auth } from "./auth";
-import { db } from "./db";
+import { type Device, db } from "./db";
 
 type Stored = { publicKey: string; wrappedPrivate: string };
 
@@ -28,23 +29,42 @@ const privateKey = async (encKey: CryptoKey, { wrappedPrivate }: Stored) =>
 		throw new Error("That's not your password.");
 	});
 
-/** Unlocks this device with the password, after signing in with a passkey or on a new browser. */
+const deviceLabel = "nouvex device key";
+
+/** Unlocks this device with the password, after signing in with a passkey, on a new browser or right after picking it. */
 export async function open(encKey: CryptoKey) {
 	const keys = await stored();
-	await db.keys.put({
+	const raw = await privateKey(encKey, keys);
+	const deviceKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+	const device: Device & { id: "me" } = {
 		id: "me",
-		...(await unlock(await privateKey(encKey, keys), Uint8Array.fromBase64(keys.publicKey))),
-	});
+		publicKey: Uint8Array.fromBase64(keys.publicKey),
+		deviceKey,
+		sealed: await encrypt(deviceKey, deviceLabel, raw),
+	};
+	await db.keys.put(device);
+	opened = undefined;
 }
 
 export const unlocked = async () => !!(await db.keys.get("me"));
 
-/** Opens a message's own key, which opens its meta, body and attachments. */
-export async function messageKey(m: { key: string }) {
-	const keys = await db.keys.get("me");
-	if (!keys) throw new Error("This device is locked.");
-	return openKey(keys, Uint8Array.fromBase64(m.key));
+// Opened once per page load. Devices unlocked before keep the key itself.
+let opened: Promise<Keys> | undefined;
+async function load() {
+	const k = await db.keys.get("me");
+	if (!k) throw new Error("This device is locked.");
+	return "sealed" in k ? unlock(await decrypt(k.deviceKey, deviceLabel, k.sealed), k.publicKey) : k;
 }
+function keys() {
+	opened ??= load().catch((e) => {
+		opened = undefined;
+		throw e;
+	});
+	return opened;
+}
+
+/** Opens a message's own key, which opens its meta, body and attachments. */
+export const messageKey = async (m: { key: string }) => openKey(await keys(), Uint8Array.fromBase64(m.key));
 
 /** What the server takes as the password, for settings that ask for it again. */
 export const authKey = async (password: string, email: string) => (await derive(password, email)).authKey;
