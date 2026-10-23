@@ -298,3 +298,69 @@ test.skipIf(!process.env.DATABASE_URL)("nobody signs up on their own or learns s
 	expect((await welcome(again, "staple-battery-5")).status).toBe(204);
 	expect((await signIn("staple-battery-5")).status).toBe(200);
 });
+
+test.skipIf(!process.env.DATABASE_URL)("groups hold the user's own accounts, in the user's order", async () => {
+	const { db } = await import("./db");
+	const { mailAccount, user } = await import("./db/schema");
+	const { inArray } = await import("drizzle-orm");
+
+	const lena = await signedIn("Lena");
+	const tom = await signedIn("Tom");
+	const [work, home, toms] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+	const account = (id: string, userId: string) => ({
+		id,
+		userId,
+		email: `${id}@x`,
+		imapHost: "x",
+		imapPort: 993,
+		smtpHost: "x",
+		smtpPort: 465,
+		username: "x",
+		secret: new Uint8Array(1),
+	});
+	const send = (method: string, path: string, body?: unknown, cookie = lena.cookie) =>
+		app.request(path, { method, headers: { cookie, "content-type": "application/json" }, body: JSON.stringify(body) });
+	try {
+		await db.insert(mailAccount).values([account(work, lena.id), account(home, lena.id), account(toms, tom.id)]);
+		const group = {
+			name: "Work",
+			accountIds: [work],
+			muted: false,
+			focus: { days: [1, 2, 3, 4, 5], from: "09:00", to: "18:00" },
+		};
+		expect((await send("POST", "/groups", { ...group, accountIds: [work, toms] })).status).toBe(404);
+		const { id } = (await (await send("POST", "/groups", group)).json()) as { id: string };
+		await send("POST", "/groups", { name: "All", accountIds: [work, home], muted: true, focus: null });
+
+		expect((await send("PATCH", `/groups/${id}`, { name: "Mine" }, tom.cookie)).status).toBe(404);
+		expect((await send("PATCH", `/groups/${id}`, { accountIds: [work, home] })).status).toBe(204);
+		expect((await send("PATCH", `/accounts/${home}`, { nickname: "Home", color: "pink" })).status).toBe(400);
+		expect((await send("PATCH", `/accounts/${home}`, { nickname: "Home", color: "green", muted: true })).status).toBe(
+			204,
+		);
+
+		const list = async () =>
+			(await (await send("GET", "/groups")).json()) as { id: string; name: string; accountIds: string[] }[];
+		expect((await list()).map((g) => g.name)).toEqual(["Work", "All"]);
+		expect((await list())[0]?.accountIds.sort()).toEqual([work, home].sort());
+		expect(await (await send("GET", "/groups", undefined, tom.cookie)).json()).toEqual([]);
+
+		const all = (await list())[1]?.id;
+		expect((await send("PUT", "/order", { accounts: [home, work, toms], groups: [all, id] })).status).toBe(204);
+		expect((await list()).map((g) => g.name)).toEqual(["All", "Work"]);
+		const accounts = (await (await send("GET", "/accounts")).json()) as {
+			id: string;
+			nickname: string;
+			color: string;
+			muted: boolean;
+		}[];
+		expect(accounts.map((a) => a.id)).toEqual([home, work]);
+		expect(accounts[0]).toMatchObject({ nickname: "Home", color: "green", muted: true });
+
+		expect((await send("DELETE", `/groups/${id}`)).status).toBe(204);
+		expect((await list()).map((g) => g.name)).toEqual(["All"]);
+	} finally {
+		await db.delete(mailAccount).where(inArray(mailAccount.id, [work, home, toms]));
+		await db.delete(user).where(inArray(user.id, [lena.id, tom.id]));
+	}
+});

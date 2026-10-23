@@ -4,10 +4,11 @@ import { Archive, Clock, File, Inbox, Send, Star, Trash2 } from "@nouvex/ui/icon
 import { useState } from "react";
 
 const accounts = [
-	{ id: "work", name: "Mateo Coerdts", email: "mateo@nouvex.cc", unread: true },
-	{ id: "private", name: "Mateo", email: "mateo@icloud.com" },
-	{ id: "shop", name: "Aquila Clothing", email: "info@aquilaclothing.com", unread: true },
+	{ id: "work", name: "Mateo Coerdts", email: "mateo@nouvex.cc", color: "blue" as const, unread: true, shortcut: "3" },
+	{ id: "private", name: "Mateo", email: "mateo@icloud.com", color: "green" as const, shortcut: "4" },
+	{ id: "shop", name: "Aquila Clothing", email: "info@aquilaclothing.com", unread: true, shortcut: "5" },
 ];
+const groups = [{ id: "group:business", name: "Business", detail: "Nouvex, Aquila", unread: true, shortcut: "2" }];
 
 const contacts = [
 	{ name: "Lena Hartmann", email: "lena@hartmann.example" },
@@ -79,7 +80,14 @@ export function NavigationDemo() {
 					logo={<span role="img" aria-label="Nouvex" className="logo" />}
 					sidebar={
 						<Sidebar.Root>
-							<AccountSwitcher accounts={accounts} current={account} onChange={setAccount} onAddAccount={() => {}} />
+							<AccountSwitcher
+								accounts={accounts}
+								groups={groups}
+								allShortcut="1"
+								current={account}
+								onChange={setAccount}
+								onAddAccount={() => {}}
+							/>
 							<Sidebar.Section>
 								{folders.map((f) => (
 									<Sidebar.Item key={f.id} {...f} active={active === f.id} onSelect={() => setActive(f.id)} />

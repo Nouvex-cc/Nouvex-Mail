@@ -24,6 +24,20 @@ type Account struct {
 	UpdatedAt             pgtype.Timestamp
 }
 
+type AccountGroup struct {
+	ID       string
+	UserID   string
+	Name     string
+	Position int32
+	Muted    bool
+	Focus    []byte
+}
+
+type AccountGroupMember struct {
+	GroupID   string
+	AccountID string
+}
+
 type ChangeLog struct {
 	AccountID string
 	Version   int64
@@ -50,6 +64,10 @@ type MailAccount struct {
 	Signature   string
 	ArchivedAt  pgtype.Timestamptz
 	SealedTo    []byte
+	Nickname    string
+	Color       pgtype.Text
+	Position    int32
+	Muted       bool
 }
 
 type Mailbox struct {
