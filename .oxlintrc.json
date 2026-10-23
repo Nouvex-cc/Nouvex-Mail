@@ -1,7 +1,7 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
 	"jsPlugins": ["@shadcn/lint"],
-	"ignorePatterns": ["**/*.gen.ts", "**/dist/**", "**/.next/**", "packages/schema/gen/**"],
+	"ignorePatterns": ["**/*.gen.ts", "**/dist/**", "**/.next/**", "packages/schema/gen/**", "packages/rich/runtime.js", "apps/apple/Nouvex/RichRuntime.js"],
 	"settings": {
 		"shadcn": {
 			"ui": "@nouvex/ui",

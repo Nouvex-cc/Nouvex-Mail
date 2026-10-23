@@ -39,6 +39,8 @@ jobs:
       - run: bunx turbo lint typecheck test build --filter='!@nouvex/engine'
       - name: OpenAPI document is current
         run: bun run openapi && git diff --exit-code apps/apple/Nouvex/openapi.json
+      - name: Rich mail runtime is current
+        run: bun run --cwd packages/rich runtime && git diff --exit-code packages/rich/runtime.js apps/apple/Nouvex/RichRuntime.js
 
   go:
     runs-on: ubuntu-latest
