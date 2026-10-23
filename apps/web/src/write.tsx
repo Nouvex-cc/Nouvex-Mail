@@ -196,29 +196,26 @@ export function Write({
 					contacts={contacts}
 					from={
 						placement !== "dock" ? undefined : accounts.length > 1 ? (
-							<Select.Root
-								value={sender?.id}
-								onValueChange={(id) => {
-									picked.current = true;
-									if (id) switchTo(id);
-								}}
-								items={accounts.map((a) => ({ value: a.id, label: a.email }))}
-							>
-								<Select.Trigger
-									aria-label="From"
-									className="flex min-w-0 items-center gap-1 rounded-sm text-muted outline-none hover:text-ink focus-visible:outline-2"
+							<>
+								<span>From</span>
+								<Select.Root
+									value={sender?.id}
+									onValueChange={(id) => {
+										picked.current = true;
+										if (id) switchTo(id);
+									}}
+									items={accounts.map((a) => ({ value: a.id, label: a.email }))}
 								>
-									<span className="truncate">From {sender?.email}</span>
-									<ChevronsUpDown strokeWidth={1.75} className="size-3.5 shrink-0" />
-								</Select.Trigger>
-								<Select.Popup>
-									{accounts.map((a) => (
-										<Select.Item key={a.id} value={a.id}>
-											{a.email}
-										</Select.Item>
-									))}
-								</Select.Popup>
-							</Select.Root>
+									<Select.Trigger variant="text" aria-label="From" />
+									<Select.Popup>
+										{accounts.map((a) => (
+											<Select.Item key={a.id} value={a.id}>
+												{a.email}
+											</Select.Item>
+										))}
+									</Select.Popup>
+								</Select.Root>
+							</>
 						) : (
 							<span className="truncate">From {sender?.email}</span>
 						)
