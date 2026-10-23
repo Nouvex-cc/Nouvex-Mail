@@ -143,10 +143,13 @@ function useMotionRef(key: "popup" | "trigger") {
 function Trigger({
 	className,
 	placeholder,
+	variant = "field",
 	children,
 	...props
 }: Styled<BaseSelect.Trigger.Props> & {
 	placeholder?: string;
+	/** "text" sits in a line of text, like the account on a composer's From line. */
+	variant?: "field" | "text";
 	/** Custom content drops the field look (the calendar's month and year). */
 	children?: ReactNode;
 }) {
@@ -155,6 +158,10 @@ function Trigger({
 			ref={useMotionRef("trigger")}
 			className={cn(
 				!children &&
+					variant === "text" &&
+					"inline-flex min-w-0 items-center gap-1 rounded-sm text-muted outline-none transition-colors duration-100 hover:text-ink open:text-ink focus-visible:outline-2",
+				!children &&
+					variant === "field" &&
 					"inline-flex h-8 min-w-36 items-center justify-between gap-2 rounded-md border border-line-strong bg-paper px-3 text-ink outline-none transition-colors duration-100 hover:bg-hover open:bg-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink/30 disabled:opacity-50",
 				className,
 			)}
@@ -163,8 +170,8 @@ function Trigger({
 			{children ?? (
 				<>
 					<BaseSelect.Value data-fold-hide className="truncate data-placeholder:text-faint" placeholder={placeholder} />
-					<BaseSelect.Icon className="text-muted">
-						<ChevronsUpDown className="size-4" strokeWidth={1.75} />
+					<BaseSelect.Icon className={variant === "field" ? "text-muted" : undefined}>
+						<ChevronsUpDown className={variant === "field" ? "size-4" : "size-3.5"} strokeWidth={1.75} />
 					</BaseSelect.Icon>
 				</>
 			)}

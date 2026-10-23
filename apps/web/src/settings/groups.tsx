@@ -184,7 +184,9 @@ function Order() {
 					}}
 					className="flex h-10 w-full cursor-grab items-center gap-2 rounded-md px-3 text-left outline-none focus-visible:outline-2"
 				>
-					<ChevronsUpDown strokeWidth={1.75} className="size-4 text-faint" />
+					<span className="text-faint">
+						<ChevronsUpDown strokeWidth={1.75} className="size-4" />
+					</span>
 					{item.label}
 				</button>
 			</li>
