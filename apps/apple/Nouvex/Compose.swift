@@ -547,7 +547,7 @@ private struct SendButton: View {
         Button(action: action) {
             Text(undoing ? "Undo" : "Send").frame(width: 84)
         }
-        .buttonStyle(.glassProminent)
+        .glassButton(prominent: true)
         .overlay {
             if undoing {
                 Capsule().trim(from: 0, to: left).stroke(Color.onInk.opacity(0.6), lineWidth: 2)

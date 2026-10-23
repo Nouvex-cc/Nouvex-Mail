@@ -79,3 +79,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: cp deploy/.env.example deploy/.env && docker compose -f deploy/compose.yml build
+
+  # Builds against the oldest iOS the app supports (deploymentTarget in apps/apple/project.yml), so a newer API
+  # without #available fails here.
+  apple:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install xcodegen
+      - working-directory: apps/apple
+        run: |
+          xcodegen
+          xcodebuild -project Nouvex.xcodeproj -scheme Nouvex -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation -skipMacroValidation CODE_SIGNING_ALLOWED=NO build

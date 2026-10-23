@@ -327,7 +327,7 @@ struct ReplyBar: View {
     let write: (Draft.Answer) -> Void
 
     var body: some View {
-        GlassEffectContainer(spacing: 8) {
+        GlassGroup(spacing: 8) {
             HStack(spacing: 8) {
                 Button { write(everyone ? .replyAll : .reply) } label: {
                     HStack(spacing: 10) {
@@ -345,7 +345,7 @@ struct ReplyBar: View {
                     .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .glass(in: Capsule(), interactive: true)
                 if others.count > 1 {
                     if everyone {
                         Button("Reply", systemImage: "arrowshape.turn.up.left") { write(.reply) }.help("Reply to \(to)")
@@ -356,7 +356,7 @@ struct ReplyBar: View {
                 Button("Forward", systemImage: "arrowshape.turn.up.right") { write(.forward) }.help("Forward (F)")
             }
             .labelStyle(.iconOnly)
-            .buttonStyle(.glass)
+            .glassButton()
             .buttonBorderShape(.circle)
             .controlSize(.extraLarge)
         }
