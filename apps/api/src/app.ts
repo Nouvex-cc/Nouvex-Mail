@@ -10,7 +10,17 @@ import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { db } from "./db";
-import { changeLog, mailAccount, mailbox, message, userKey, userPrefs } from "./db/schema";
+import {
+	accountGroup,
+	accountGroupMember,
+	changeLog,
+	labelColors,
+	mailAccount,
+	mailbox,
+	message,
+	userKey,
+	userPrefs,
+} from "./db/schema";
 import { fetchImage } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
@@ -41,6 +51,8 @@ app.use("/prefs", signedIn);
 app.use("/keys", signedIn);
 app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
+app.use("/groups/*", signedIn);
+app.use("/order", signedIn);
 
 // Someone else's account answers like a missing one.
 app.use("/accounts/:accountId/*", async (c, next) => {
@@ -91,6 +103,9 @@ app.openapi(
 								signature: z.string(),
 								syncError: z.string().nullable(),
 								archivedAt: z.string().nullable(),
+								nickname: z.string(),
+								color: z.enum(labelColors).nullable(),
+								muted: z.boolean(),
 							}),
 						),
 					},
@@ -108,10 +123,13 @@ app.openapi(
 					signature: mailAccount.signature,
 					syncError: mailAccount.syncError,
 					archivedAt: mailAccount.archivedAt,
+					nickname: mailAccount.nickname,
+					color: mailAccount.color,
+					muted: mailAccount.muted,
 				})
 				.from(mailAccount)
 				.where(eq(mailAccount.userId, c.get("userId")))
-				.orderBy(mailAccount.createdAt),
+				.orderBy(mailAccount.position, mailAccount.createdAt),
 			200,
 		),
 );
@@ -381,6 +399,9 @@ app.openapi(
 							displayName: z.string().max(200).optional(),
 							signature: z.string().max(5000).optional(),
 							archived: z.boolean().optional(),
+							nickname: z.string().max(40).optional(),
+							color: z.enum(labelColors).nullable().optional(),
+							muted: z.boolean().optional(),
 						}),
 					},
 				},
@@ -413,6 +434,188 @@ app.openapi(
 		const { accountId } = c.req.valid("param");
 		await db.delete(mailAccount).where(eq(mailAccount.id, accountId));
 		await db.delete(changeLog).where(eq(changeLog.accountId, accountId));
+		return c.body(null, 204);
+	},
+);
+
+const Focus = z.object({
+	days: z.array(z.number().int().min(0).max(6)),
+	from: z.string().regex(/^\d\d:\d\d$/),
+	to: z.string().regex(/^\d\d:\d\d$/),
+});
+const GroupChange = z.object({
+	name: z.string().min(1).max(60),
+	accountIds: z.array(z.string()),
+	muted: z.boolean(),
+	focus: Focus.nullable(),
+});
+const Group = GroupChange.extend({ id: z.string() });
+
+// Only the user's own accounts join a group.
+const ownAccounts = async (userId: string, ids: string[]) =>
+	ids.length === 0
+		? true
+		: (
+				await db
+					.select({ id: mailAccount.id })
+					.from(mailAccount)
+					.where(and(eq(mailAccount.userId, userId), inArray(mailAccount.id, ids)))
+			).length === new Set(ids).size;
+
+const setMembers = async (groupId: string, accountIds: string[]) => {
+	await db.delete(accountGroupMember).where(eq(accountGroupMember.groupId, groupId));
+	if (accountIds.length)
+		await db
+			.insert(accountGroupMember)
+			.values([...new Set(accountIds)].map((accountId) => ({ groupId, accountId })))
+			.onConflictDoNothing();
+};
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/groups",
+		operationId: "listGroups",
+		responses: {
+			200: {
+				description: "The user's groups, in their order",
+				content: { "application/json": { schema: z.array(Group) } },
+			},
+		},
+	}),
+	async (c) => {
+		const groups = await db
+			.select()
+			.from(accountGroup)
+			.where(eq(accountGroup.userId, c.get("userId")))
+			.orderBy(accountGroup.position, accountGroup.name);
+		const members = groups.length
+			? await db
+					.select()
+					.from(accountGroupMember)
+					.where(
+						inArray(
+							accountGroupMember.groupId,
+							groups.map((g) => g.id),
+						),
+					)
+			: [];
+		return c.json(
+			groups.map(({ id, name, muted, focus }) => ({
+				id,
+				name,
+				muted,
+				focus: focus ?? null,
+				accountIds: members.filter((m) => m.groupId === id).map((m) => m.accountId),
+			})),
+			200,
+		);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/groups",
+		operationId: "createGroup",
+		request: { body: { content: { "application/json": { schema: GroupChange } } } },
+		responses: {
+			201: {
+				description: "Created, last in the order",
+				content: { "application/json": { schema: z.object({ id: z.string() }) } },
+			},
+			404: { description: "One of the accounts isn't the user's" },
+		},
+	}),
+	async (c) => {
+		const { accountIds, ...group } = c.req.valid("json");
+		const userId = c.get("userId");
+		if (!(await ownAccounts(userId, accountIds))) return c.body(null, 404);
+		const id = crypto.randomUUID();
+		// Last in the order.
+		const position = sql<number>`(select count(*) from ${accountGroup} where ${accountGroup.userId} = ${userId})`;
+		await db.insert(accountGroup).values({ id, userId, ...group, position });
+		await setMembers(id, accountIds);
+		return c.json({ id }, 201);
+	},
+);
+
+// Someone else's group answers like a missing one.
+app.use("/groups/:groupId", async (c, next) => {
+	const [own] = await db
+		.select({ id: accountGroup.id })
+		.from(accountGroup)
+		.where(and(eq(accountGroup.id, c.req.param("groupId")), eq(accountGroup.userId, c.get("userId"))));
+	if (!own) return c.body(null, 404);
+	await next();
+});
+
+app.openapi(
+	createRoute({
+		method: "patch",
+		path: "/groups/{groupId}",
+		operationId: "updateGroup",
+		request: {
+			params: z.object({ groupId: z.string() }),
+			body: { content: { "application/json": { schema: GroupChange.partial() } } },
+		},
+		responses: { 204: { description: "Saved" }, 404: { description: "No such group, or an account isn't the user's" } },
+	}),
+	async (c) => {
+		const { accountIds, ...change } = c.req.valid("json");
+		const { groupId } = c.req.valid("param");
+		if (accountIds && !(await ownAccounts(c.get("userId"), accountIds))) return c.body(null, 404);
+		if (Object.keys(change).length) await db.update(accountGroup).set(change).where(eq(accountGroup.id, groupId));
+		if (accountIds) await setMembers(groupId, accountIds);
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/groups/{groupId}",
+		operationId: "deleteGroup",
+		description: "Removes the group; its accounts stay.",
+		request: { params: z.object({ groupId: z.string() }) },
+		responses: { 204: { description: "Removed" }, 404: { description: "No such group" } },
+	}),
+	async (c) => {
+		await db.delete(accountGroup).where(eq(accountGroup.id, c.req.valid("param").groupId));
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "put",
+		path: "/order",
+		operationId: "setOrder",
+		description: "The order of the account picker. Ids that aren't the user's are ignored.",
+		request: {
+			body: {
+				content: {
+					"application/json": { schema: z.object({ accounts: z.array(z.string()), groups: z.array(z.string()) }) },
+				},
+			},
+		},
+		responses: { 204: { description: "Saved" } },
+	}),
+	async (c) => {
+		const { accounts, groups } = c.req.valid("json");
+		const userId = c.get("userId");
+		await db.transaction(async (tx) => {
+			for (const [position, id] of accounts.entries())
+				await tx
+					.update(mailAccount)
+					.set({ position })
+					.where(and(eq(mailAccount.id, id), eq(mailAccount.userId, userId)));
+			for (const [position, id] of groups.entries())
+				await tx
+					.update(accountGroup)
+					.set({ position })
+					.where(and(eq(accountGroup.id, id), eq(accountGroup.userId, userId)));
+		});
 		return c.body(null, 204);
 	},
 );

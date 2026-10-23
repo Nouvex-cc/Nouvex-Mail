@@ -160,7 +160,7 @@ func (q *Queries) FindByRole(ctx context.Context, arg FindByRoleParams) (string,
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to FROM mail_account WHERE id = $1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to, nickname, color, position, muted FROM mail_account WHERE id = $1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
@@ -183,6 +183,10 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.Signature,
 		&i.ArchivedAt,
 		&i.SealedTo,
+		&i.Nickname,
+		&i.Color,
+		&i.Position,
+		&i.Muted,
 	)
 	return i, err
 }

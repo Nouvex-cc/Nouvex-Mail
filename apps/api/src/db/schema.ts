@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import {
 	bigint,
+	boolean,
 	customType,
 	index,
 	integer,
@@ -42,8 +43,45 @@ export const mailAccount = pgTable("mail_account", {
 	// The public key the stored mail is sealed to. When the user's key changes (a reset), the engine drops the mail
 	// and fetches it again for the new one.
 	sealedTo: bytea("sealed_to"),
+	// How the user tells their accounts apart: a short name, one of the label hues, the place in the account picker,
+	// and whether it counts for unread dots and notifications.
+	nickname: text("nickname").notNull().default(""),
+	color: text("color").$type<LabelColor>(),
+	position: integer("position").notNull().default(0),
+	muted: boolean("muted").notNull().default(false),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const labelColors = ["gray", "red", "orange", "green", "blue", "purple"] as const;
+export type LabelColor = (typeof labelColors)[number];
+
+// Days are 0 (Sunday) to 6, times are the device's own; outside them the group rests.
+export type Focus = { days: number[]; from: string; to: string };
+
+// Accounts read together, like one inbox. An account can be in several.
+export const accountGroup = pgTable("account_group", {
+	id: text("id").primaryKey(),
+	userId: text("user_id")
+		.notNull()
+		.references(() => user.id, { onDelete: "cascade" }),
+	name: text("name").notNull(),
+	position: integer("position").notNull().default(0),
+	muted: boolean("muted").notNull().default(false),
+	focus: jsonb("focus").$type<Focus>(),
+});
+
+export const accountGroupMember = pgTable(
+	"account_group_member",
+	{
+		groupId: text("group_id")
+			.notNull()
+			.references(() => accountGroup.id, { onDelete: "cascade" }),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+	},
+	(t) => [primaryKey({ columns: [t.groupId, t.accountId] })],
+);
 
 // Settings that follow the user to every device; what's only right for one screen stays in that browser.
 export const userPrefs = pgTable("user_prefs", {
