@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The pages of Settings, the same as the web's.
 enum SettingsPage: Hashable {
-    case reading, writing, shortcuts, account(String), addAccount, profile, security, appearance
+    case reading, writing, shortcuts, account(String), addAccount, group(String), order, profile, security, appearance
 }
 
 /// Settings: its own window on the Mac (⌘,), a sheet on iOS.
@@ -23,9 +23,19 @@ struct SettingsView: View {
                 Section("Accounts") {
                     // Archived accounts come last, marked by their icon.
                     ForEach(mail.accountList + mail.accounts.filter(\.archived)) { a in
-                        Label(a.email, systemImage: a.archived ? "archivebox" : "envelope").tag(SettingsPage.account(a.id))
+                        Label(a.name, systemImage: a.archived ? "archivebox" : "envelope").tag(SettingsPage.account(a.id))
                     }
                     Label("Add account", systemImage: "plus").tag(SettingsPage.addAccount)
+                }
+                Section("Groups") {
+                    ForEach(mail.groups) { g in Label(g.name, systemImage: "folder").tag(SettingsPage.group(g.id)) }
+                    Label("Order", systemImage: "arrow.up.arrow.down").tag(SettingsPage.order)
+                    Button {
+                        Task { await mail.addGroup() }
+                    } label: {
+                        Label("New group", systemImage: "plus")
+                    }
+                    .buttonStyle(.plain)
                 }
                 Section("You") {
                     Label("Profile", systemImage: "person").tag(SettingsPage.profile)
@@ -60,6 +70,9 @@ struct SettingsView: View {
         case .account(let id):
             if let a = mail.accounts.first(where: { $0.id == id }) { AccountPage(account: a).id(id) }
         case .addAccount: AddAccountPage()
+        case .group(let id):
+            if let g = mail.groups.first(where: { $0.id == id }) { GroupPage(group: g).id(id) }
+        case .order: OrderPage()
         case .profile: ProfilePage()
         case .security: SecurityPage()
         case .appearance: AppearancePage()
@@ -251,6 +264,7 @@ private struct AccountPage: View {
     @Environment(Mail.self) private var mail
     let account: Account
     @State private var name = ""
+    @State private var nickname = ""
     @State private var signature = ""
     @State private var saved = false
 
@@ -264,6 +278,25 @@ private struct AccountPage: View {
                     } icon: {
                         Image(systemName: "exclamationmark.triangle").foregroundStyle(.danger)
                     }
+                }
+            }
+            Section("In your inbox") {
+                TextField(text: $nickname, prompt: Text(account.email)) {
+                    Text("Short name")
+                    Text("In the account picker and on the From line")
+                }
+                .modifier(Labeled("Short name"))
+                LabeledContent {
+                    HuePicker(selection: account.color) { color in
+                        Task { _ = await update(.init(color: .init(rawValue: color ?? "none")), failed: "Couldn't change \(account.email)") }
+                    }
+                } label: {
+                    Text("Color")
+                    Text("Its senders take it where several accounts are mixed, like All inboxes")
+                }
+                Toggle(isOn: Binding(get: { account.muted }, set: { on in Task { _ = await update(.init(muted: on), failed: "Couldn't change \(account.email)") } })) {
+                    Text("Mute")
+                    Text("Its mail stays, without an unread dot or a notification in All inboxes")
                 }
             }
             Section("Sending") {
@@ -283,7 +316,7 @@ private struct AccountPage: View {
                     Spacer()
                     Button(saved ? "Saved" : "Save") { Task { await save() } }
                         .buttonStyle(.glassProminent)
-                        .disabled(name == account.displayName && signature == account.signature)
+                        .disabled(name == account.displayName && signature == account.signature && nickname == account.nickname)
                 }
             }
             Section {
@@ -306,13 +339,15 @@ private struct AccountPage: View {
         .onAppear {
             name = account.displayName
             signature = account.signature
+            nickname = account.nickname
         }
         .onChange(of: name) { saved = false }
+        .onChange(of: nickname) { saved = false }
         .onChange(of: signature) { saved = false }
     }
 
     private func save() async {
-        if await update(.init(displayName: name, signature: signature), failed: "Couldn't save \(account.email)") { saved = true }
+        if await update(.init(displayName: name, signature: signature, nickname: nickname), failed: "Couldn't save \(account.email)") { saved = true }
     }
 
     private func archive(_ on: Bool) async {
@@ -326,6 +361,159 @@ private struct AccountPage: View {
         }
         try? await mail.loadAccounts()
         return true
+    }
+}
+
+/// One of the label hues or none, as a row of swatches.
+private struct HuePicker: View {
+    let selection: String?
+    let pick: (String?) -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            swatch(nil)
+            ForEach(["gray", "red", "orange", "green", "blue", "purple"], id: \.self) { swatch($0) }
+        }
+    }
+
+    private func swatch(_ hue: String?) -> some View {
+        Button { pick(hue) } label: {
+            Circle()
+                .fill(Color.label(hue: hue) ?? .clear)
+                .overlay { if hue == nil { Circle().strokeBorder(.lineStrong) } }
+                .frame(width: 20, height: 20)
+                .padding(3)
+                .overlay { if selection == hue { Circle().strokeBorder(.ink, lineWidth: 2) } }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(hue?.capitalized ?? "No color")
+        .accessibilityAddTraits(selection == hue ? .isSelected : [])
+    }
+}
+
+private struct GroupPage: View {
+    @Environment(Mail.self) private var mail
+    let group: AccountGroup
+    @State private var name = ""
+    private static let days = [(1, "Mo"), (2, "Tu"), (3, "We"), (4, "Th"), (5, "Fr"), (6, "Sa"), (0, "Su")]
+
+    var body: some View {
+        Form {
+            TextField("Name", text: $name).onSubmit { save(.init(name: name)) }.modifier(Labeled("Name"))
+            Section("Accounts") {
+                ForEach(mail.accounts) { a in
+                    Toggle(isOn: Binding(
+                        get: { group.accountIds.contains(a.id) },
+                        set: { on in save(.init(accountIds: on ? group.accountIds + [a.id] : group.accountIds.filter { $0 != a.id })) }
+                    )) {
+                        Text(a.name)
+                        if !a.nickname.isEmpty { Text(a.email) }
+                    }
+                }
+            }
+            Section {
+                Toggle(isOn: Binding(get: { group.focus != nil }, set: { on in
+                    save(.init(focus: on ? .init(days: [1, 2, 3, 4, 5], from: "09:00", to: "18:00") : .init(days: [], from: "00:00", to: "00:00")))
+                })) {
+                    Text("Focus times")
+                    Text("Outside them the group rests: its mail waits out of All inboxes, without unread dots or notifications")
+                }
+                if let focus = group.focus {
+                    HStack(spacing: 4) {
+                        ForEach(Self.days, id: \.0) { day, label in
+                            let on = focus.days.contains(day)
+                            Button(label) { change(focus) { $0.days = on ? $0.days.filter { $0 != day } : $0.days + [day] } }
+                                .buttonStyle(.bordered).tint(on ? .ink : .muted)
+                        }
+                    }
+                    DatePicker("From", selection: time(focus.from) { t in change(focus) { $0.from = t } }, displayedComponents: .hourAndMinute)
+                    DatePicker("To", selection: time(focus.to) { t in change(focus) { $0.to = t } }, displayedComponents: .hourAndMinute)
+                }
+                Toggle(isOn: Binding(get: { group.muted }, set: { save(.init(muted: $0)) })) {
+                    Text("Mute")
+                    Text("Its mail stays in All inboxes, without an unread dot")
+                }
+                LabeledContent {
+                    HoldButton(title: "Remove") {
+                        mail.settings = .order
+                        Task {
+                            _ = try? await API.client.deleteGroup(path: .init(groupId: group.id))
+                            try? await mail.loadAccounts()
+                        }
+                    }
+                } label: {
+                    Text("Remove group")
+                    Text("Its accounts stay as they are")
+                }
+            }
+        }
+        .navigationTitle(group.name)
+        .onAppear { name = group.name }
+    }
+
+    private func change(_ focus: Focus, _ edit: (inout Focus) -> Void) {
+        var f = focus
+        edit(&f)
+        save(.init(focus: .init(days: f.days, from: f.from, to: f.to)))
+    }
+
+    /// "09:00" as a date today, for the time picker, and back.
+    private func time(_ hhmm: String, set: @escaping (String) -> Void) -> Binding<Date> {
+        Binding(
+            get: { Calendar.current.date(bySettingHour: Int(hhmm.prefix(2)) ?? 0, minute: Int(hhmm.suffix(2)) ?? 0, second: 0, of: .now) ?? .now },
+            set: { d in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+                set(String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0))
+            }
+        )
+    }
+
+    private func save(_ change: Operations.updateGroup.Input.Body.jsonPayload) {
+        Task {
+            guard case .noContent = try? await API.client.updateGroup(path: .init(groupId: group.id), body: .json(change)) else {
+                return mail.toast("Couldn't change \(group.name)")
+            }
+            try? await mail.loadAccounts()
+        }
+    }
+}
+
+/// The order of the picker, and of ⌘1 to ⌘9.
+private struct OrderPage: View {
+    @Environment(Mail.self) private var mail
+
+    var body: some View {
+        List {
+            if !mail.groups.isEmpty {
+                Section("Groups") {
+                    ForEach(mail.groups) { Text($0.name) }
+                        .onMove { from, to in
+                            var ids = mail.groups.map(\.id)
+                            ids.move(fromOffsets: from, toOffset: to)
+                            save(groups: ids, accounts: mail.accountList.map(\.id))
+                        }
+                }
+            }
+            Section("Accounts") {
+                ForEach(mail.accountList) { Text($0.name) }
+                    .onMove { from, to in
+                        var ids = mail.accountList.map(\.id)
+                        ids.move(fromOffsets: from, toOffset: to)
+                        save(groups: mail.groups.map(\.id), accounts: ids)
+                    }
+            }
+        }
+        #if os(iOS)
+        .environment(\.editMode, .constant(.active))
+        #endif
+        .navigationTitle("Order")
+    }
+
+    private func save(groups: [String], accounts: [String]) {
+        Task {
+            _ = try? await API.client.setOrder(body: .json(.init(accounts: accounts, groups: groups)))
+            try? await mail.loadAccounts()
+        }
     }
 }
 
