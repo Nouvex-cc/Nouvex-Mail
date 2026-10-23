@@ -315,7 +315,7 @@ private struct AccountPage: View {
                 HStack {
                     Spacer()
                     Button(saved ? "Saved" : "Save") { Task { await save() } }
-                        .buttonStyle(.glassProminent)
+                        .glassButton(prominent: true)
                         .disabled(name == account.displayName && signature == account.signature && nickname == account.nickname)
                 }
             }
@@ -548,7 +548,7 @@ private struct AddAccountPage: View {
                     Spacer()
                     if busy { ProgressView().controlSize(.small) }
                     Button("Add") { Task { await add() } }
-                        .buttonStyle(.glassProminent)
+                        .glassButton(prominent: true)
                         .disabled(busy || email.isEmpty || password.isEmpty || imapHost.isEmpty || smtpHost.isEmpty)
                 }
             }

@@ -2,7 +2,7 @@ name: Nouvex
 options:
   bundleIdPrefix: cc.nouvex
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "18.0"
     macOS: "26.0"
 packages:
   GRDB:

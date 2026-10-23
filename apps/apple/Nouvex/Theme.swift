@@ -96,7 +96,7 @@ struct Toasts: View {
                 }
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(maxWidth: 420, alignment: .leading)
-                .glassEffect(.regular, in: .rect(cornerRadius: Radius.lg))
+                .glass(in: RoundedRectangle(cornerRadius: Radius.lg))
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
             }
         }
@@ -253,5 +253,34 @@ extension View {
         #else
         self
         #endif
+    }
+}
+
+// Liquid Glass came with iOS 26; on iOS 18 the closest material stands in.
+extension View {
+    @ViewBuilder func glass(in shape: some Shape, interactive: Bool = false) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            background(.regularMaterial, in: shape)
+        }
+    }
+
+    @ViewBuilder func glassButton(prominent: Bool = false) -> some View {
+        if #available(iOS 26, *) {
+            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+        } else {
+            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+        }
+    }
+}
+
+/// Lets glass shapes next to each other blend, where there's glass.
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        if #available(iOS 26, *) { GlassEffectContainer(spacing: spacing) { content } } else { content }
     }
 }

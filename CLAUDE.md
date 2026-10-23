@@ -34,6 +34,7 @@ docker compose up -d                # Postgres, NATS, SeaweedFS (S3), GreenMail 
 docker compose --profile obs up -d  # + Grafana/OTel (localhost:3001)
 bun dev                             # everything via Turbo
 bunx turbo lint typecheck test build
+bun run lint                        # turbo lint and oxlint, the way CI runs them
 bun run db:generate                 # new migration from src/db/schema.ts
 bun run db:migrate
 bun run gen                         # TS/Go types from packages/schema + sqlc
@@ -68,6 +69,7 @@ docker compose -f deploy/compose.yml up -d --build   # production, see docs/depl
 - Always store credentials and tokens encrypted (envelope encryption) and never log them.
 - Mail content is only stored sealed to its owner (docs/security.md). Nothing readable of a message goes into the database, S3, NATS events or logs, and the server never sees a user's password.
 - Render HTML mail only in a sandboxed iframe with DOMPurify, remote images go through the image proxy.
+- The iPhone app supports iOS 18 (`deploymentTarget` in apps/apple/project.yml). Anything newer, like Liquid Glass, goes behind `#available` with a fallback; the `apple` CI job builds against iOS 18.
 - Go: golangci-lint must pass, tests run with -race. TypeScript: bun test, Vitest in web. E2E tests with e2e by TesterArmy (docs offline in `node_modules/e2e/docs`).
 - Manage and run packages only with bun and bunx, never npm, npx, pnpm or yarn.
 - Current scope: IMAP and SMTP first. Gmail OAuth and the Gmail API are deliberately postponed.

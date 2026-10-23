@@ -64,12 +64,12 @@ struct SignInView: View {
             if let error { Text(error).font(.sm).foregroundStyle(.danger) }
             HStack {
                 Button(askCode ? "Verify" : "Sign in") { Task { await submit() } }
-                    .buttonStyle(.glassProminent)
+                    .glassButton(prominent: true)
                     .keyboardShortcut(.defaultAction)
                     .disabled(busy || email.isEmpty || password.isEmpty)
                 if !askCode, Passkeys.available(on: URL(string: server)) {
                     Button("Use a passkey", systemImage: "person.badge.key") { Task { await passkey() } }
-                        .buttonStyle(.glass)
+                        .glassButton()
                         .disabled(busy)
                 }
             }
@@ -157,10 +157,10 @@ struct UnlockView: View {
             if let error { Text(error).font(.sm).foregroundStyle(.danger) }
             HStack {
                 Button("Unlock") { Task { await unlock() } }
-                    .buttonStyle(.glassProminent)
+                    .glassButton(prominent: true)
                     .keyboardShortcut(.defaultAction)
                     .disabled(busy || password.isEmpty)
-                Button("Sign Out") { Task { await mail.signOut() } }.buttonStyle(.glass)
+                Button("Sign Out") { Task { await mail.signOut() } }.glassButton()
             }
             .padding(.top, 4)
         }
@@ -226,7 +226,7 @@ struct WhenPicker: View {
                 DatePicker("Pick a time", selection: $custom, in: Date.now..., displayedComponents: [.date, .hourAndMinute])
                     .labelsHidden()
                 Spacer()
-                Button(action) { pick(custom) }.buttonStyle(.glassProminent).fixedSize()
+                Button(action) { pick(custom) }.glassButton(prominent: true).fixedSize()
             }
             .padding(.horizontal, 8)
         }

@@ -138,7 +138,7 @@ struct Sidebar: View {
                     Button { mail.compose = mail.compose ?? Draft(accountId: mail.sender) } label: {
                         Label("Write", systemImage: "square.and.pencil").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glass)
+                    .glassButton()
                     .controlSize(.large)
                     .help("New message (⌘N)")
                 }

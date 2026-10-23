@@ -157,8 +157,13 @@ struct MailList: View {
                 Button("Delete", systemImage: "trash", role: .destructive) { bulk { mail.update(picked, trash: true) } }
             }
         } else if compact {
-            DefaultToolbarItem(kind: .search, placement: .bottomBar)
-            ToolbarSpacer(.flexible, placement: .bottomBar)
+            // On iOS 18 search stays at the top and the button keeps to the right.
+            if #available(iOS 26, *) {
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
+                ToolbarSpacer(.flexible, placement: .bottomBar)
+            } else {
+                ToolbarItem(placement: .bottomBar) { Spacer() }
+            }
             ToolbarItem(placement: .bottomBar) {
                 Button("New message", systemImage: "square.and.pencil") { mail.compose = mail.compose ?? Draft(accountId: mail.sender) }
             }
@@ -191,7 +196,7 @@ struct MailList: View {
             IconButton(label: "Clear selection", symbol: "xmark", key: "Esc") { withAnimation(.quick) { selection = [] } }
         }
         .padding(6)
-        .glassEffect(.regular, in: .capsule)
+        .glass(in: Capsule())
     }
 
     // Accounts in view that are syncing or can't: a running line, and what went wrong with a way out.

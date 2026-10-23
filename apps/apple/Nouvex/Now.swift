@@ -81,7 +81,7 @@ struct NowCards: View {
             if a.kind == "code", let code = a.code {
                 CopyButton(text: code)
             } else if let url = a.url.flatMap(URL.init(string:)) {
-                Button("Join") { openURL(url) }.buttonStyle(.glass).controlSize(.small)
+                Button("Join") { openURL(url) }.glassButton().controlSize(.small)
             }
         }
         .padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 8)
@@ -110,7 +110,7 @@ private struct CopyButton: View {
             Clipboard.copy(text)
             copied = true
         }
-        .buttonStyle(.glass)
+        .glassButton()
         .controlSize(.small)
         .task(id: copied) {
             guard copied, (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
