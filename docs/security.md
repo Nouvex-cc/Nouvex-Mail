@@ -19,6 +19,7 @@ The code is in `engine/internal/seal`, `packages/sdk/src/crypto.ts` and `apps/ap
   - when a message was sent, its size and flags (read, starred)
   - which tab it's sorted into
   - your folder names, your account addresses and mail servers
+  - the names of your groups and their focus times, your accounts' short names, colors and order
   - which messages belong to one conversation (Message-IDs are kept only as SHA-256)
 - **Remote images.** When a mail loads pictures, the server fetches them for you, so it sees their addresses. Set Pictures in mail to Ask first to decide each time.
 - **Messages scheduled to send later** wait encrypted with `SECRETS_KEY`, because the server has to send them on its own.

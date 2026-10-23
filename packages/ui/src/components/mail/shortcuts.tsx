@@ -6,21 +6,29 @@ import { Kbd } from "../kbd";
 const typing = (target: EventTarget | null) =>
 	target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
 
-/** Runs `handler` when `key` is pressed, unless the user is typing in a field. "mod+," also works while typing. */
-export function useShortcut(key: string, handler: (e: KeyboardEvent) => void) {
+/**
+ * Runs `handler` when `key` (or one of several, e.g. the digits) is pressed, unless the user is typing in a field.
+ * "mod+," also works while typing.
+ */
+export function useShortcut(key: string | string[], handler: (e: KeyboardEvent) => void) {
 	const latest = useRef(handler);
 	latest.current = handler;
+	const keys = [key].flat().join(" ");
 
 	useEffect(() => {
-		const mod = key.startsWith("mod+");
 		const onKey = (e: KeyboardEvent) => {
-			if (mod ? !(e.metaKey || e.ctrlKey) || e.key !== key.slice(4) : typing(e.target) || e.key !== key) return;
+			const hit = keys
+				.split(" ")
+				.some((k) =>
+					k.startsWith("mod+") ? (e.metaKey || e.ctrlKey) && e.key === k.slice(4) : !typing(e.target) && e.key === k,
+				);
+			if (!hit) return;
 			e.preventDefault();
 			latest.current(e);
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [key]);
+	}, [keys]);
 }
 
 export type ShortcutGroup = { title: string; items: { keys: string; label: string }[] };

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, Input, Settings, Sidebar, Switch, Textarea } from "@nouvex/ui";
+import { Button, Input, LabelColorPicker, Settings, Sidebar, Switch, Textarea } from "@nouvex/ui";
 import { Archive, Mail, Plus } from "@nouvex/ui/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -12,6 +12,14 @@ function AccountPage({ account: a }: { account: Account }) {
 	const accounts = useAccounts();
 	const navigate = useNavigate();
 	const [saved, setSaved] = useState(false);
+	const patch = async (change: Partial<Account> | { archived: boolean }) => {
+		await fetch(`/accounts/${a.id}`, {
+			method: "PATCH",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(change),
+		});
+		void accounts.refetch();
+	};
 
 	return (
 		<Settings.Page title={a.email}>
@@ -23,12 +31,23 @@ function AccountPage({ account: a }: { account: Account }) {
 					const res = await fetch(`/accounts/${a.id}`, {
 						method: "PATCH",
 						headers: { "content-type": "application/json" },
-						body: JSON.stringify({ displayName: f.get("displayName"), signature: f.get("signature") }),
+						body: JSON.stringify({
+							displayName: f.get("displayName"),
+							signature: f.get("signature"),
+							nickname: f.get("nickname"),
+						}),
 					});
 					setSaved(res.ok);
 					void accounts.refetch();
 				}}
 			>
+				<Settings.Section title="In your inbox">
+					<Settings.Row id="nickname" label="Short name" hint="In the account picker and on the From line">
+						<div className="w-64">
+							<Input name="nickname" aria-label="Short name" defaultValue={a.nickname} placeholder={a.email} />
+						</div>
+					</Settings.Row>
+				</Settings.Section>
 				<Settings.Section title="Sending">
 					<Settings.Row id="name" label="Name" hint="Shown next to your address">
 						<div className="w-64">
@@ -53,6 +72,16 @@ function AccountPage({ account: a }: { account: Account }) {
 
 			<Settings.Section>
 				<Settings.Row
+					id="color"
+					label="Color"
+					hint="Its senders take it where several accounts are mixed, like All inboxes"
+				>
+					<LabelColorPicker label="Color" value={a.color} onChange={(color) => void patch({ color })} />
+				</Settings.Row>
+				<Settings.Row id="mute" label="Mute" hint="Its mail stays, without an unread dot in All inboxes">
+					<Switch aria-label="Mute" checked={a.muted} onCheckedChange={(muted) => void patch({ muted })} />
+				</Settings.Row>
+				<Settings.Row
 					id="archive"
 					label="Archive"
 					hint="Out of All inboxes and the account picker, checked for mail once a day. Still there under Archived."
@@ -60,14 +89,7 @@ function AccountPage({ account: a }: { account: Account }) {
 					<Switch
 						aria-label="Archive"
 						checked={!!a.archivedAt}
-						onCheckedChange={async (archived) => {
-							await fetch(`/accounts/${a.id}`, {
-								method: "PATCH",
-								headers: { "content-type": "application/json" },
-								body: JSON.stringify({ archived }),
-							});
-							void accounts.refetch();
-						}}
+						onCheckedChange={(archived) => void patch({ archived })}
 					/>
 				</Settings.Row>
 				<Settings.Row
@@ -112,10 +134,13 @@ export const accounts: Module = {
 			.map(
 				(a): Page => ({
 					id: a.email,
-					title: a.email,
+					title: a.nickname || a.email,
 					icon: a.archivedAt ? <Archive strokeWidth={1.75} /> : <Mail strokeWidth={1.75} />,
 					entries: [
+						{ id: "nickname", label: "Short name", keywords: "nickname alias label" },
 						{ id: "name", label: "Name", keywords: "sender display" },
+						{ id: "color", label: "Color", keywords: "colour tint" },
+						{ id: "mute", label: "Mute", keywords: "quiet unread dot notifications" },
 						{ id: "signature", label: "Signature" },
 						{ id: "archive", label: "Archive", keywords: "hide rarely dormant" },
 						{ id: "remove", label: "Remove account", keywords: "delete" },
