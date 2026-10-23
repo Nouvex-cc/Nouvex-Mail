@@ -46,6 +46,8 @@ type fixture struct {
 	add    func(subject string)
 	addRaw func(raw string)
 	key    *ecdh.PrivateKey
+	// cut closes every open connection, like a server ending an idle one.
+	cut func()
 }
 
 var noDrop = func(context.Context, string) error { return nil }
@@ -142,8 +144,20 @@ func setup(t *testing.T) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
+	var conns []net.Conn
+	cut := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	}
 	srv := imapserver.New(&imapserver.Options{
-		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+		NewSession: func(c *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+			mu.Lock()
+			conns = append(conns, c.NetConn())
+			mu.Unlock()
 			return mem.NewSession(), nil, nil
 		},
 		Caps:      imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIdle: {}},
@@ -171,7 +185,7 @@ func setup(t *testing.T) fixture {
 	if _, err := pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, id, key.PublicKey().Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	return fixture{pool, id, add, addRaw, key}
+	return fixture{pool, id, add, addRaw, key, cut}
 }
 
 func TestSync(t *testing.T) {
@@ -348,19 +362,23 @@ func TestWatch(t *testing.T) {
 	calls := make(chan struct{}, 10)
 	done := make(chan struct{})
 	go func() {
-		Watch(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { calls <- struct{}{} }, func(error) {})
+		Watch(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { calls <- struct{}{} }, func(err error) {
+			t.Error("reported a dropped connection:", err)
+		})
 		close(done)
 	}()
 	wait := func(what string) {
 		select {
 		case <-calls:
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("no call " + what)
 		}
 	}
 	wait("after connecting")
 	f.add("Invoice")
 	wait("for new mail")
+	f.cut()
+	wait("after reconnecting")
 	cancel()
 	select {
 	case <-done:
