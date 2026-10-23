@@ -294,6 +294,7 @@ struct Toast: Identifiable {
         let to, cc: [String]
         let attachments: [Attachment]
         let actions: [Action]
+        let rich, seeded: Bool?
     }
 
     nonisolated private static let metaDecoder = {
@@ -332,7 +333,7 @@ struct Toast: Identifiable {
                     id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: meta.messageId, threadId: m.threadId,
                     subject: meta.subject, snippet: meta.snippet, fromName: meta.fromName, fromAddr: meta.fromAddr, to: meta.to,
                     cc: meta.cc, sentAt: m.sentAt, flags: m.flags, category: m.category.rawValue, attachments: meta.attachments.count,
-                    files: meta.attachments, actions: meta.actions, key: key
+                    files: meta.attachments, actions: meta.actions, key: key, rich: meta.rich ?? false, seeded: meta.seeded ?? false
                 )
                 message.set()
                 return message

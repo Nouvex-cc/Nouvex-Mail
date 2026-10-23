@@ -86,6 +86,10 @@ struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, Pers
     var actions: [Action] = []
     /// The message's own key, sealed to the user: it opens the body and the attachments too.
     var key = Data()
+    /// A rich mail with a designed version (docs/rich-mail.md).
+    var rich = false
+    /// Put into the inbox by Nouvex itself, so its nx-actions may open places in the app.
+    var seeded = false
 
     /// Opens the message's key with this device's private key.
     func open() throws -> SymmetricKey {
@@ -136,6 +140,23 @@ struct Html: Codable, FetchableRecord, PersistableRecord {
         let html = String(decoding: opened, as: UTF8.self)
         try? await Store.db.write { try Html(id: id, html: html).save($0) }
         return html
+    }
+
+    /// A rich mail's designed version, fetched once and kept like the body.
+    static func rich(_ m: Message) async -> String? {
+        let id = m.id
+        if let stored = try? await Store.db.read({ try Rich.fetchOne($0, key: id) }) { return stored.html }
+        guard let sealed = try? await API.client.getMessageRich(path: .init(accountId: m.accountId, messageId: id)).ok.body.json.sealed,
+              let opened = try? Crypto.decrypt(m.open(), "rich", Data(base64Encoded: sealed) ?? Data())
+        else { return nil }
+        let html = String(decoding: opened, as: UTF8.self)
+        try? await Store.db.write { try Rich(id: id, html: html).save($0) }
+        return html
+    }
+
+    private struct Rich: Codable, FetchableRecord, PersistableRecord {
+        var id: String
+        var html: String
     }
 
     /// The mail as plain text, for quoting.
@@ -372,6 +393,17 @@ enum Store {
                 t.column("muted", .boolean).notNull()
                 t.column("focus", .text)
                 t.column("accountIds", .text).notNull()
+            }
+        }
+        // Rich mail: its designed version is kept like the body.
+        migrator.registerMigration("v6") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "rich", .boolean).notNull().defaults(to: false)
+                t.add(column: "seeded", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: "rich") { t in
+                t.primaryKey("id", .text).references("message", onDelete: .cascade)
+                t.column("html", .text).notNull()
             }
         }
         try! migrator.migrate(db)
