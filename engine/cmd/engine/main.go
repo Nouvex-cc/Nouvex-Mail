@@ -134,7 +134,19 @@ func run() error {
 				if _, err := js.Publish(ctx, "cmd.mailbox.sync", cmd); err != nil {
 					slog.Error("queue sync", "account", id, "err", err)
 				}
-			}, func(err error) { failed(id, err) })
+			}, func(err error) {
+				if err != nil {
+					failed(id, err)
+					return
+				}
+				// Connected again, so a connection error is past; a sync that still fails sets its own.
+				q := db.New(pool)
+				if acc, err := q.GetAccount(ctx, id); err == nil && acc.SyncError.Valid {
+					_ = q.SetSyncError(ctx, db.SetSyncErrorParams{ID: id})
+					ev, _ := json.Marshal(msg.MailboxSynced{AccountId: id, Version: int(acc.Version)})
+					_ = nc.Publish("evt.mailbox.synced", ev)
+				}
+			})
 			mu.Lock()
 			delete(watched, id)
 			mu.Unlock()
