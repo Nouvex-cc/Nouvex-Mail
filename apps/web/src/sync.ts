@@ -6,7 +6,17 @@ import { messageKey } from "./keys";
 
 type Meta = Pick<
 	Message,
-	"messageId" | "subject" | "snippet" | "fromName" | "fromAddr" | "to" | "cc" | "attachments" | "actions"
+	| "messageId"
+	| "subject"
+	| "snippet"
+	| "fromName"
+	| "fromAddr"
+	| "to"
+	| "cc"
+	| "attachments"
+	| "actions"
+	| "rich"
+	| "seeded"
 >;
 type Sealed = Omit<Message, "accountId" | "seen" | "starred" | keyof Meta> & { sealed: string };
 
