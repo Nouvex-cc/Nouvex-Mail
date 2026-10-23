@@ -361,9 +361,13 @@ func TestWatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := make(chan struct{}, 10)
 	done := make(chan struct{})
+	ups := 0
 	go func() {
 		Watch(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, func() { calls <- struct{}{} }, func(err error) {
-			t.Error("reported a dropped connection:", err)
+			if err != nil {
+				t.Error("reported a dropped connection:", err)
+			}
+			ups++
 		})
 		close(done)
 	}()
@@ -384,6 +388,9 @@ func TestWatch(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Watch didn't return after cancel")
+	}
+	if ups != 2 {
+		t.Errorf("heard %d working connections, want 2", ups)
 	}
 }
 
