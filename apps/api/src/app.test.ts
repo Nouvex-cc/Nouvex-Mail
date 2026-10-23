@@ -371,3 +371,24 @@ test.skipIf(!process.env.DATABASE_URL)("groups hold the user's own accounts, in 
 		await db.delete(user).where(inArray(user.id, [lena.id, tom.id]));
 	}
 });
+
+test.skipIf(!process.env.DATABASE_URL)("a rich mail's form only goes to public https addresses", async () => {
+	const { db } = await import("./db");
+	const { user } = await import("./db/schema");
+	const { eq } = await import("drizzle-orm");
+	const me = await signedIn("Lena");
+	const submit = (action: string) =>
+		app.request("/rich/submit", {
+			method: "POST",
+			headers: { cookie: me.cookie, "content-type": "application/json" },
+			body: JSON.stringify({ action, fields: { answer: "By client" } }),
+		});
+	try {
+		expect((await app.request("/rich/submit", { method: "POST" })).status).toBe(401);
+		expect((await submit("http://example.com/a")).status).toBe(400);
+		expect((await submit("https://127.0.0.1/a")).status).toBe(502);
+		expect((await submit("https://localhost/a")).status).toBe(502);
+	} finally {
+		await db.delete(user).where(eq(user.id, me.id));
+	}
+});
