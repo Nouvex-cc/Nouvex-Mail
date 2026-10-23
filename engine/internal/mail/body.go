@@ -40,9 +40,11 @@ type File struct {
 }
 
 // Parsed is what a raw message shows: the HTML to render (the text part, escaped, if there is no HTML part), a
-// one-line snippet of its text, its attachments, what can be done with it right away and its inbox tab.
+// one-line snippet of its text, its attachments, what can be done with it right away and its inbox tab. Rich is the
+// designed version of a rich mail (docs/rich-mail.md), if it has one.
 type Parsed struct {
 	Body     string
+	Rich     string
 	Snippet  string
 	Files    []File
 	Actions  []Action
@@ -85,6 +87,8 @@ func Content(raw []byte) (Parsed, error) {
 			calendar = string(b)
 		}
 		switch {
+		case name == "" && ct == "text/x-nouvex-html" && out.Rich == "":
+			out.Rich = string(b)
 		case name == "" && ct == "text/html" && htmlPart == "":
 			htmlPart = string(b)
 		case name == "" && (ct == "text/plain" || ct == "") && textPart == "":

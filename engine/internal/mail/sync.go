@@ -48,6 +48,8 @@ type Meta struct {
 	Cc          []string `json:"cc"`
 	Attachments []File   `json:"attachments"`
 	Actions     []Action `json:"actions"`
+	// It has a designed version, stored as rich/<id>.html.
+	Rich bool `json:"rich,omitempty"`
 }
 
 // Hashed is how Message-IDs are stored: equal ones still match, for conversations, without keeping the header.
@@ -519,6 +521,7 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 		To: addrs(m.Envelope.To), Cc: addrs(m.Envelope.Cc),
 		// Empty lists rather than null.
 		Attachments: append([]File{}, parsed.Files...), Actions: append([]Action{}, parsed.Actions...),
+		Rich: parsed.Rich != "",
 	}
 	if len(m.Envelope.From) > 0 {
 		meta.FromName, meta.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
@@ -542,6 +545,11 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 	}
 	if err := s.store.Put(s.ctx, "body/"+row.ID+".html", seal.Encrypt(key, "body", []byte(parsed.Body)), "application/octet-stream"); err != nil {
 		return nil, err
+	}
+	if meta.Rich {
+		if err := s.store.Put(s.ctx, "rich/"+row.ID+".html", seal.Encrypt(key, "rich", []byte(parsed.Rich)), "application/octet-stream"); err != nil {
+			return nil, err
+		}
 	}
 	return &row, nil
 }

@@ -21,7 +21,7 @@ import {
 	userKey,
 	userPrefs,
 } from "./db/schema";
-import { fetchImage } from "./image";
+import { fetchImage, postForm } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
 
@@ -53,6 +53,7 @@ app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
 app.use("/groups/*", signedIn);
 app.use("/order", signedIn);
+app.use("/rich/*", signedIn);
 
 // Someone else's account answers like a missing one.
 app.use("/accounts/:accountId/*", async (c, next) => {
@@ -820,6 +821,61 @@ app.openapi(
 			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
 		if (!found) return c.body(null, 404);
 		return c.json({ sealed: (await s3.file(`body/${found.id}.html`).bytes()).toBase64() }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/messages/{messageId}/rich",
+		operationId: "getMessageRich",
+		description:
+			"The designed version of a rich mail (docs/rich-mail.md), sealed with the message's key (label rich). Unsanitized, like the body.",
+		request: { params: z.object({ accountId: z.string(), messageId: z.string() }) },
+		responses: {
+			200: {
+				description: "The designed version",
+				content: { "application/json": { schema: z.object({ sealed: z.base64() }) } },
+			},
+			404: { description: "No such message, or it has no designed version" },
+		},
+	}),
+	async (c) => {
+		const { accountId, messageId } = c.req.valid("param");
+		const [found] = await db
+			.select({ id: message.id })
+			.from(message)
+			.where(and(eq(message.id, messageId), eq(message.accountId, accountId)));
+		const file = found && s3.file(`rich/${found.id}.html`);
+		if (!file || !(await file.exists())) return c.body(null, 404);
+		return c.json({ sealed: (await file.bytes()).toBase64() }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/rich/submit",
+		operationId: "submitRichForm",
+		description:
+			"Sends what the reader filled into a rich mail's form to its action, from the server, after the reader confirmed it.",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							action: z.url({ protocol: /^https$/ }),
+							fields: z.record(z.string(), z.union([z.string().max(10_000), z.array(z.string().max(10_000)).max(50)])),
+						}),
+					},
+				},
+			},
+		},
+		responses: { 204: { description: "The sender took it" }, 502: { description: "The sender didn't take it" } },
+	}),
+	async (c) => {
+		const { action, fields } = c.req.valid("json");
+		return (await postForm(action, fields)) ? c.body(null, 204) : c.body(null, 502);
 	},
 );
 

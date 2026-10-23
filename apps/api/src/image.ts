@@ -30,24 +30,31 @@ export const isPublic = (ip: string) => !internal.check(ip, isIP(ip) === 6 ? "ip
 
 const limit = 15 * 1024 * 1024;
 
-/**
- * Fetches a remote image for a mail, so the sender sees our server instead of the reader's address. Returns
- * undefined for anything that isn't a public http(s) image.
- */
+// The URL, if it's http(s) and its host only resolves to public addresses.
 // ponytail: the host is resolved once for the check and again by fetch, so DNS rebinding can slip through; pin
 // the checked address when fetch lets us connect to an IP while keeping the TLS name.
+async function reachable(url: string) {
+	let target: URL;
+	try {
+		target = new URL(url);
+	} catch {
+		return;
+	}
+	if (target.protocol !== "https:" && target.protocol !== "http:") return;
+	const host = target.hostname.replace(/^\[|\]$/g, "");
+	const ips = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
+	if (ips.length === 0 || !ips.every(isPublic)) return;
+	return target;
+}
+
+/**
+ * Fetches a remote image or font for a mail, so the sender sees our server instead of the reader's address. Returns
+ * undefined for anything that isn't a public http(s) image or font.
+ */
 export async function fetchImage(url: string) {
 	for (let hops = 0; hops < 5; hops++) {
-		let target: URL;
-		try {
-			target = new URL(url);
-		} catch {
-			return;
-		}
-		if (target.protocol !== "https:" && target.protocol !== "http:") return;
-		const host = target.hostname.replace(/^\[|\]$/g, "");
-		const ips = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => [])).map((a) => a.address);
-		if (ips.length === 0 || !ips.every(isPublic)) return;
+		const target = await reachable(url);
+		if (!target) return;
 
 		const res = await fetch(target, {
 			redirect: "manual",
@@ -61,9 +68,27 @@ export async function fetchImage(url: string) {
 			continue;
 		}
 		const type = res.headers.get("content-type") ?? "";
-		if (!res.ok || !type.startsWith("image/") || Number(res.headers.get("content-length")) > limit) return;
+		const allowed = type.startsWith("image/") || type.startsWith("font/");
+		if (!res.ok || !allowed || Number(res.headers.get("content-length")) > limit) return;
 		const body = await res.arrayBuffer().catch(() => undefined);
 		if (!body || body.byteLength > limit) return;
 		return { body, type };
 	}
+}
+
+/**
+ * Sends what a reader filled into a rich mail's form to the sender, from our server, so the sender gets the answer
+ * but not the reader's address. Only https, no redirects; any 2xx counts.
+ */
+export async function postForm(url: string, fields: Record<string, string | string[]>) {
+	const target = await reachable(url);
+	if (target?.protocol !== "https:") return false;
+	const res = await fetch(target, {
+		method: "POST",
+		redirect: "manual",
+		signal: AbortSignal.timeout(10_000),
+		headers: { "content-type": "application/json", "user-agent": "Nouvex Mail" },
+		body: JSON.stringify(fields),
+	}).catch(() => undefined);
+	return !!res?.ok;
 }

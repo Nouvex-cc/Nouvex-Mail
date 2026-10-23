@@ -21,7 +21,8 @@ The code is in `engine/internal/seal`, `packages/sdk/src/crypto.ts` and `apps/ap
   - your folder names, your account addresses and mail servers
   - the names of your groups and their focus times, your accounts' short names, colors and order
   - which messages belong to one conversation (Message-IDs are kept only as SHA-256)
-- **Remote images.** When a mail loads pictures, the server fetches them for you, so it sees their addresses. Set Pictures in mail to Ask first to decide each time.
+- **Remote images and fonts.** When a mail loads pictures or a rich mail its fonts, the server fetches them for you, so it sees their addresses. Set Pictures in mail to Ask first to decide each time.
+- **Answers to rich mail forms.** When you confirm sending a form in a rich mail (docs/rich-mail.md), the server passes your answer on to the sender and keeps nothing. The designed version of a rich mail is stored sealed, like the body.
 - **Messages scheduled to send later** wait encrypted with `SECRETS_KEY`, because the server has to send them on its own.
 
 ## On your devices

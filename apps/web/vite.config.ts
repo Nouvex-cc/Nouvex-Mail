@@ -13,6 +13,7 @@ export default defineConfig({
 			"/accounts": "http://localhost:3000",
 			"/groups": "http://localhost:3000",
 			"/order": "http://localhost:3000",
+			"/rich": "http://localhost:3000",
 			"/keys": "http://localhost:3000",
 			"/password": "http://localhost:3000",
 			"/invites": "http://localhost:3000",
