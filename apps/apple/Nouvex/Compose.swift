@@ -51,6 +51,15 @@ struct Draft: Hashable {
         )
     }
 
+    /// The account last used to write to someone, from the newest mail in the Sent folders.
+    static func lastUsed(_ db: GRDB.Database, to address: String) throws -> String? {
+        try Message.filter(
+            sql: "mailboxId IN (SELECT id FROM mailbox WHERE role = 'sent') AND EXISTS (SELECT 1 FROM json_each(\"to\") WHERE lower(value) = lower(?))",
+            arguments: [address]
+        )
+        .order(Column("sentAt").desc).fetchOne(db)?.accountId
+    }
+
     // A conversation's messages without its saved drafts, oldest first.
     private static func sent(_ thread: String) -> QueryInterfaceRequest<Message> {
         Message.filter(sql: "threadId = ? AND mailboxId NOT IN (SELECT id FROM mailbox WHERE role = 'drafts')", arguments: [thread])
@@ -85,6 +94,8 @@ struct Composer: View {
     @State private var phase = Phase.writing
     @State private var stored: [String] = []
     @State private var leaving = false
+    /// A new message goes out from the account last used with its first recipient, until one is picked.
+    @State private var autoFrom = false
     /// A save on its way to the server; discarding waits for it, or the save would land after the discard.
     @State private var saving: Task<Void, Never>?
     @FocusState private var focus: Field?
@@ -115,6 +126,12 @@ struct Composer: View {
         }
         .onEscape { close() }
         .task { setUp() }
+        .task(id: recipients(to).first) {
+            guard autoFrom, let first = recipients(to).first,
+                  let id = try? await Store.db.read({ try Draft.lastUsed($0, to: first) }), mail.accountList.contains(where: { $0.id == id })
+            else { return }
+            draft.accountId = id
+        }
         // Saved as a draft two seconds after typing stops, and once more when it closes.
         .task(id: snapshot) {
             guard (try? await Task.sleep(for: .seconds(2))) != nil else { return }
@@ -256,7 +273,12 @@ struct Composer: View {
     private var from: some View {
         row(nil) {
             Menu {
-                ForEach(mail.accountList, id: \.id) { a in Button(a.email) { draft.accountId = a.id } }
+                ForEach(mail.accountList, id: \.id) { a in
+                    Button(a.email) {
+                        autoFrom = false
+                        draft.accountId = a.id
+                    }
+                }
             } label: {
                 Text("From \(mail.accountList.first { $0.id == draft.accountId }?.email ?? "")").font(.sm).foregroundStyle(.muted)
             }
@@ -383,6 +405,7 @@ struct Composer: View {
         }
         guard stored.isEmpty, let start else { return }
         draft = start
+        autoFrom = !start.saved && start.inReplyTo == nil && start.quote.isEmpty && start.to.isEmpty
         if draft.accountId == nil { draft.accountId = mail.accountList.first?.id }
         // The signature goes above a quoted message, the way replies are written.
         if !draft.saved, let signature = mail.accountList.first(where: { $0.id == draft.accountId })?.signature, !signature.isEmpty {

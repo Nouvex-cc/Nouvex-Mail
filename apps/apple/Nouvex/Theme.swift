@@ -148,18 +148,39 @@ struct Dot: View {
     }
 }
 
+extension Color {
+    /// One of the label hues, by its name in styles.css.
+    static func label(hue name: String?) -> Color? {
+        switch name {
+        case "gray": .labelGray
+        case "red": .labelRed
+        case "orange": .labelOrange
+        case "green": .labelGreen
+        case "blue": .labelBlue
+        case "purple": .labelPurple
+        default: nil
+        }
+    }
+
+    /// A label hue as text, as dark as a chip's (label-text in styles.css).
+    static func label(_ name: String?) -> Color? { label(hue: name)?.mix(with: .ink, by: 0.3, in: .perceptual) }
+}
+
 /// Initials in a quiet circle, for people and accounts.
 struct Avatar: View {
     let name: String
     var size: CGFloat = 32
+    /// An account's label hue, if it has one.
+    var color: String?
 
     var body: some View {
         let letters = name.split(whereSeparator: { $0 == " " || $0 == "@" || $0 == "." }).prefix(2).compactMap(\.first)
+        let hue = Color.label(hue: color)
         Text(String(letters).uppercased())
             .font(.system(size: size * 0.38, weight: .medium))
-            .foregroundStyle(.muted)
+            .foregroundStyle(Color.label(color) ?? .muted)
             .frame(width: size, height: size)
-            .background(.line, in: .circle)
+            .background(hue.map { $0.mix(with: .paper, by: 0.78, in: .perceptual) } ?? .line, in: .circle)
     }
 }
 

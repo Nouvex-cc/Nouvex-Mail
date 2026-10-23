@@ -357,6 +357,13 @@ test.skipIf(!process.env.DATABASE_URL)("groups hold the user's own accounts, in 
 		expect(accounts.map((a) => a.id)).toEqual([home, work]);
 		expect(accounts[0]).toMatchObject({ nickname: "Home", color: "green", muted: true });
 
+		// Clients that can't send null clear with "none" and no days.
+		await send("PATCH", `/accounts/${home}`, { color: "none" });
+		await send("PATCH", `/groups/${id}`, { focus: { days: [], from: "09:00", to: "18:00" } });
+		const cleared = (await (await send("GET", "/accounts")).json()) as { color: string | null }[];
+		expect(cleared[0]?.color).toBeNull();
+		expect(((await list()) as unknown as { focus: unknown }[])[1]?.focus).toBeNull();
+
 		expect((await send("DELETE", `/groups/${id}`)).status).toBe(204);
 		expect((await list()).map((g) => g.name)).toEqual(["All"]);
 	} finally {

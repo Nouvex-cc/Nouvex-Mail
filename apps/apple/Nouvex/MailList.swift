@@ -64,7 +64,7 @@ struct MailList: View {
         }
         .task(id: query) { await suggestPeople() }
         .searchFocused(searching)
-        .task(id: [AnyHashable(mail.folder), AnyHashable(mail.account), AnyHashable(query), AnyHashable(tokens)]) { await observe() }
+        .task(id: [AnyHashable(mail.folder), AnyHashable(mail.inView.map(\.id)), AnyHashable(query), AnyHashable(tokens)]) { await observe() }
         #if os(iOS)
         .toolbar { toolbar }
         .sheet(isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } })) {
@@ -160,7 +160,7 @@ struct MailList: View {
             DefaultToolbarItem(kind: .search, placement: .bottomBar)
             ToolbarSpacer(.flexible, placement: .bottomBar)
             ToolbarItem(placement: .bottomBar) {
-                Button("New message", systemImage: "square.and.pencil") { mail.compose = mail.compose ?? Draft(accountId: mail.account) }
+                Button("New message", systemImage: "square.and.pencil") { mail.compose = mail.compose ?? Draft(accountId: mail.sender) }
             }
         }
     }
@@ -324,12 +324,14 @@ struct MailList: View {
     private func observe() async {
         let folder = mail.folder
         let categories = mail.prefs.categories
-        let account = mail.account
         let query = (tokens.map(\.query) + [query.trimmingCharacters(in: .whitespaces)]).filter { !$0.isEmpty }.joined(separator: " ")
+        // in:archived in All inboxes looks into archived accounts too.
+        let all = mail.scope == nil && query.split(separator: " ").contains("in:archived")
+        let accounts = (all ? mail.accounts : mail.inView).map(\.id)
         // Waits for typing to pause before searching.
         if !query.isEmpty, (try? await Task.sleep(for: .milliseconds(150))) == nil { return }
         let fetch: @Sendable (GRDB.Database) throws -> [Conversation] = { db in
-            query.isEmpty ? try folder.conversations(db, categories: categories, account: account) : try Conversation.search(db, query, account: account)
+            query.isEmpty ? try folder.conversations(db, categories: categories, accounts: accounts) : try Conversation.search(db, query, accounts: accounts)
         }
         var first = true
         do {
@@ -389,10 +391,13 @@ struct ConversationRow: View {
         .contentShape(.rect)
         .onHover { over in withAnimation(.quick) { hovered = over } }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(unread ? "Unread, " : "")\(m.sender), \(m.subject), \(m.sentAt.mailDate)")
+        .accessibilityLabel("\(unread ? "Unread, " : "")\(m.sender)\(to.map { ", to \($0.name)" } ?? ""), \(m.subject), \(m.sentAt.mailDate)")
     }
 
     private var who: String { outgoing ? conversation.latest.to.joined(separator: ", ") : conversation.latest.sender }
+    /// The account it came to, where several mix in the list; its color tints the sender.
+    private var to: Account? { mail.mixed ? mail.accounts.first { $0.id == conversation.latest.accountId } : nil }
+    private var tint: Color? { outgoing ? nil : Color.label(to?.color) }
 
     private var stacked: some View {
         let m = conversation.latest
@@ -402,7 +407,7 @@ struct ConversationRow: View {
             Dot(on: unread).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(who).font(.lg.weight(unread ? .semibold : .regular)).foregroundStyle(.ink).lineLimit(1)
+                    Text(who).font(.lg.weight(unread ? .semibold : .regular)).foregroundStyle(tint ?? .ink).lineLimit(1)
                     if conversation.messages.count > 1 {
                         Text("\(conversation.messages.count)").font(.xs).foregroundStyle(.muted)
                     }
@@ -440,7 +445,7 @@ struct ConversationRow: View {
             HStack(spacing: 6) {
                 Text(who)
                     .fontWeight(unread ? .semibold : .regular)
-                    .foregroundStyle(unread ? .ink : .muted)
+                    .foregroundStyle(tint ?? (unread ? .ink : .muted))
                     .lineLimit(1)
                 if conversation.messages.count > 1 {
                     Text("\(conversation.messages.count)").font(.xs).foregroundStyle(.muted)

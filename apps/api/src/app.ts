@@ -400,7 +400,11 @@ app.openapi(
 							signature: z.string().max(5000).optional(),
 							archived: z.boolean().optional(),
 							nickname: z.string().max(40).optional(),
-							color: z.enum(labelColors).nullable().optional(),
+							// "none" as well as null, for clients that can't send null.
+							color: z
+								.enum([...labelColors, "none"])
+								.nullable()
+								.optional(),
 							muted: z.boolean().optional(),
 						}),
 					},
@@ -410,9 +414,13 @@ app.openapi(
 		responses: { 204: { description: "Saved" }, 404: { description: "No such account" } },
 	}),
 	async (c) => {
-		const { archived, ...change } = c.req.valid("json");
+		const { archived, color, ...change } = c.req.valid("json");
 		const { accountId } = c.req.valid("param");
-		const set = archived === undefined ? change : { ...change, archivedAt: archived ? new Date() : null };
+		const set = {
+			...change,
+			...(color !== undefined && { color: color === "none" ? null : color }),
+			...(archived !== undefined && { archivedAt: archived ? new Date() : null }),
+		};
 		if (Object.keys(set).length) await db.update(mailAccount).set(set).where(eq(mailAccount.id, accountId));
 		// Back from the archive: the sync starts its watcher again.
 		if (archived === false) await sync(accountId);
@@ -438,11 +446,13 @@ app.openapi(
 	},
 );
 
+// No days turns focus times off, like null, for clients that can't send null.
 const Focus = z.object({
 	days: z.array(z.number().int().min(0).max(6)),
 	from: z.string().regex(/^\d\d:\d\d$/),
 	to: z.string().regex(/^\d\d:\d\d$/),
 });
+const off = (focus: z.infer<typeof Focus> | null | undefined) => (focus?.days.length === 0 ? null : focus);
 const GroupChange = z.object({
 	name: z.string().min(1).max(60),
 	accountIds: z.array(z.string()),
@@ -528,13 +538,13 @@ app.openapi(
 		},
 	}),
 	async (c) => {
-		const { accountIds, ...group } = c.req.valid("json");
+		const { accountIds, focus, ...group } = c.req.valid("json");
 		const userId = c.get("userId");
 		if (!(await ownAccounts(userId, accountIds))) return c.body(null, 404);
 		const id = crypto.randomUUID();
 		// Last in the order.
 		const position = sql<number>`(select count(*) from ${accountGroup} where ${accountGroup.userId} = ${userId})`;
-		await db.insert(accountGroup).values({ id, userId, ...group, position });
+		await db.insert(accountGroup).values({ id, userId, ...group, focus: off(focus), position });
 		await setMembers(id, accountIds);
 		return c.json({ id }, 201);
 	},
@@ -562,9 +572,10 @@ app.openapi(
 		responses: { 204: { description: "Saved" }, 404: { description: "No such group, or an account isn't the user's" } },
 	}),
 	async (c) => {
-		const { accountIds, ...change } = c.req.valid("json");
+		const { accountIds, focus, ...rest } = c.req.valid("json");
 		const { groupId } = c.req.valid("param");
 		if (accountIds && !(await ownAccounts(c.get("userId"), accountIds))) return c.body(null, 404);
+		const change = focus === undefined ? rest : { ...rest, focus: off(focus) };
 		if (Object.keys(change).length) await db.update(accountGroup).set(change).where(eq(accountGroup.id, groupId));
 		if (accountIds) await setMembers(groupId, accountIds);
 		return c.body(null, 204);

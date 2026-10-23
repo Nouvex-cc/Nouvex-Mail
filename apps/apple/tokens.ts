@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 const css = readFileSync(new URL("../../packages/ui/src/styles.css", import.meta.url), "utf8");
 const root = css.slice(css.indexOf(":root {"), css.indexOf("}", css.indexOf(":root {")));
 const out = new URL("Nouvex/Assets.xcassets/Tokens/", import.meta.url);
-const names = ["paper", "sunken", "raised", "ink", "on-ink", "muted", "faint", "line", "line-strong", "hover", "selected", "danger", "positive"];
+const names = ["paper", "sunken", "raised", "ink", "on-ink", "muted", "faint", "line", "line-strong", "hover", "selected", "danger", "positive", ...["gray", "red", "orange", "green", "blue", "purple"].map((h) => `label-${h}`)];
 
 const color = (oklch: string) => {
 	const [l, c, h, alpha = "1"] = oklch.replace("/", " ").split(/\s+/).filter(Boolean);

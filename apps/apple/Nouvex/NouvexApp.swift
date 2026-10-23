@@ -30,6 +30,7 @@ struct NouvexApp: App {
         .defaultSize(width: 1280, height: 800)
         .commands {
             CommandGroup(replacing: .newItem) { NewMessage().environment(mail) }
+            CommandGroup(after: .sidebar) { Choices().environment(mail) }
             #if os(iOS)
             CommandGroup(replacing: .appSettings) {
                 SettingsButton { Text("Settings…") }.keyboardShortcut(",").environment(mail)
@@ -77,10 +78,23 @@ struct NewMessage: View {
 
     var body: some View {
         Button("New Message", systemImage: "square.and.pencil") {
-            mail.compose = mail.compose ?? Draft(accountId: mail.account)
+            mail.compose = mail.compose ?? Draft(accountId: mail.sender)
             openWindow(id: "mail")
         }
         .keyboardShortcut("n")
+    }
+}
+
+/// All inboxes, the groups and the accounts in the picker's order, as ⌘1 to ⌘9.
+struct Choices: View {
+    @Environment(Mail.self) private var mail
+
+    var body: some View {
+        let choices = Array(mail.choices.prefix(9).enumerated())
+        ForEach(choices, id: \.offset) { i, choice in
+            Button(mail.title(choice)) { mail.scope = choice }
+                .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")))
+        }
     }
 }
 

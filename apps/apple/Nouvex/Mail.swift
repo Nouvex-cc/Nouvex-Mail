@@ -37,8 +37,18 @@ struct Toast: Identifiable {
 
     var state = State.loading
     var folder = Folder.inbox
-    /// The account the sidebar shows, all of them when nil.
-    var account: String?
+    /// What the sidebar shows: all accounts when nil, "group:<id>" or one account's id.
+    var scope: String?
+    /// The one account in view, if it's one.
+    var account: String? { scope?.hasPrefix("group:") == true ? nil : scope }
+    var group: AccountGroup? { groups.first { "group:\($0.id)" == scope } }
+    /// The account a new message starts from: the one in view, or a group's first.
+    var sender: String? { account ?? group?.accountIds.first }
+    /// What the picker calls a choice.
+    func title(_ choice: String?) -> String {
+        guard let choice else { return "All inboxes" }
+        return groups.first { "group:\($0.id)" == choice }?.name ?? accounts.first { $0.id == choice }?.name ?? ""
+    }
     var thread: String?
     /// The conversations in the list, in order, for moving on to the next one after archiving.
     var order: [String] = []
@@ -56,6 +66,7 @@ struct Toast: Identifiable {
     var shortcutsOpen = false
     /// Every account, archived ones too.
     private(set) var accounts: [Account] = []
+    private(set) var groups: [AccountGroup] = []
     private(set) var prefs = Prefs()
     private(set) var unread = Unread()
     /// Accounts the engine is syncing right now.
@@ -64,8 +75,17 @@ struct Toast: Identifiable {
 
     /// The accounts in All inboxes and the picker.
     var accountList: [Account] { accounts.filter { !$0.archived } }
-    /// The account picked in the sidebar, or every active one.
-    var inView: [Account] { accounts.filter { a in account.map { $0 == a.id } ?? !a.archived } }
+    /// The accounts in view: the one picked, a group's, or every active one whose group isn't resting.
+    var inView: [Account] {
+        if let group { return accounts.filter { group.accountIds.contains($0.id) } }
+        if let account { return accounts.filter { $0.id == account } }
+        let resting = Set(groups.filter { $0.resting() }.flatMap(\.accountIds))
+        return accountList.filter { !resting.contains($0.id) }
+    }
+    /// Several accounts mix in the list, so senders take their account's color.
+    var mixed: Bool { account == nil && inView.count > 1 }
+    /// All inboxes, then the groups and the accounts, in the user's order; ⌘1 to ⌘9 pick them.
+    var choices: [String?] { [nil] + groups.map { "group:\($0.id)" } + accountList.map(\.id) }
 
     /// Unread conversations in the inbox, the way the sidebar counts them.
     var inboxUnread: Int { prefs.categories ? unread.counts["primary"] ?? 0 : unread.counts.values.reduce(0, +) }
@@ -78,6 +98,10 @@ struct Toast: Identifiable {
     func start() {
         guard tasks.isEmpty else { return }
         state = .loading
+        // What was there last time, so the list fills before the server answers, or without it.
+        if let (a, g) = try? Store.db.read({ db in
+            (try Account.order(Column("position")).fetchAll(db), try AccountGroup.order(Column("position")).fetchAll(db))
+        }) { (accounts, groups) = (a, g) }
         tasks = [Task { await connect() }, Task { await watchUnread() }]
     }
 
@@ -177,18 +201,30 @@ struct Toast: Identifiable {
             list = try ok.body.json.map {
                 Account(
                     id: $0.id, email: $0.email, displayName: $0.displayName, signature: $0.signature, archived: $0.archivedAt != nil,
-                    syncError: $0.syncError
+                    syncError: $0.syncError, nickname: $0.nickname, color: $0.color?.rawValue, muted: $0.muted
                 )
             }
+            .enumerated().map { i, a in var a = a; a.position = i; return a }
         case .undocumented(statusCode: 401, _): throw SignedOut()
         case .undocumented: throw URLError(.badServerResponse)
+        }
+        let groups = (try? await API.client.listGroups().ok.body.json)?.enumerated().map { i, g in
+            AccountGroup(
+                id: g.id, name: g.name, position: i, muted: g.muted,
+                focus: g.focus.map { Focus(days: $0.days, from: $0.from, to: $0.to) }, accountIds: g.accountIds
+            )
         }
         try await Store.db.write { db in
             try Account.filter(!list.map(\.id).contains(Column("id"))).deleteAll(db)
             for a in list { try a.save(db) }
+            if let groups {
+                try AccountGroup.deleteAll(db)
+                for g in groups { try g.insert(db) }
+            }
         }
         accounts = list
-        if let account, !list.contains(where: { $0.id == account }) { self.account = nil }
+        if let groups { self.groups = groups }
+        if let scope, !choices.contains(scope), !list.contains(where: { $0.id == scope }) { self.scope = nil }
     }
 
     /// Changes a setting here right away and on the server, where every other device picks it up.
@@ -319,7 +355,8 @@ struct Toast: Identifiable {
     }
 
     private func notify(_ fresh: [Message]) {
-        for m in fresh where !prefs.categories || m.category == "primary" {
+        let loud = Set((try? Store.db.read { try AccountGroup.loud($0) }) ?? [])
+        for m in fresh where (!prefs.categories || m.category == "primary") && loud.contains(m.accountId) {
             let content = UNMutableNotificationContent()
             content.title = m.sender
             content.body = m.subject
@@ -340,6 +377,15 @@ struct Toast: Identifiable {
                 #endif
             }
         } catch {}
+    }
+
+    func addGroup() async {
+        let body = Operations.createGroup.Input.Body.jsonPayload(name: "New group", accountIds: [], muted: false, focus: nil)
+        guard case .created(let created) = try? await API.client.createGroup(body: .json(body)), let id = try? created.body.json.id else {
+            return toast("Couldn't add a group")
+        }
+        try? await loadAccounts()
+        settings = .group(id)
     }
 
     /// Removes an account and everything synced from it; the mail server keeps its mail.

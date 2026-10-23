@@ -12,6 +12,27 @@ struct Account: Codable, Hashable, Identifiable, FetchableRecord, PersistableRec
     var archived = false
     /// Why the server can't sync it right now, if it can't.
     var syncError: String?
+    /// How the user tells it apart: a short name, one of the label hues, its place in the picker.
+    var nickname = ""
+    var color: String?
+    var position = 0
+    /// Its mail counts for no unread dot or notification in All inboxes.
+    var muted = false
+
+    var name: String { nickname.isEmpty ? email : nickname }
+}
+
+/// Accounts read together, like one inbox; an account can be in several.
+struct AccountGroup: Codable, Hashable, Identifiable, FetchableRecord, PersistableRecord {
+    var id: String
+    var name: String
+    var position: Int
+    var muted: Bool
+    var focus: Focus?
+    var accountIds: [String]
+
+    /// Outside its focus times its mail waits out of All inboxes and makes no noise.
+    func resting(_ at: Date = .now) -> Bool { focus.map { !$0.within(at) } ?? false }
 }
 
 struct Mailbox: Codable, Hashable, FetchableRecord, PersistableRecord {
@@ -146,10 +167,10 @@ enum Folder: Hashable, Sendable {
     /// One of the account's own IMAP folders, by id, with its name.
     case mailbox(String, String)
 
-    /// All inboxes leaves archived accounts out.
-    static let active = "accountId NOT IN (SELECT id FROM account WHERE archived = 1)"
+    /// Only these accounts, given as one JSON array.
+    static let within = "accountId IN (SELECT value FROM json_each(?))"
 
-    func conversations(_ db: GRDB.Database, categories: Bool, account: String?) throws -> [Conversation] {
+    func conversations(_ db: GRDB.Database, categories: Bool, accounts: [String]) throws -> [Conversation] {
         let inbox = "mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox')"
         let (sql, args): (String, StatementArguments) = switch self {
         case .inbox: (categories ? "\(inbox) AND category = 'primary'" : inbox, [])
@@ -158,8 +179,7 @@ enum Folder: Hashable, Sendable {
         case .role(let role): ("mailboxId IN (SELECT id FROM mailbox WHERE role = ?)", [role])
         case .mailbox(let id, _): ("mailboxId = ?", [id])
         }
-        guard let account else { return try Conversation.fetch(db, "(\(sql)) AND \(Self.active)", args) }
-        return try Conversation.fetch(db, "(\(sql)) AND accountId = ?", args + [account])
+        return try Conversation.fetch(db, "(\(sql)) AND \(Self.within)", args + [accounts.json])
     }
 }
 
@@ -178,16 +198,10 @@ extension Conversation {
 
     /// Searches every folder but Trash and Junk of the account in view, like the web: words in the subject, preview or
     /// sender, plus from:, to:, is:unread, is:starred, has:attachment, after: and before: (YYYY-MM-DD). Archived
-    /// accounts only with in:archived.
-    static func search(_ db: GRDB.Database, _ text: String, account: String?) throws -> [Conversation] {
-        var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))"]
-        var args: [DatabaseValueConvertible] = []
-        if let account {
-            clauses.append("accountId = ?")
-            args.append(account)
-        } else if !text.split(separator: " ").contains("in:archived") {
-            clauses.append(Folder.active)
-        }
+    /// accounts only when the caller passes them, for in:archived.
+    static func search(_ db: GRDB.Database, _ text: String, accounts: [String]) throws -> [Conversation] {
+        var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", Folder.within]
+        var args: [DatabaseValueConvertible] = [accounts.json]
         for token in text.split(separator: " ") {
             let (key, value) = token.split(separator: ":", maxSplits: 1).count == 2
                 ? (token.prefix { $0 != ":" }.lowercased(), String(token.drop { $0 != ":" }.dropFirst()))
@@ -226,13 +240,28 @@ struct Unread: Equatable, Sendable {
     var recent: [Message] = []
 
     static func fetch(_ db: GRDB.Database) throws -> Unread {
-        let inbox = "seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.active)"
-        let rows = try Row.fetchAll(db, sql: "SELECT category, COUNT(DISTINCT threadId) AS n FROM message WHERE \(inbox) GROUP BY category")
+        let inbox = "seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within)"
+        let ids = try AccountGroup.loud(db).json
+        let rows = try Row.fetchAll(db, sql: "SELECT category, COUNT(DISTINCT threadId) AS n FROM message WHERE \(inbox) GROUP BY category", arguments: [ids])
         return Unread(
             counts: Dictionary(uniqueKeysWithValues: rows.map { ($0["category"], $0["n"]) }),
-            recent: try Message.filter(sql: inbox).order(Column("sentAt").desc).limit(20).fetchAll(db)
+            recent: try Message.filter(sql: inbox, arguments: [ids]).order(Column("sentAt").desc).limit(20).fetchAll(db)
         )
     }
+}
+
+extension AccountGroup {
+    /// The accounts whose new mail counts and notifies in All inboxes: not archived, muted or resting.
+    // ponytail: read when mail changes, so a focus time starting shows with the next mail, not to the minute.
+    static func loud(_ db: GRDB.Database, at: Date = .now) throws -> [String] {
+        let groups = try AccountGroup.fetchAll(db)
+        let quiet = Set(groups.filter { $0.muted || $0.resting(at) }.flatMap(\.accountIds))
+        return try Account.filter(Column("archived") == false && Column("muted") == false).fetchAll(db).map(\.id).filter { !quiet.contains($0) }
+    }
+}
+
+extension [String] {
+    var json: String { String(data: try! JSONEncoder().encode(self), encoding: .utf8)! }
 }
 
 /// Someone mail came from.
@@ -327,6 +356,23 @@ enum Store {
         migrator.registerMigration("v4") { db in
             try db.alter(table: "message") { t in t.add(column: "key", .blob).notNull().defaults(to: Data()) }
             try db.execute(sql: "DELETE FROM body; DELETE FROM message; DELETE FROM mailbox; DELETE FROM cursor")
+        }
+        // Account groups, short names, colors and order.
+        migrator.registerMigration("v5") { db in
+            try db.alter(table: "account") { t in
+                t.add(column: "nickname", .text).notNull().defaults(to: "")
+                t.add(column: "color", .text)
+                t.add(column: "position", .integer).notNull().defaults(to: 0)
+                t.add(column: "muted", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: "accountGroup") { t in
+                t.primaryKey("id", .text)
+                t.column("name", .text).notNull()
+                t.column("position", .integer).notNull()
+                t.column("muted", .boolean).notNull()
+                t.column("focus", .text)
+                t.column("accountIds", .text).notNull()
+            }
         }
         try! migrator.migrate(db)
         return db
