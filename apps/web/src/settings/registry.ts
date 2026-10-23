@@ -2,6 +2,7 @@
 import type { ComponentType, ReactNode } from "react";
 import { accounts } from "./accounts";
 import { app } from "./appearance";
+import { groups } from "./groups";
 import { mail } from "./mail";
 import { you } from "./you";
 
@@ -16,7 +17,7 @@ export type Page = { id: string; title: string; icon: ReactNode; entries?: Entry
  */
 export type Module = { title: string; usePages: () => Page[]; action?: ComponentType };
 
-export const modules: Module[] = [mail, accounts, you, app];
+export const modules: Module[] = [mail, accounts, groups, you, app];
 
 export function useSections() {
 	// biome-ignore lint/correctness/useHookAtTopLevel: modules is a fixed list, so the hooks run in the same order every render

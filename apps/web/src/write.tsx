@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, Composer, type Contact, type OutgoingMessage, Tooltip, useToast } from "@nouvex/ui";
+import { Button, Composer, type Contact, type OutgoingMessage, Select, Tooltip, useToast } from "@nouvex/ui";
 import { ChevronsUpDown, X } from "@nouvex/ui/icons";
+import { Dexie } from "dexie";
 import { type ReactNode, useMemo, useRef, useState } from "react";
+import { lastUsed } from "./accounts";
+import { db } from "./db";
 import { usePref } from "./prefs";
 
 // What the composer starts with: empty for a new message, filled in for a reply or forward, or a saved draft
@@ -18,6 +21,27 @@ export type Draft = {
 	thread?: string;
 };
 
+type Sender = { id: string; email: string; signature: string };
+
+// The account last used to write to someone, from the newest mail in every Sent folder.
+async function lastFrom(to: string) {
+	const sent = (await db.mailboxes.toArray()).filter((b) => b.role === "sent");
+	const recent = await Promise.all(
+		sent.map((b) =>
+			db.messages
+				.where("[mailboxId+sentAt]")
+				.between([b.id, Dexie.minKey], [b.id, Dexie.maxKey])
+				.reverse()
+				.limit(500)
+				.toArray(),
+		),
+	);
+	return lastUsed(
+		recent.flat().sort((a, b) => b.sentAt.localeCompare(a.sentAt)),
+		to,
+	);
+}
+
 export const when = (d: Date) => d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
 
 /**
@@ -26,12 +50,15 @@ export const when = (d: Date) => d.toLocaleString(undefined, { weekday: "short",
  */
 export function Write({
 	from,
+	accounts,
 	contacts,
 	draft,
 	placement,
 	onClose,
 }: {
-	from?: { id: string; email: string; signature: string };
+	from?: Sender;
+	/** Accounts it can go out from. */
+	accounts: Sender[];
 	contacts: Contact[];
 	draft: Draft;
 	placement: "dock" | "reply";
@@ -40,6 +67,22 @@ export function Write({
 	const [undo] = usePref("undoSend");
 	const [folded, setFolded] = useState(false);
 	const toast = useToast();
+	// A new message goes out from the account last used with its first recipient, until the user picks one; a reply
+	// or a saved draft keeps its account.
+	const [sender, setSender] = useState(from);
+	const senderId = useRef(from?.id);
+	const picked = useRef(!!draft.accountId);
+	const firstTo = useRef<string>(undefined);
+	const saved = useRef(!!draft.draftId);
+	const switchTo = (id: string) => {
+		const next = accounts.find((a) => a.id === id);
+		if (!next || id === senderId.current) return;
+		// The draft lives in the old account's Drafts; the next save puts it in the new one's.
+		if (saved.current) void fetch(`/accounts/${senderId.current}/drafts/${draftId}`, { method: "DELETE" });
+		saved.current = false;
+		senderId.current = id;
+		setSender(next);
+	};
 	// Every edit is saved as a draft two seconds after typing stops; closing saves right away.
 	const draftId = useMemo(() => draft.draftId ?? crypto.randomUUID(), [draft]);
 	const pending = useRef<{ timer: ReturnType<typeof setTimeout>; save: () => void }>(undefined);
@@ -54,8 +97,14 @@ export function Write({
 	};
 	const change = (m: Omit<OutgoingMessage, "files" | "sendAt">) => {
 		cancel();
-		const save = () =>
-			void fetch(`/accounts/${from?.id}/drafts/${draftId}`, {
+		const first = m.to[0];
+		if (!picked.current && first && first !== firstTo.current) {
+			firstTo.current = first;
+			void lastFrom(first).then((id) => id && !picked.current && switchTo(id));
+		}
+		const save = () => {
+			saved.current = true;
+			void fetch(`/accounts/${senderId.current}/drafts/${draftId}`, {
 				method: "PUT",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({
@@ -67,11 +116,12 @@ export function Write({
 					inReplyTo: draft.inReplyTo,
 				}),
 			});
+		};
 		pending.current = { timer: setTimeout(flush, 2000), save };
 	};
 	const discard = () => {
 		cancel();
-		void fetch(`/accounts/${from?.id}/drafts/${draftId}`, { method: "DELETE" });
+		void fetch(`/accounts/${senderId.current}/drafts/${draftId}`, { method: "DELETE" });
 		onClose();
 	};
 	const close = () => {
@@ -84,13 +134,13 @@ export function Write({
 			m.files.map(async (file) => {
 				const form = new FormData();
 				form.set("file", file);
-				const res = await fetch(`/accounts/${from?.id}/uploads`, { method: "POST", body: form });
+				const res = await fetch(`/accounts/${senderId.current}/uploads`, { method: "POST", body: form });
 				return res.ok ? { id: ((await res.json()) as { id: string }).id, name: file.name, type: file.type } : undefined;
 			}),
 		);
 		if (uploads.includes(undefined))
 			return toast.add({ title: "Couldn't upload the files", description: "Up to 25 MB each." });
-		const res = await fetch(`/accounts/${from?.id}/send`, {
+		const res = await fetch(`/accounts/${senderId.current}/send`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
@@ -144,7 +194,35 @@ export function Write({
 				<Composer
 					variant="plain"
 					contacts={contacts}
-					from={placement === "dock" ? <span className="truncate">From {from?.email}</span> : undefined}
+					from={
+						placement !== "dock" ? undefined : accounts.length > 1 ? (
+							<Select.Root
+								value={sender?.id}
+								onValueChange={(id) => {
+									picked.current = true;
+									if (id) switchTo(id);
+								}}
+								items={accounts.map((a) => ({ value: a.id, label: a.email }))}
+							>
+								<Select.Trigger
+									aria-label="From"
+									className="flex min-w-0 items-center gap-1 rounded-sm text-muted outline-none hover:text-ink focus-visible:outline-2"
+								>
+									<span className="truncate">From {sender?.email}</span>
+									<ChevronsUpDown strokeWidth={1.75} className="size-3.5 shrink-0" />
+								</Select.Trigger>
+								<Select.Popup>
+									{accounts.map((a) => (
+										<Select.Item key={a.id} value={a.id}>
+											{a.email}
+										</Select.Item>
+									))}
+								</Select.Popup>
+							</Select.Root>
+						) : (
+							<span className="truncate">From {sender?.email}</span>
+						)
+					}
 					focus={placement === "reply" ? "body" : "to"}
 					compact={placement === "reply"}
 					defaultTo={draft.to}

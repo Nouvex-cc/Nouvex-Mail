@@ -34,7 +34,7 @@ import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/rea
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { asleep, useAccounts, wake } from "../accounts";
+import { asleep, named, resting, useAccounts, useGroups, wake, wakes } from "../accounts";
 import { AddAccount } from "../add-account";
 import { session } from "../auth";
 import { type Category, db, type Message, once } from "../db";
@@ -95,6 +95,7 @@ function Inbox() {
 	const navigate = useNavigate();
 	useShortcut("mod+,", () => navigate({ to: "/settings" }));
 	const shortcutsDialog = useShortcutsDialog(shortcuts);
+	// "all", "group:<id>" or an account id.
 	const [current, setCurrent] = useState("all");
 	const search = Route.useSearch();
 	const router = useRouter();
@@ -132,6 +133,17 @@ function Inbox() {
 	const toast = useToast();
 	const queryClient = useQueryClient();
 	const accounts = useAccounts();
+	const groups = useGroups().data ?? [];
+	const group = groups.find((g) => `group:${g.id}` === current);
+	// A resting group's accounts wait out of All inboxes; muted ones and those in a muted group don't count as unread.
+	const now = new Date();
+	const restingIds = new Set(groups.filter((g) => resting(g, now)).flatMap((g) => g.accountIds));
+	const quiet = new Set([
+		...(accounts.data ?? []).filter((a) => a.muted).map((a) => a.id),
+		...groups.filter((g) => g.muted).flatMap((g) => g.accountIds),
+	]);
+	const members = group ? group.accountIds : [current];
+	const byId = new Map((accounts.data ?? []).map((a) => [a.id, a]));
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
 	const [syncing, setSyncing] = useState<ReadonlySet<string>>(new Set());
 
@@ -157,13 +169,18 @@ function Inbox() {
 
 	const every =
 		useLiveQuery(
-			() => (current === "all" ? db.mailboxes.toArray() : db.mailboxes.where("accountId").equals(current).toArray()),
-			[current],
+			() => (current === "all" ? db.mailboxes.toArray() : db.mailboxes.where("accountId").anyOf(members).toArray()),
+			[current, members.join()],
 		) ?? [];
 	// Archived accounts stay out of All inboxes, unless a search asks for them.
 	const archived = new Set((accounts.data ?? []).filter((a) => a.archivedAt).map((a) => a.id));
 	const withArchived = query.filters.some((f) => f.key === "in" && f.value === "archived");
-	const boxes = current === "all" && !withArchived ? every.filter((b) => !archived.has(b.accountId)) : every;
+	const boxes =
+		current === "all" && !withArchived
+			? every.filter((b) => !archived.has(b.accountId) && !restingIds.has(b.accountId))
+			: every;
+	// Where several accounts mix, a sender takes its account's color.
+	const mixed = current === "all" || (group?.accountIds.length ?? 0) > 1;
 	// Starred and search look across every folder in view.
 	const everywhere = searching || folder === "starred";
 	const shown = boxes.filter((b) => everywhere || (b.role ? b.role === role : b.id === folder)).map((b) => b.id);
@@ -243,7 +260,9 @@ function Inbox() {
 		? [...(messages ?? []), ...replies].sort((a, b) => b.sentAt.localeCompare(a.sentAt)).slice(0, limit)
 		: messages;
 	const inList = [...shown, ...replyBoxes.map((b) => b.id)];
-	const inboxes = boxes.filter((b) => b.role === "inbox").map((b) => b.id);
+	const inboxes = boxes
+		.filter((b) => b.role === "inbox" && (current !== "all" || !quiet.has(b.accountId)))
+		.map((b) => b.id);
 	// With categories on, Inbox's dot is about Primary; each category has its own.
 	const unread = useLiveQuery(
 		async () =>
@@ -278,7 +297,8 @@ function Inbox() {
 			),
 		[inboxes.join()],
 	);
-	const own = current === "all" ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
+	const own =
+		current === "all" || group ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
 	// One row per conversation, at its newest message in view.
 	const threads = [...Map.groupBy(listed ?? [], keyOf).values()];
@@ -369,7 +389,11 @@ function Inbox() {
 		draft && (
 			<Write
 				key={draft.draftId ?? `${draft.thread}-${draft.subject}`}
-				from={accounts.data?.find((a) => a.id === (draft.accountId ?? current)) ?? accounts.data?.[0]}
+				from={
+					accounts.data?.find((a) => a.id === (draft.accountId ?? group?.accountIds[0] ?? current)) ??
+					accounts.data?.find((a) => !asleep(a))
+				}
+				accounts={(accounts.data ?? []).filter((a) => !asleep(a))}
 				contacts={contacts}
 				draft={draft}
 				placement={placement}
@@ -381,7 +405,27 @@ function Inbox() {
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts without a selection
 	useEffect(() => setSelected(new Set()), [shown.join(), query]);
 	const picked = threads.filter((t) => selected.has(key(t)));
-	const failing = (accounts.data ?? []).filter((a) => a.syncError && (current === "all" || a.id === current));
+	const inScope = (id: string) => (current === "all" ? !archived.has(id) && !restingIds.has(id) : members.includes(id));
+	const failing = (accounts.data ?? []).filter((a) => a.syncError && inScope(a.id));
+	// 1 is All inboxes, then the groups and the accounts in the user's order.
+	const order = [
+		"all",
+		...groups.map((g) => `group:${g.id}`),
+		...(accounts.data ?? []).filter((a) => !asleep(a)).map((a) => a.id),
+	];
+	const choose = (id: string) => {
+		if (archived.has(id)) wake(id);
+		setCurrent(id);
+		setFolder("inbox");
+	};
+	const keyFor = (id: string) => {
+		const i = order.indexOf(id);
+		return i >= 0 && i < 9 ? String(i + 1) : undefined;
+	};
+	useShortcut(["1", "2", "3", "4", "5", "6", "7", "8", "9"], (e) => {
+		const id = order[Number(e.key) - 1];
+		if (id) choose(id);
+	});
 	const contacts = [
 		...new Map(
 			(messages ?? []).map((m) => [m.fromAddr, { name: m.fromName || m.fromAddr, email: m.fromAddr }]),
@@ -397,23 +441,31 @@ function Inbox() {
 				) : undefined
 			}
 			className="h-screen"
-			syncing={[...syncing].some((id) => (current === "all" ? !archived.has(id) : id === current))}
+			syncing={[...syncing].some(inScope)}
 			logo={<span role="img" aria-label="Nouvex" className="logo" />}
 			sidebar={
 				<Sidebar.Root>
 					<AccountSwitcher
 						accounts={(accounts.data ?? [])
 							.filter((a) => a.id === current || !asleep(a))
-							.map((a) => ({ id: a.id, email: a.email, name: a.email }))}
+							.map((a) => ({ id: a.id, email: a.email, name: named(a), color: a.color, shortcut: keyFor(a.id) }))}
+						groups={groups.map((g) => ({
+							id: `group:${g.id}`,
+							name: g.name,
+							detail: g.accountIds
+								.flatMap((id) => {
+									const a = byId.get(id);
+									return a ? [named(a)] : [];
+								})
+								.join(", "),
+							shortcut: keyFor(`group:${g.id}`),
+						}))}
 						archived={(accounts.data ?? [])
 							.filter((a) => a.id !== current && asleep(a))
-							.map((a) => ({ id: a.id, email: a.email, name: a.email }))}
+							.map((a) => ({ id: a.id, email: a.email, name: named(a), color: a.color }))}
+						allShortcut="1"
 						current={current}
-						onChange={(id) => {
-							if (archived.has(id)) wake(id);
-							setCurrent(id);
-							setFolder("inbox");
-						}}
+						onChange={choose}
 						onAddAccount={() => setAdding(true)}
 					/>
 					<Sidebar.Section>
@@ -464,9 +516,7 @@ function Inbox() {
 						</Sidebar.Section>
 					)}
 					<Now
-						accountIds={(accounts.data ?? [])
-							.filter((a) => (current === "all" ? !a.archivedAt : a.id === current))
-							.map((a) => a.id)}
+						accountIds={(accounts.data ?? []).filter((a) => inScope(a.id)).map((a) => a.id)}
 						onOpen={(m) => show([m])}
 					/>
 					<Sidebar.Profile name={user.name} email={user.email}>
@@ -520,6 +570,11 @@ function Inbox() {
 			) : (
 				// Full height, so the bulk bar's anchor sits at the bottom of the view even under a short list.
 				<div className="flex min-h-full flex-col">
+					{group?.focus && resting(group, now) && (
+						<p className="mx-4 mt-3 text-sm text-muted">
+							Resting until {when(wakes(group.focus, now) ?? now)}, so it stays out of All inboxes.
+						</p>
+					)}
 					{failing.map((a) => (
 						<div key={a.id} className="m-3 flex items-start gap-3 rounded-lg border border-line bg-raised p-3 text-sm">
 							<div className="grid flex-1 gap-0.5">
@@ -543,11 +598,13 @@ function Inbox() {
 						{threads.map((thread) => {
 							// biome-ignore lint/style/noNonNullAssertion: groupBy never makes an empty group
 							const m = thread[0]!;
+							const to = byId.get(m.accountId);
 							return (
 								<MessageRow
 									key={keyOf(m)}
 									from={m.fromName || m.fromAddr}
 									email={m.fromAddr}
+									account={mixed && to ? { name: named(to), color: to.color } : undefined}
 									subject={m.subject}
 									snippet={m.snippet}
 									count={sizes?.get(m.threadId) ?? thread.length}

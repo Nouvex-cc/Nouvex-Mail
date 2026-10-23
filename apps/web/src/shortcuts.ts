@@ -9,6 +9,8 @@ export const shortcuts: ShortcutGroup[] = [
 			{ keys: "/", label: "Search" },
 			{ keys: "mod+,", label: "Settings" },
 			{ keys: "?", label: "All shortcuts" },
+			{ keys: "1", label: "All inboxes" },
+			{ keys: "2", label: "Next groups and accounts, up to 9" },
 		],
 	},
 	{
