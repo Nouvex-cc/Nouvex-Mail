@@ -27,9 +27,10 @@ struct MailBody: View {
                         if scheme == .dark { pill(original ? "Original colors · Show dark" : "Dark colors · Show original") { original.toggle() } }
                     }
                 }
+                let dark = scheme == .dark && !original
                 WebView(
-                    html: page.render(dark: scheme == .dark && !original, pictures: !hidden, quote: quote),
-                    rules: rules, height: $height
+                    html: page.render(dark: dark, pictures: !hidden, quote: quote),
+                    dark: dark, rules: rules, height: $height
                 ) { url in
                     // A mailto link is written here, not handed to another mail app.
                     let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -96,9 +97,12 @@ struct Frame {
     // The frame is see-through, so a mail without its own background sits right on the paper.
     private static let light = ":root { color-scheme: light; } html { color: #181513; }"
     private static let own = ":root { color-scheme: dark; } html { color: #edebe8; }"
+    // On body, not html, like the web: html gets the paper, or a white body of the mail would spread to the page
+    // behind html, which no filter reaches, and dark text would end up light on white.
     private static let flipped = """
         :root { color-scheme: light; }
-        body { color: #181513; filter: \(flip) contrast(0.82); }
+        html { background: #12100e; }
+        body { background: #fff; color: #181513; filter: \(flip) contrast(0.82); }
         img, picture, video, canvas, svg, [style*="background-image"], [background] { filter: \(flip); }
         """
     // The same places the web folds: a Gmail quote, a cited blockquote, or one standing on its own.
@@ -173,6 +177,8 @@ typealias MailWebView = WKWebView
 
 struct WebView: ViewRepresentable {
     let html: String
+    /// A mail's own dark CSS (prefers-color-scheme) follows the view's appearance, not the page's.
+    let dark: Bool
     let rules: WKContentRuleList
     @Binding var height: CGFloat
     let write: (URL) -> Void
@@ -251,6 +257,11 @@ struct WebView: ViewRepresentable {
     }
 
     private func update(_ view: WKWebView, _ context: Context) {
+        #if os(macOS)
+        view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        #else
+        view.overrideUserInterfaceStyle = dark ? .dark : .light
+        #endif
         guard context.coordinator.html != html else { return }
         context.coordinator.html = html
         view.loadHTMLString(html, baseURL: nil)
