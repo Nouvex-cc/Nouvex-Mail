@@ -16,37 +16,16 @@ struct ThreadView: View {
     @State private var unfolded = false
     @State private var snoozing = false
     @State private var preview: URL?
+    @State private var classic = false
     @FocusState private var focused: Bool
 
+    /// A rich mail on its own takes the whole reading area; in a conversation it reads like any other mail.
+    private var rich: Message? { messages.count == 1 && messages[0].rich && !classic ? messages[0] : nil }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // A phone's title bar has no room for a subject.
-                if compact {
-                    Text(subject).font(.xl).foregroundStyle(.ink).textSelection(.enabled)
-                        .padding(.horizontal, inset).padding(.top, 4).padding(.bottom, 8)
-                }
-                ForEach(shown, id: \.self) { item in
-                    switch item {
-                    case .message(let m):
-                        if open.contains(m.id) { expanded(m) } else { collapsed(m) }
-                    case .fold(let count):
-                        Button { withAnimation(.quick) { unfolded = true } } label: {
-                            Text("\(count) earlier messages").font(.sm).foregroundStyle(.muted)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, inset).frame(height: 40).contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        Rectangle().fill(.line).frame(height: 1).padding(.horizontal, 12)
-                    }
-                }
-            }
-            // Room for the reply bar over the end of the mail.
-            .padding(.bottom, mail.reply == nil || Device.phone ? 96 : 360)
+        Group {
+            if let rich { RichMail(message: rich).id(rich.id) } else { conversation }
         }
-        #if os(macOS)
-        .scrollIndicators(.hidden)
-        #endif
         .background(.paper)
         .navigationTitle(compact ? "" : subject)
         #if os(iOS)
@@ -80,6 +59,37 @@ struct ThreadView: View {
             guard mail.prefs.markRead == "delay", (try? await Task.sleep(for: .seconds(2))) != nil else { return }
             mail.update(messages.filter { !$0.seen }, seen: true)
         }
+    }
+
+    private var conversation: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // A phone's title bar has no room for a subject.
+                if compact {
+                    Text(subject).font(.xl).foregroundStyle(.ink).textSelection(.enabled)
+                        .padding(.horizontal, inset).padding(.top, 4).padding(.bottom, 8)
+                }
+                ForEach(shown, id: \.self) { item in
+                    switch item {
+                    case .message(let m):
+                        if open.contains(m.id) { expanded(m) } else { collapsed(m) }
+                    case .fold(let count):
+                        Button { withAnimation(.quick) { unfolded = true } } label: {
+                            Text("\(count) earlier messages").font(.sm).foregroundStyle(.muted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, inset).frame(height: 40).contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        Rectangle().fill(.line).frame(height: 1).padding(.horizontal, 12)
+                    }
+                }
+            }
+            // Room for the reply bar over the end of the mail.
+            .padding(.bottom, mail.reply == nil || Device.phone ? 96 : 360)
+        }
+        #if os(macOS)
+        .scrollIndicators(.hidden)
+        #endif
     }
 
     private enum Item: Hashable {
@@ -148,6 +158,14 @@ struct ThreadView: View {
         if let draft {
             ToolbarItem {
                 Button("Edit draft") { Task { mail.compose = await Draft.resume(draft) } }
+            }
+        }
+        if messages.count == 1, messages[0].rich {
+            ToolbarItem {
+                Button(classic ? "Show designed" : "Show classic", systemImage: classic ? "sparkles.rectangle.stack" : "doc.plaintext") {
+                    classic.toggle()
+                }
+                .help(classic ? "Show the designed version" : "Show the classic version")
             }
         }
         ToolbarItemGroup {

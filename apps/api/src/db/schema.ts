@@ -118,6 +118,8 @@ export const mailbox = pgTable(
 		uidNext: bigint("uid_next", { mode: "number" }).notNull().default(0),
 		messageCount: bigint("message_count", { mode: "number" }).notNull().default(0),
 		highestModSeq: bigint("highest_mod_seq", { mode: "number" }).notNull().default(0),
+		// Only in Nouvex, for mail Nouvex put into the inbox itself (announce.ts); syncing leaves it alone.
+		local: boolean("local").notNull().default(false),
 	},
 	(t) => [unique().on(t.accountId, t.name)],
 );

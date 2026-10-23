@@ -64,6 +64,18 @@ func TestBody(t *testing.T) {
 	}
 }
 
+// A rich mail's designed part is kept apart; the body stays the classic version every other app shows.
+func TestRich(t *testing.T) {
+	raw := "From: a@x\r\nSubject: s\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=b\r\n\r\n" +
+		"--b\r\nContent-Type: text/plain\r\n\r\nNew in Nouvex\r\n" +
+		"--b\r\nContent-Type: text/x-nouvex-html; charset=utf-8\r\n\r\n<nx-carousel><section>Groups</section></nx-carousel>\r\n" +
+		"--b\r\nContent-Type: text/html\r\n\r\n<p>Groups</p>\r\n--b--\r\n"
+	p, err := Content([]byte(raw))
+	if err != nil || p.Body != "<p>Groups</p>" || p.Rich != "<nx-carousel><section>Groups</section></nx-carousel>" || len(p.Files) != 0 {
+		t.Fatalf("%q %q %v %v", p.Body, p.Rich, p.Files, err)
+	}
+}
+
 func TestCompose(t *testing.T) {
 	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{
 		To: []string{"lena@hartmann.example"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},

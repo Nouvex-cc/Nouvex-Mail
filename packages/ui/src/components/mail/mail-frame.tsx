@@ -30,8 +30,8 @@ export type MailFrameProps = {
  */
 export const FrameSlot = createContext<HTMLElement | null | undefined>(undefined);
 
-const remote = /^https?:\/\//i;
-const cssUrl = /url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi;
+export const remote = /^https?:\/\//i;
+export const cssUrl = /url\(\s*(['"]?)(https?:\/\/[^'")]+)\1\s*\)/gi;
 
 // The frame is its own document and doesn't see the app's fonts, so it gets copies of the app's @font-face rules and
 // the same font stack (--font-sans). Stylesheets from other origins can't be read and are skipped.

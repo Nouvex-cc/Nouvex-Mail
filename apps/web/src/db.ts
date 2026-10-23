@@ -26,6 +26,10 @@ export interface Message {
 	category: Category;
 	/** A sign-in code or a meeting the engine found in it. */
 	actions: Action[];
+	/** A rich mail with a designed version (docs/rich-mail.md). */
+	rich?: boolean;
+	/** Put into the inbox by Nouvex itself, so its nx-actions may open places in the app. */
+	seeded?: boolean;
 	// 1 when actions isn't empty, so the sidebar finds them through an index.
 	acts?: 0 | 1;
 	// 1 when flags has \Seen. Only here so unread mail can be found through an index; IndexedDB can't index booleans.

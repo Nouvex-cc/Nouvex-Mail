@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import runtime from "@nouvex/rich/runtime.js?raw";
 import { decrypt } from "@nouvex/sdk/crypto";
 import {
 	AttachmentList,
 	AttachmentTile,
 	Button,
+	Dialog,
 	MailFrame,
+	RichFrame,
 	Spinner,
 	Thread,
 	ThreadMessage,
@@ -14,7 +17,8 @@ import {
 } from "@nouvex/ui";
 import { Archive, ChevronLeft, Mail, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { type ReactNode, useMemo, useState } from "react";
 import { useAccounts } from "./accounts";
 import type { Message } from "./db";
 import { messageKey } from "./keys";
@@ -54,6 +58,33 @@ export function Reader({
 	useShortcut("Escape", onClose);
 	const accounts = useAccounts();
 	const [replyTo] = usePref("replyDefault");
+	const [classic, setClassic] = useState(false);
+	const actions = (
+		<div className="flex gap-1">
+			<Tooltip content={starred ? "Unstar" : "Star"}>
+				<Button variant="ghost" size="icon" aria-label={starred ? "Unstar" : "Star"} onClick={onStar}>
+					{starred ? <StarFilled /> : <Star strokeWidth={1.75} />}
+				</Button>
+			</Tooltip>
+			<Tooltip content="Mark unread">
+				<Button variant="ghost" size="icon" aria-label="Mark unread" onClick={onMarkUnread}>
+					<Mail strokeWidth={1.75} />
+				</Button>
+			</Tooltip>
+			{onArchive && (
+				<Tooltip content="Archive">
+					<Button variant="ghost" size="icon" aria-label="Archive" onClick={onArchive}>
+						<Archive strokeWidth={1.75} />
+					</Button>
+				</Tooltip>
+			)}
+			<Tooltip content="Delete">
+				<Button variant="ghost" size="icon" aria-label="Delete" onClick={onTrash}>
+					<Trash2 strokeWidth={1.75} />
+				</Button>
+			</Tooltip>
+		</div>
+	);
 	const newest = messages.at(-1);
 	const html = useQuery({
 		queryKey: ["body", newest?.id],
@@ -69,42 +100,22 @@ export function Reader({
 	const quoted = html.data === undefined ? undefined : text(html.data);
 	const others = [...new Set([newest.fromAddr, ...newest.to, ...newest.cc])].filter((a) => !mine.has(a.toLowerCase()));
 	const write = (draft: Draft) => quoted !== undefined && onWrite(draft);
+	const back = (
+		<Button variant="ghost" size="sm" onClick={onClose}>
+			<ChevronLeft strokeWidth={1.75} />
+			Inbox
+		</Button>
+	);
+
+	// A rich mail on its own takes the whole reading area; in a conversation it reads like any other mail.
+	if (newest.rich && messages.length === 1 && !classic)
+		return <Rich message={newest} back={back} actions={actions} onClassic={() => setClassic(true)} />;
 
 	return (
 		<Thread
 			subject={newest.subject}
-			back={
-				<Button variant="ghost" size="sm" onClick={onClose}>
-					<ChevronLeft strokeWidth={1.75} />
-					Inbox
-				</Button>
-			}
-			actions={
-				<div className="flex gap-1">
-					<Tooltip content={starred ? "Unstar" : "Star"}>
-						<Button variant="ghost" size="icon" aria-label={starred ? "Unstar" : "Star"} onClick={onStar}>
-							{starred ? <StarFilled /> : <Star strokeWidth={1.75} />}
-						</Button>
-					</Tooltip>
-					<Tooltip content="Mark unread">
-						<Button variant="ghost" size="icon" aria-label="Mark unread" onClick={onMarkUnread}>
-							<Mail strokeWidth={1.75} />
-						</Button>
-					</Tooltip>
-					{onArchive && (
-						<Tooltip content="Archive">
-							<Button variant="ghost" size="icon" aria-label="Archive" onClick={onArchive}>
-								<Archive strokeWidth={1.75} />
-							</Button>
-						</Tooltip>
-					)}
-					<Tooltip content="Delete">
-						<Button variant="ghost" size="icon" aria-label="Delete" onClick={onTrash}>
-							<Trash2 strokeWidth={1.75} />
-						</Button>
-					</Tooltip>
-				</div>
-			}
+			back={back}
+			actions={actions}
 			composer={composer}
 			reply={{
 				to:
@@ -143,6 +154,116 @@ export async function body(m: Message) {
 	if (!res.ok) throw new Error(`body: ${res.status}`);
 	const { sealed } = (await res.json()) as { sealed: string };
 	return new TextDecoder().decode(await decrypt(await messageKey(m), "body", Uint8Array.fromBase64(sealed)));
+}
+
+async function rich(m: Message) {
+	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/rich`);
+	if (!res.ok) throw new Error(`rich: ${res.status}`);
+	const { sealed } = (await res.json()) as { sealed: string };
+	return new TextDecoder().decode(await decrypt(await messageKey(m), "rich", Uint8Array.fromBase64(sealed)));
+}
+
+// A picture or font for a rich mail, through the proxy, as a data: URI the sandboxed frame can show.
+async function inlined(url: string) {
+	const res = await fetch(image(url));
+	if (!res.ok) return;
+	const blob = await res.blob();
+	return new Promise<string>((resolve) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(reader.result as string);
+		reader.readAsDataURL(blob);
+	});
+}
+
+type Asking = {
+	action: string;
+	fields: Record<string, string | string[]>;
+	answer: (ok: boolean) => void;
+	// Closing the dialog after Send must not count as Cancel.
+	done?: boolean;
+};
+
+// The designed version of a rich mail over the whole reading area, under a slim bar.
+function Rich({
+	message: m,
+	back,
+	actions,
+	onClassic,
+}: {
+	message: Message;
+	back: ReactNode;
+	actions: ReactNode;
+	onClassic: () => void;
+}) {
+	const navigate = useNavigate();
+	const [images] = usePref("remoteImages");
+	const [pictures, setPictures] = useState(images !== "ask");
+	const html = useQuery({ queryKey: ["rich", m.id], queryFn: () => rich(m), staleTime: Number.POSITIVE_INFINITY });
+	const load = useMemo(() => (pictures ? inlined : undefined), [pictures]);
+	const [asking, setAsking] = useState<Asking>();
+	const answer = (send: boolean) => {
+		if (!asking || asking.done) return;
+		asking.done = true;
+		setAsking(undefined);
+		if (!send) return asking.answer(false);
+		void fetch("/rich/submit", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ action: asking.action, fields: asking.fields }),
+		}).then(
+			(res) => asking.answer(res.ok),
+			() => asking.answer(false),
+		);
+	};
+
+	return (
+		<div className="flex h-full flex-col">
+			<div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-2">
+				{back}
+				<span className="min-w-0 flex-1 truncate text-sm text-muted">{m.fromName || m.fromAddr}</span>
+				{!pictures && (
+					<Button variant="ghost" size="sm" onClick={() => setPictures(true)}>
+						Show pictures
+					</Button>
+				)}
+				<Button variant="ghost" size="sm" onClick={onClassic}>
+					Show classic
+				</Button>
+				{actions}
+			</div>
+			{html.data !== undefined ? (
+				<RichFrame
+					className="flex-1"
+					html={html.data}
+					runtime={runtime}
+					load={load}
+					onForm={(action, fields) => new Promise((resolve) => setAsking({ action, fields, answer: resolve }))}
+					// Only mail Nouvex put into the inbox itself may open places in the app.
+					onAction={m.seeded ? (href) => navigate({ to: `/${href.replace(/^nouvex:/, "")}` }) : undefined}
+				/>
+			) : html.isError ? (
+				<p className="p-4 text-sm text-muted">This message couldn't be loaded.</p>
+			) : (
+				<Spinner />
+			)}
+			<Dialog.Root open={!!asking} onOpenChange={(open) => !open && answer(false)}>
+				<Dialog.Popup>
+					<Dialog.Title>Send your answer?</Dialog.Title>
+					<Dialog.Description>
+						It goes to {asking ? new URL(asking.action).host : ""}, sent from Nouvex, so they don't see your address.
+					</Dialog.Description>
+					<Dialog.Footer>
+						<Button variant="ghost" onClick={() => answer(false)}>
+							Cancel
+						</Button>
+						<Button variant="primary" onClick={() => answer(true)}>
+							Send
+						</Button>
+					</Dialog.Footer>
+				</Dialog.Popup>
+			</Dialog.Root>
+		</div>
+	);
 }
 
 // Opened here and saved as a download, never shown on our origin.

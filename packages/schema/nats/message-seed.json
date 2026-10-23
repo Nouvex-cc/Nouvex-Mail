@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MessageSeed",
+	"description": "Command: API asks the engine to put a message into a user's inbox in Nouvex only, sealed for them (apps/api/src/announce.ts).",
+	"type": "object",
+	"properties": {
+		"userId": { "type": "string" },
+		"uploadId": { "type": "string", "description": "The raw message, stored as upload/<uploadId>." }
+	},
+	"required": ["userId", "uploadId"],
+	"additionalProperties": false
+}

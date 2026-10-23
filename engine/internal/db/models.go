@@ -79,6 +79,7 @@ type Mailbox struct {
 	UidNext       int64
 	MessageCount  int64
 	HighestModSeq int64
+	Local         bool
 }
 
 type Message struct {

@@ -48,6 +48,10 @@ type Meta struct {
 	Cc          []string `json:"cc"`
 	Attachments []File   `json:"attachments"`
 	Actions     []Action `json:"actions"`
+	// It has a designed version, stored as rich/<id>.html.
+	Rich bool `json:"rich,omitempty"`
+	// Nouvex put it into the inbox itself (Seed), so its nx-actions may open places in the app.
+	Seeded bool `json:"seeded,omitempty"`
 }
 
 // Hashed is how Message-IDs are stored: equal ones still match, for conversations, without keeping the header.
@@ -136,7 +140,10 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 	}
 	known := map[string]*db.Mailbox{}
 	for i := range stored {
-		known[stored[i].Name] = &stored[i]
+		// A local mailbox (seeded mail) isn't on the server and stays as it is.
+		if !stored[i].Local {
+			known[stored[i].Name] = &stored[i]
+		}
 	}
 	listed := map[string]bool{}
 	for _, b := range boxes {
@@ -147,7 +154,7 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 	}
 
 	for _, b := range stored {
-		if listed[b.Name] {
+		if listed[b.Name] || b.Local {
 			continue
 		}
 		// Deleted or renamed on the server; a renamed one comes back as a new folder.
@@ -475,21 +482,26 @@ func (s *syncer) save(boxID string, last int64, msgs []*imapclient.FetchMessageB
 		if row == nil {
 			continue
 		}
-		var err error
-		if row.ThreadID, err = thread(s.ctx, s.q, s.acc.ID, row.MessageID, row.Refs, func(id string) error {
-			s.log("message", id, "upsert")
-			return nil
-		}); err != nil {
+		if err := s.insert(row); err != nil {
 			return err
 		}
-		if n, err := s.q.InsertMessage(s.ctx, *row); err != nil {
-			return err
-		} else if n == 0 {
-			continue
-		}
-		s.log("message", row.ID, "upsert")
 	}
 	return s.commit()
+}
+
+// insert puts a prepared message into its conversation and stores its row.
+func (s *syncer) insert(row *db.InsertMessageParams) (err error) {
+	if row.ThreadID, err = thread(s.ctx, s.q, s.acc.ID, row.MessageID, row.Refs, func(id string) error {
+		s.log("message", id, "upsert")
+		return nil
+	}); err != nil {
+		return err
+	}
+	if n, err := s.q.InsertMessage(s.ctx, *row); err != nil || n == 0 {
+		return err
+	}
+	s.log("message", row.ID, "upsert")
+	return nil
 }
 
 // prepare reads a new message and puts its parts in the bucket, ready for its row.
@@ -519,6 +531,7 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 		To: addrs(m.Envelope.To), Cc: addrs(m.Envelope.Cc),
 		// Empty lists rather than null.
 		Attachments: append([]File{}, parsed.Files...), Actions: append([]Action{}, parsed.Actions...),
+		Rich: parsed.Rich != "",
 	}
 	if len(m.Envelope.From) > 0 {
 		meta.FromName, meta.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
@@ -529,21 +542,29 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 		refs[i] = Hashed(r)
 	}
 	row.Refs = refs
+	return &row, s.keep(&row, meta, parsed)
+}
+
+// keep seals a message for the user: its key and Meta into the row, its parts into the bucket.
+func (s *syncer) keep(row *db.InsertMessageParams, meta Meta, parsed Parsed) (err error) {
 	key := seal.NewKey()
 	if row.Key, err = seal.Wrap(s.pub, key); err != nil {
-		return nil, err
+		return err
 	}
 	plain, _ := json.Marshal(meta)
 	row.Sealed = seal.Encrypt(key, "meta", plain)
 	for i, f := range parsed.Files {
 		if err := s.store.Put(s.ctx, fmt.Sprintf("att/%s/%d", row.ID, i), seal.Encrypt(key, fmt.Sprintf("att/%d", i), f.Data), "application/octet-stream"); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := s.store.Put(s.ctx, "body/"+row.ID+".html", seal.Encrypt(key, "body", []byte(parsed.Body)), "application/octet-stream"); err != nil {
-		return nil, err
+		return err
 	}
-	return &row, nil
+	if meta.Rich {
+		return s.store.Put(s.ctx, "rich/"+row.ID+".html", seal.Encrypt(key, "rich", []byte(parsed.Rich)), "application/octet-stream")
+	}
+	return nil
 }
 
 // changedFlags saves the flags the server reported as changed.
