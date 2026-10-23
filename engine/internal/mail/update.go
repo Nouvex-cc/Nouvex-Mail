@@ -145,7 +145,7 @@ func specialFolder(c *imapclient.Client, want, create string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, b := range boxes {
+	for _, b := range skipVirtual(boxes) {
 		if role(b) == want {
 			return b.Mailbox, nil
 		}

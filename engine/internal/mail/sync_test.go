@@ -701,3 +701,23 @@ func TestSyncCondstore(t *testing.T) {
 	sync("after a dropped connection", 1)
 	sync("nothing new again", 0)
 }
+
+func TestGmailArchive(t *testing.T) {
+	box := func(name string, attrs ...imap.MailboxAttr) *imap.ListData {
+		return &imap.ListData{Mailbox: name, Attrs: attrs}
+	}
+	names := func(boxes []*imap.ListData) (s []string) {
+		for _, b := range boxes {
+			s = append(s, b.Mailbox+"="+role(b))
+		}
+		return s
+	}
+	gmail := names(skipVirtual([]*imap.ListData{box("INBOX"), box("[Gmail]/All Mail", imap.MailboxAttrAll), box("[Gmail]/Starred", imap.MailboxAttrFlagged)}))
+	if want := []string{"INBOX=inbox", "[Gmail]/All Mail=archive"}; !slices.Equal(gmail, want) {
+		t.Errorf("gmail: %v, want %v", gmail, want)
+	}
+	both := names(skipVirtual([]*imap.ListData{box("Archive", imap.MailboxAttrArchive), box("All", imap.MailboxAttrAll)}))
+	if want := []string{"Archive=archive"}; !slices.Equal(both, want) {
+		t.Errorf("with an archive: %v, want %v", both, want)
+	}
+}
