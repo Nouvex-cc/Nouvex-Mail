@@ -175,6 +175,23 @@ final class MailWebView: WKWebView {
 typealias MailWebView = WKWebView
 #endif
 
+// Links open in the browser and mailto: in the composer; the mail itself never navigates.
+@MainActor func follow(_ action: WKNavigationAction, write: (URL) -> Void) async -> WKNavigationActionPolicy {
+    guard action.navigationType == .other, action.request.url?.absoluteString == "about:blank" else {
+        if action.navigationType == .linkActivated, let url = action.request.url, url.scheme == "mailto" {
+            await MainActor.run { write(url) }
+        } else if action.navigationType == .linkActivated, let url = action.request.url, ["http", "https"].contains(url.scheme) {
+            #if os(macOS)
+            NSWorkspace.shared.open(url)
+            #else
+            await UIApplication.shared.open(url)
+            #endif
+        }
+        return .cancel
+    }
+    return .allow
+}
+
 struct WebView: ViewRepresentable {
     let html: String
     /// A mail's own dark CSS (prefers-color-scheme) follows the view's appearance, not the page's.
@@ -197,21 +214,8 @@ struct WebView: ViewRepresentable {
             if let value = message.body as? Double, value > 0 { height.wrappedValue = value }
         }
 
-        // Links open in the browser; the mail itself never navigates.
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-            guard action.navigationType == .other, action.request.url?.absoluteString == "about:blank" else {
-                if action.navigationType == .linkActivated, let url = action.request.url, url.scheme == "mailto" {
-                    await MainActor.run { write(url) }
-                } else if action.navigationType == .linkActivated, let url = action.request.url, ["http", "https"].contains(url.scheme) {
-                    #if os(macOS)
-                    NSWorkspace.shared.open(url)
-                    #else
-                    await UIApplication.shared.open(url)
-                    #endif
-                }
-                return .cancel
-            }
-            return .allow
+            await follow(action, write: write)
         }
     }
 
