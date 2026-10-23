@@ -23,6 +23,7 @@ export * from "./components/mail/label";
 export * from "./components/mail/mail-frame";
 export * from "./components/mail/message-list";
 export * from "./components/mail/message-row";
+export * from "./components/mail/rich-frame";
 export * from "./components/mail/search-field";
 export * from "./components/mail/sender-card";
 export * from "./components/mail/shortcuts";
