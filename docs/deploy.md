@@ -33,6 +33,18 @@ docker compose -f deploy/compose.yml exec api bun dist/user.js add you@example.c
 
 For someone who forgot their password, `user.js reset you@example.com` prints a new link. Their mail is stored encrypted with a key only their password opens, so a reset drops what was stored and fetches it again from their mailboxes.
 
+## Announcements
+
+To tell your users about something new, write a rich mail (docs/rich-mail.md) and put it into their inboxes in Nouvex. It never reaches their mail servers, and each copy is sealed for its reader like the rest of their mail.
+
+```sh
+bun packages/rich/src/cli.ts build mail.html --from "Nouvex <hello@your.domain>" -o mail.eml
+docker compose -f deploy/compose.yml exec -T api bun dist/announce.js - --to you@example.com < mail.eml
+docker compose -f deploy/compose.yml exec -T api bun dist/announce.js - --all < mail.eml
+```
+
+Try it on yourself first. Announcing the same message again (same Message-ID) adds nothing. Its "Try it" buttons (`nx-action`) open places in Nouvex, which only mail put there this way may do.
+
 ## Passkeys in the Apple apps
 
 Passkeys work in the web app on any domain. The Apple apps are tied to `mail.nouvex.cc` (`apps/apple/Nouvex/Nouvex.entitlements`), so on another domain they sign in with a password; for passkeys there, build the apps with your own team and domain in the entitlements, `deploy/` is unchanged apart from the team id in `apps/web/public/.well-known/apple-app-site-association`.

@@ -69,6 +69,21 @@ func (q *Queries) CountMessages(ctx context.Context, mailboxID string) (int64, e
 	return count, err
 }
 
+const createLocalMailbox = `-- name: CreateLocalMailbox :exec
+INSERT INTO mailbox (id, account_id, name, role, uid_validity, local) VALUES ($1, $2, $3, 'inbox', 1, true)
+`
+
+type CreateLocalMailboxParams struct {
+	ID        string
+	AccountID string
+	Name      string
+}
+
+func (q *Queries) CreateLocalMailbox(ctx context.Context, arg CreateLocalMailboxParams) error {
+	_, err := q.db.Exec(ctx, createLocalMailbox, arg.ID, arg.AccountID, arg.Name)
+	return err
+}
+
 const createMailbox = `-- name: CreateMailbox :exec
 INSERT INTO mailbox (id, account_id, name, role, uid_validity) VALUES ($1, $2, $3, $4, $5)
 `
@@ -122,6 +137,27 @@ func (q *Queries) DeleteGone(ctx context.Context, arg DeleteGoneParams) ([]strin
 	return items, nil
 }
 
+const deleteLocalMessage = `-- name: DeleteLocalMessage :exec
+WITH gone AS (
+  DELETE FROM message WHERE id = $2 AND account_id = $1 RETURNING id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = $1 AND EXISTS (SELECT FROM gone) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT $1, v.version, 'message', $2, 'delete' FROM v
+`
+
+type DeleteLocalMessageParams struct {
+	AccountID string
+	ID        string
+}
+
+// Removes a message and logs it, for mail that only lives in Nouvex.
+func (q *Queries) DeleteLocalMessage(ctx context.Context, arg DeleteLocalMessageParams) error {
+	_, err := q.db.Exec(ctx, deleteLocalMessage, arg.AccountID, arg.ID)
+	return err
+}
+
 const deleteMailbox = `-- name: DeleteMailbox :exec
 DELETE FROM mailbox WHERE id = $1
 `
@@ -157,6 +193,39 @@ func (q *Queries) FindByRole(ctx context.Context, arg FindByRoleParams) (string,
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const firstAccount = `-- name: FirstAccount :one
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to, nickname, color, position, muted FROM mail_account WHERE user_id = $1 AND archived_at IS NULL ORDER BY position, created_at LIMIT 1
+`
+
+// The account a user's seeded mail goes to: the first in their order that isn't archived.
+func (q *Queries) FirstAccount(ctx context.Context, userID string) (MailAccount, error) {
+	row := q.db.QueryRow(ctx, firstAccount, userID)
+	var i MailAccount
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Email,
+		&i.ImapHost,
+		&i.ImapPort,
+		&i.SmtpHost,
+		&i.SmtpPort,
+		&i.Username,
+		&i.Secret,
+		&i.Version,
+		&i.CreatedAt,
+		&i.SyncError,
+		&i.DisplayName,
+		&i.Signature,
+		&i.ArchivedAt,
+		&i.SealedTo,
+		&i.Nickname,
+		&i.Color,
+		&i.Position,
+		&i.Muted,
+	)
+	return i, err
 }
 
 const getAccount = `-- name: GetAccount :one
@@ -208,7 +277,7 @@ func (q *Queries) GetMessageID(ctx context.Context, arg GetMessageIDParams) (str
 }
 
 const getMessagePlace = `-- name: GetMessagePlace :one
-SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2
+SELECT m.uid, m.flags, b.name, b.local FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2
 `
 
 type GetMessagePlaceParams struct {
@@ -217,14 +286,21 @@ type GetMessagePlaceParams struct {
 }
 
 type GetMessagePlaceRow struct {
-	Uid  int64
-	Name string
+	Uid   int64
+	Flags []string
+	Name  string
+	Local bool
 }
 
 func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams) (GetMessagePlaceRow, error) {
 	row := q.db.QueryRow(ctx, getMessagePlace, arg.ID, arg.AccountID)
 	var i GetMessagePlaceRow
-	err := row.Scan(&i.Uid, &i.Name)
+	err := row.Scan(
+		&i.Uid,
+		&i.Flags,
+		&i.Name,
+		&i.Local,
+	)
 	return i, err
 }
 
@@ -237,6 +313,22 @@ func (q *Queries) GetUserKey(ctx context.Context, id string) ([]byte, error) {
 	var public_key []byte
 	err := row.Scan(&public_key)
 	return public_key, err
+}
+
+const hasMessage = `-- name: HasMessage :one
+SELECT EXISTS (SELECT FROM message WHERE account_id = $1 AND message_id = $2)
+`
+
+type HasMessageParams struct {
+	AccountID string
+	MessageID string
+}
+
+func (q *Queries) HasMessage(ctx context.Context, arg HasMessageParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasMessage, arg.AccountID, arg.MessageID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
@@ -421,7 +513,7 @@ func (q *Queries) ListFlagsFor(ctx context.Context, arg ListFlagsForParams) ([]L
 }
 
 const listMailboxes = `-- name: ListMailboxes :many
-SELECT id, account_id, name, uid_validity, role, uid_next, message_count, highest_mod_seq FROM mailbox WHERE account_id = $1
+SELECT id, account_id, name, uid_validity, role, uid_next, message_count, highest_mod_seq, local FROM mailbox WHERE account_id = $1
 `
 
 func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbox, error) {
@@ -442,6 +534,7 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 			&i.UidNext,
 			&i.MessageCount,
 			&i.HighestModSeq,
+			&i.Local,
 		); err != nil {
 			return nil, err
 		}
@@ -451,6 +544,27 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 		return nil, err
 	}
 	return items, nil
+}
+
+const localMailbox = `-- name: LocalMailbox :one
+SELECT id, account_id, name, uid_validity, role, uid_next, message_count, highest_mod_seq, local FROM mailbox WHERE account_id = $1 AND local
+`
+
+func (q *Queries) LocalMailbox(ctx context.Context, accountID string) (Mailbox, error) {
+	row := q.db.QueryRow(ctx, localMailbox, accountID)
+	var i Mailbox
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Name,
+		&i.UidValidity,
+		&i.Role,
+		&i.UidNext,
+		&i.MessageCount,
+		&i.HighestModSeq,
+		&i.Local,
+	)
+	return i, err
 }
 
 const logChange = `-- name: LogChange :one

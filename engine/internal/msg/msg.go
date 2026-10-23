@@ -220,6 +220,37 @@ func (j *MailboxSyncing) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Command: API asks the engine to put a message into a user's inbox in Nouvex
+// only, sealed for them (apps/api/src/announce.ts).
+type MessageSeed struct {
+	// The raw message, stored as upload/<uploadId>.
+	UploadId string `json:"uploadId"`
+
+	// UserId corresponds to the JSON schema field "userId".
+	UserId string `json:"userId"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageSeed) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["uploadId"]; raw != nil && !ok {
+		return fmt.Errorf("field uploadId in MessageSeed: required")
+	}
+	if _, ok := raw["userId"]; raw != nil && !ok {
+		return fmt.Errorf("field userId in MessageSeed: required")
+	}
+	type Plain MessageSeed
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageSeed(plain)
+	return nil
+}
+
 // Command: API asks the engine to send a message from one account.
 type MessageSend struct {
 	// AccountId corresponds to the JSON schema field "accountId".

@@ -1,0 +1,1 @@
+ALTER TABLE "mailbox" ADD COLUMN "local" boolean DEFAULT false NOT NULL;

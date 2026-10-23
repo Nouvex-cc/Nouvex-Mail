@@ -64,7 +64,7 @@ SELECT id FROM mail_account;
 SELECT id FROM mail_account WHERE archived_at IS NOT NULL;
 
 -- name: GetMessagePlace :one
-SELECT m.uid, b.name FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2;
+SELECT m.uid, m.flags, b.name, b.local FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2;
 
 -- name: ListFlags :many
 SELECT id, uid, flags FROM message WHERE mailbox_id = $1;
@@ -122,3 +122,26 @@ RETURNING *;
 SELECT m.id FROM message m JOIN mailbox b ON b.id = m.mailbox_id
 WHERE m.account_id = $1 AND m.message_id = $2 AND b.role = $3
 LIMIT 1;
+
+-- name: FirstAccount :one
+-- The account a user's seeded mail goes to: the first in their order that isn't archived.
+SELECT * FROM mail_account WHERE user_id = $1 AND archived_at IS NULL ORDER BY position, created_at LIMIT 1;
+
+-- name: LocalMailbox :one
+SELECT * FROM mailbox WHERE account_id = $1 AND local;
+
+-- name: CreateLocalMailbox :exec
+INSERT INTO mailbox (id, account_id, name, role, uid_validity, local) VALUES ($1, $2, $3, 'inbox', 1, true);
+
+-- name: HasMessage :one
+SELECT EXISTS (SELECT FROM message WHERE account_id = $1 AND message_id = $2);
+
+-- name: DeleteLocalMessage :exec
+-- Removes a message and logs it, for mail that only lives in Nouvex.
+WITH gone AS (
+  DELETE FROM message WHERE id = sqlc.arg(id) AND account_id = sqlc.arg(account_id) RETURNING id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = sqlc.arg(account_id) AND EXISTS (SELECT FROM gone) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT sqlc.arg(account_id), v.version, 'message', sqlc.arg(id), 'delete' FROM v;

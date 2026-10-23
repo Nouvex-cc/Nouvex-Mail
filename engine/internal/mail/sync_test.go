@@ -721,3 +721,43 @@ func TestGmailArchive(t *testing.T) {
 		t.Errorf("with an archive: %v, want %v", both, want)
 	}
 }
+
+// Seeded mail lands in the inbox in a local mailbox, once, stays through syncs and changes in the database alone.
+func TestSeed(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	master := bytes.Repeat([]byte{7}, 32)
+	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
+	raw := []byte("From: Nouvex <hello@nouvex.cc>\r\nSubject: Groups\r\nMessage-ID: <groups@nouvex.cc>\r\nMIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/alternative; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nGroups\r\n" +
+		"--b\r\nContent-Type: text/x-nouvex-html\r\n\r\n<nx-carousel></nx-carousel>\r\n--b\r\nContent-Type: text/html\r\n\r\n<p>Groups</p>\r\n--b--\r\n")
+	// The second time it's there already and nothing changes.
+	for _, want := range []string{f.id, ""} {
+		if acc, _, err := Seed(ctx, f.pool, store, f.id, raw); err != nil || acc != want {
+			t.Fatalf("%q %v, want %q", acc, err, want)
+		}
+	}
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
+	}
+	m := f.find(t, "Groups")
+	if m.Role != "inbox" || !m.Seeded || !m.Rich || m.FromAddr != "hello@nouvex.cc" || len(f.messages(t)) != 1 {
+		t.Fatalf("%+v of %d", m, len(f.messages(t)))
+	}
+	q := db.New(f.pool)
+	yes := true
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: m.ID, Seen: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	var flags []string
+	_ = f.pool.QueryRow(ctx, `SELECT flags FROM message WHERE id = $1`, m.ID).Scan(&flags)
+	if !slices.Equal(flags, []string{`\Seen`}) {
+		t.Fatalf("flags %v", flags)
+	}
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: m.ID, Archive: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.messages(t)); n != 0 {
+		t.Fatalf("%d messages after archiving", n)
+	}
+}

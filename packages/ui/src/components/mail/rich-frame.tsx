@@ -23,6 +23,9 @@ export type RichFrameProps = {
 function clean(html: string) {
 	return DOMPurify.sanitize(html, {
 		WHOLE_DOCUMENT: true,
+		// DOMPurify's own list plus nouvex:, which nx-action opens.
+		ALLOWED_URI_REGEXP:
+			/^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|nouvex):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
 		FORBID_TAGS: ["form", "iframe", "object", "embed", "base", "link", "meta"],
 		CUSTOM_ELEMENT_HANDLING: {
 			tagNameCheck: /^nx-[a-z]+$/,
