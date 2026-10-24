@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import CryptoKit
 import Foundation
 import GRDB
 import Observation
@@ -21,14 +22,17 @@ struct Prefs {
     var meetingLead = 15
     /// Minutes a sign-in code stays in the sidebar.
     var codeLife = 5
-    var categories = true
+    /// Promotions, social, updates and newsletters leave the inbox for their own place under it. Off, everything stays
+    /// in one inbox and chips over the list filter it.
+    var categories = false
 }
 
-/// A short word after something happened, at the bottom of the window.
+/// A short word after something happened, at the bottom of the window, maybe with a way to take it back.
 struct Toast: Identifiable {
     let id = UUID()
     let title: String
     var detail: String?
+    var action: (label: String, run: @MainActor () -> Void)?
 }
 
 /// The signed-in session: keeps the local copy in step with the server and changes mail there.
@@ -249,8 +253,8 @@ struct Toast: Identifiable {
         Binding(get: { self.prefs[keyPath: key] }, set: { v in self.set { $0[keyPath: key] = v } })
     }
 
-    func toast(_ title: String, _ detail: String? = nil) {
-        let t = Toast(title: title, detail: detail)
+    func toast(_ title: String, _ detail: String? = nil, action: (label: String, run: @MainActor () -> Void)? = nil) {
+        let t = Toast(title: title, detail: detail, action: action)
         withAnimation(.quick) { toasts = Array((toasts + [t]).suffix(3)) }
         Task {
             try? await Task.sleep(for: .seconds(4))
@@ -295,6 +299,7 @@ struct Toast: Identifiable {
         let attachments: [Attachment]
         let actions: [Action]
         let rich, seeded: Bool?
+        let unsubscribe: Unsubscribe?
     }
 
     nonisolated private static let metaDecoder = {
@@ -332,7 +337,8 @@ struct Toast: Identifiable {
                     id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: meta.messageId, threadId: m.threadId,
                     subject: meta.subject, snippet: meta.snippet, fromName: meta.fromName, fromAddr: meta.fromAddr, to: meta.to,
                     cc: meta.cc, sentAt: m.sentAt, flags: m.flags, category: m.category.rawValue, attachments: meta.attachments.count,
-                    files: meta.attachments, actions: meta.actions, key: key, rich: meta.rich ?? false, seeded: meta.seeded ?? false
+                    files: meta.attachments, actions: meta.actions, key: key, rich: meta.rich ?? false, seeded: meta.seeded ?? false,
+                    spam: m.spam, unsubscribe: meta.unsubscribe
                 )
                 message.set()
                 return message
@@ -356,7 +362,9 @@ struct Toast: Identifiable {
 
     private func notify(_ fresh: [Message]) {
         let loud = Set((try? Store.db.read { try AccountGroup.loud($0) }) ?? [])
-        for m in fresh where (!prefs.categories || m.category == "primary") && loud.contains(m.accountId) {
+        // People and updates, the way the inbox would show them; never spam.
+        let heard: Set<String> = prefs.categories ? ["primary"] : ["primary", "updates"]
+        for m in fresh where !m.spam && heard.contains(m.category) && loud.contains(m.accountId) {
             let content = UNMutableNotificationContent()
             content.title = m.sender
             content.body = m.subject
@@ -423,5 +431,77 @@ struct Toast: Identifiable {
                 try? await Store.db.write { try m.save($0) }
             }
         } }
+    }
+
+    /// Puts a sender's mail somewhere for good: a tab, or spam or not. What of it is here moves right away, the
+    /// server's copy follows; the toast takes it back.
+    func sortSender(_ m: Message, category: String? = nil, spam: Bool? = nil) {
+        let addr = m.fromAddr.lowercased(), name = m.sender
+        Task { await Background.keepAlive {
+            guard let theirs = try? await Store.db.write({ db in
+                let theirs = try Message.filter(sql: "lower(fromAddr) = ?", arguments: [addr]).fetchAll(db)
+                for var t in theirs {
+                    t.category = category ?? t.category
+                    t.spam = spam ?? t.spam
+                    try t.save(db)
+                }
+                return theirs
+            }) else { return }
+            // The server knows the sender by this hash, not by the address (engine/internal/mail/sort.go).
+            let sender = SHA256.hash(data: Data(addr.utf8)).map { String(format: "%02x", $0) }.joined()
+            let rule = { (category: String?, spam: Bool?, list: [Message]) in
+                _ = try? await API.client.setSenderRule(body: .json(.init(
+                    sender: sender, category: category.flatMap { .init(rawValue: $0) }, spam: spam,
+                    messages: list.map { .init(accountId: $0.accountId, id: $0.id) }
+                )))
+            }
+            await rule(category, spam, theirs)
+            let title = spam == true ? "Mail from \(name) goes to Junk"
+                : spam == false ? "Mail from \(name) isn't spam"
+                : "Mail from \(name) goes to \(tabs.first { $0.0 == category }?.1 ?? "")"
+            toast(title, action: ("Undo", {
+                Task { await Background.keepAlive {
+                    await rule(nil, nil, [])
+                    _ = try? await Store.db.write { db in for t in theirs { try t.save(db) } }
+                    for t in theirs {
+                        let back = Operations.updateMessage.Input.Body.jsonPayload(
+                            category: category == nil ? nil : .init(rawValue: t.category), spam: spam == nil ? nil : t.spam
+                        )
+                        _ = try? await API.client.updateMessage(path: .init(accountId: t.accountId, messageId: t.id), body: .json(back))
+                    }
+                } }
+            }))
+        } }
+    }
+
+    /// Leaves the list a message came from: with one click through the server, by mail, or on the sender's page.
+    func unsubscribe(_ m: Message) {
+        guard let u = m.unsubscribe else { return }
+        Task {
+            var ok = false
+            if let url = u.url, u.oneClick == true {
+                if case .noContent = try? await API.client.unsubscribe(body: .json(.init(url: url))) { ok = true }
+            } else if let mailto = u.mailto, let parts = URLComponents(string: mailto) {
+                let q = Dictionary((parts.queryItems ?? []).map { ($0.name.lowercased(), $0.value ?? "") }) { a, _ in a }
+                let res = try? await API.client.sendMessage(path: .init(accountId: m.accountId), body: .json(.init(
+                    to: [parts.path], subject: q["subject"] ?? "unsubscribe", text: q["body"] ?? "unsubscribe"
+                )))
+                if case .accepted = res { ok = true }
+            } else if let url = u.url.flatMap(URL.init(string:)) {
+                return Self.browse(url)
+            }
+            if ok { return toast("Unsubscribed from \(m.sender)") }
+            toast("Couldn't unsubscribe", "The sender didn't take it.", action: u.url.flatMap(URL.init(string:)).map { url in
+                ("Open their page", { @MainActor in Self.browse(url) })
+            })
+        }
+    }
+
+    private static func browse(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        UIApplication.shared.open(url)
+        #endif
     }
 }

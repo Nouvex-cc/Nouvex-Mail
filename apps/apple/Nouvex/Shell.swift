@@ -51,11 +51,15 @@ struct Shell: View {
 }
 
 extension Folder {
+    var isCategory: Bool {
+        if case .category = self { true } else { false }
+    }
+
     var name: String {
         switch self {
         case .inbox: "Inbox"
         case .starred: "Starred"
-        case .category(let id): Sidebar.categories.first { $0.0 == id }?.1 ?? ""
+        case .category(let id): tabs.first { $0.0 == id }?.1 ?? ""
         case .role(let role): Sidebar.folders.first { $0.0 == role }?.1 ?? ""
         case .mailbox(_, let name): name
         }
@@ -190,7 +194,7 @@ struct Sidebar: View {
     private func observeDots() async {
         let ids = mail.inView.map(\.id), all = mail.scope == nil
         let dots = ValueObservation.tracking { db in
-            let sql = "SELECT DISTINCT category FROM message WHERE seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within)"
+            let sql = "SELECT DISTINCT category FROM message WHERE seen = 0 AND spam = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within)"
             return try Set(String.fetchAll(db, sql: sql, arguments: [(all ? try AccountGroup.loud(db) : ids).json]))
         }
         do {

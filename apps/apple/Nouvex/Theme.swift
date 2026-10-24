@@ -90,9 +90,15 @@ struct Toasts: View {
     var body: some View {
         VStack(spacing: 6) {
             ForEach(mail.toasts) { t in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t.title).font(.sm.weight(.medium)).foregroundStyle(.ink)
-                    if let detail = t.detail { Text(detail).font(.xs).foregroundStyle(.muted).lineLimit(2) }
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t.title).font(.sm.weight(.medium)).foregroundStyle(.ink)
+                        if let detail = t.detail { Text(detail).font(.xs).foregroundStyle(.muted).lineLimit(2) }
+                    }
+                    if let action = t.action {
+                        Spacer(minLength: 0)
+                        Button(action.label) { action.run() }.font(.sm.weight(.medium)).buttonStyle(.plain).foregroundStyle(.ink)
+                    }
                 }
                 .padding(.horizontal, 16).padding(.vertical, 10)
                 .frame(maxWidth: 420, alignment: .leading)
@@ -100,7 +106,8 @@ struct Toasts: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
             }
         }
-        .allowsHitTesting(false)
+        // Only a toast with something to do takes taps; the rest lets them through to what's under it.
+        .allowsHitTesting(mail.toasts.contains { $0.action != nil })
     }
 }
 

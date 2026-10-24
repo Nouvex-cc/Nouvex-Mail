@@ -162,7 +162,7 @@ private struct ReadingPage: View {
                 Choice(label: "Pictures in mail", hint: "They load through Nouvex, so senders don't see when or where you read", key: \.remoteImages, options: [
                     ("always", "Show"), ("ask", "Ask first"),
                 ])
-                PrefToggle(label: "Categories", hint: "Promotions, social networks, updates and newsletters get their own place under Inbox", key: \.categories)
+                PrefToggle(label: "Separate categories", hint: "Promotions, social networks, updates and newsletters leave the inbox for their own place under it. Off, everything stays in one inbox and filters on top sort it", key: \.categories)
                 PrefToggle(label: "Replies to archived accounts", hint: "Answers to mail you sent from an archived account still show in All inboxes", key: \.archivedReplies)
                 Choice(label: "After archiving or deleting", hint: "From an open conversation", key: \.afterArchive, options: [
                     ("next", "Next"), ("previous", "Previous"), ("list", "Back to list"),

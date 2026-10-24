@@ -62,6 +62,14 @@ struct Action: Codable, Hashable, Sendable {
     var cancelled: Bool?
 }
 
+/// How to leave the list a message came from (List-Unsubscribe): a page, an address, and whether the page takes one
+/// POST without asking anything.
+struct Unsubscribe: Codable, Hashable, Sendable {
+    var url: String?
+    var mailto: String?
+    var oneClick: Bool?
+}
+
 // A message as GET /accounts/{id}/changes delivers it, with what was sealed in it opened (Mail.changes).
 struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, PersistableRecord {
     var id: String
@@ -90,6 +98,9 @@ struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, Pers
     var rich = false
     /// Put into the inbox by Nouvex itself, so its nx-actions may open places in the app.
     var seeded = false
+    /// The engine or the user took it for spam: it shows under Junk, wherever it is on the server.
+    var spam = false
+    var unsubscribe: Unsubscribe?
 
     /// Opens the message's key with this device's private key.
     func open() throws -> SymmetricKey {
@@ -183,6 +194,9 @@ struct Conversation: Identifiable, Hashable, Sendable {
     var starred: Bool { messages.contains(where: \.starred) }
 }
 
+/// The inbox tabs by name, in the order chips and menus show them.
+nonisolated let tabs = [("primary", "People"), ("updates", "Updates"), ("newsletters", "Newsletters"), ("promotions", "Promotions"), ("social", "Social")]
+
 enum Folder: Hashable, Sendable {
     case inbox, category(String), starred, role(String)
     /// One of the account's own IMAP folders, by id, with its name.
@@ -197,10 +211,13 @@ enum Folder: Hashable, Sendable {
         case .inbox: (categories ? "\(inbox) AND category = 'primary'" : inbox, [])
         case .category(let name): ("\(inbox) AND category = ?", [name])
         case .starred: ("starred = 1 AND mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", [])
+        // Spam shows under Junk, from whichever folder it's in, and nowhere else.
+        case .role("junk"): ("mailboxId IN (SELECT id FROM mailbox WHERE role = 'junk') OR spam = 1", [])
         case .role(let role): ("mailboxId IN (SELECT id FROM mailbox WHERE role = ?)", [role])
         case .mailbox(let id, _): ("mailboxId = ?", [id])
         }
-        return try Conversation.fetch(db, "(\(sql)) AND \(Self.within)", args + [accounts.json])
+        let clean = self == .role("junk") ? "" : " AND spam = 0"
+        return try Conversation.fetch(db, "(\(sql))\(clean) AND \(Self.within)", args + [accounts.json])
     }
 }
 
@@ -221,7 +238,7 @@ extension Conversation {
     /// sender, plus from:, to:, is:unread, is:starred, has:attachment, after: and before: (YYYY-MM-DD). Archived
     /// accounts only when the caller passes them, for in:archived.
     static func search(_ db: GRDB.Database, _ text: String, accounts: [String]) throws -> [Conversation] {
-        var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", Folder.within]
+        var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", "spam = 0", Folder.within]
         var args: [DatabaseValueConvertible] = [accounts.json]
         for token in text.split(separator: " ") {
             let (key, value) = token.split(separator: ":", maxSplits: 1).count == 2
@@ -261,7 +278,7 @@ struct Unread: Equatable, Sendable {
     var recent: [Message] = []
 
     static func fetch(_ db: GRDB.Database) throws -> Unread {
-        let inbox = "seen = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within)"
+        let inbox = "seen = 0 AND spam = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within)"
         let ids = try AccountGroup.loud(db).json
         let rows = try Row.fetchAll(db, sql: "SELECT category, COUNT(DISTINCT threadId) AS n FROM message WHERE \(inbox) GROUP BY category", arguments: [ids])
         return Unread(
@@ -408,6 +425,14 @@ enum Store {
             // Messages pulled before didn't keep the flags; they're fetched again to get them. Bodies go too: some
             // devices kept bodies of messages that are gone, and the foreign key check after this migration fails on them.
             try db.execute(sql: "DELETE FROM body; DELETE FROM message; DELETE FROM cursor")
+        }
+        // Spam and unsubscribe links came later; messages are fetched again to get them.
+        migrator.registerMigration("v7") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "spam", .boolean).notNull().defaults(to: false)
+                t.add(column: "unsubscribe", .text)
+            }
+            try db.execute(sql: "DELETE FROM rich; DELETE FROM body; DELETE FROM message; DELETE FROM cursor")
         }
         try! migrator.migrate(db)
         return db
