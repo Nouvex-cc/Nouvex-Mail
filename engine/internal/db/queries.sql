@@ -73,7 +73,20 @@ SELECT id FROM mail_account;
 SELECT id FROM mail_account WHERE archived_at IS NOT NULL;
 
 -- name: GetMessagePlace :one
-SELECT m.uid, m.flags, b.name, b.local FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2;
+SELECT m.uid, m.flags, b.name, b.local, b.role FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2;
+
+-- name: SortMessage :exec
+-- Puts a message into a tab or marks it spam or not, and logs the change, unless nothing changes.
+WITH changed AS (
+  UPDATE message SET category = coalesce(sqlc.narg(category)::text, category), spam = coalesce(sqlc.narg(spam)::boolean, spam)
+  WHERE id = sqlc.arg(id) AND account_id = sqlc.arg(account_id)
+    AND (category <> coalesce(sqlc.narg(category)::text, category) OR spam <> coalesce(sqlc.narg(spam)::boolean, spam))
+  RETURNING id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = sqlc.arg(account_id) AND EXISTS (SELECT FROM changed) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT sqlc.arg(account_id), v.version, 'message', sqlc.arg(id), 'upsert' FROM v;
 
 -- name: ListFlags :many
 SELECT id, uid, flags FROM message WHERE mailbox_id = $1;

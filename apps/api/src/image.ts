@@ -77,18 +77,18 @@ export async function fetchImage(url: string) {
 }
 
 /**
- * Sends what a reader filled into a rich mail's form to the sender, from our server, so the sender gets the answer
- * but not the reader's address. Only https, no redirects; any 2xx counts.
+ * Posts to a sender from our server, so they get the request but not the reader's address: a rich mail's form
+ * answer, or a one-click unsubscribe. Only https, no redirects; any 2xx counts.
  */
-export async function postForm(url: string, fields: Record<string, string | string[]>) {
+export async function post(url: string, type: string, body: string) {
 	const target = await reachable(url);
 	if (target?.protocol !== "https:") return false;
 	const res = await fetch(target, {
 		method: "POST",
 		redirect: "manual",
 		signal: AbortSignal.timeout(10_000),
-		headers: { "content-type": "application/json", "user-agent": "Nouvex Mail" },
-		body: JSON.stringify(fields),
+		headers: { "content-type": type, "user-agent": "Nouvex Mail" },
+		body,
 	}).catch(() => undefined);
 	return !!res?.ok;
 }

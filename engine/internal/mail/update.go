@@ -27,8 +27,27 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 	if err != nil {
 		return err
 	}
+	if cmd.Category != nil || cmd.Spam != nil {
+		sort := db.SortMessageParams{AccountID: cmd.AccountId, ID: cmd.MessageId}
+		if cmd.Category != nil {
+			sort.Category = pgtype.Text{String: string(*cmd.Category), Valid: true}
+		}
+		if cmd.Spam != nil {
+			sort.Spam = pgtype.Bool{Bool: *cmd.Spam, Valid: true}
+		}
+		if err := q.SortMessage(ctx, sort); err != nil {
+			return err
+		}
+	}
 	if place.Local {
 		return updateLocal(ctx, q, cmd, place.Flags)
+	}
+	// Only spam that sits in the inbox, or not spam that sits in the junk folder, moves on the server.
+	if cmd.Spam != nil && *cmd.Spam == (place.Role == "junk") {
+		cmd.Spam = nil
+	}
+	if Saved(cmd) && cmd.Seen == nil && cmd.Flagged == nil {
+		return nil
 	}
 	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
@@ -78,6 +97,21 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 			return nil
 		}
 		return q.SaveFlags(ctx, db.SaveFlagsParams{AccountID: cmd.AccountId, ID: cmd.MessageId, Flags: flagStrings(flags)})
+	}
+	if cmd.Spam != nil {
+		// The flag tells the provider's filter too, the way other mail apps do it.
+		flag, to := imap.Flag("$NotJunk"), "INBOX"
+		if *cmd.Spam {
+			flag = "$Junk"
+			if to, err = specialFolder(c, "junk", ""); err != nil || to == "" {
+				return err
+			}
+		}
+		if err := c.Store(uid, &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{flag}}, nil).Close(); err != nil {
+			return err
+		}
+		_, err := c.Move(uid, to).Wait()
+		return err
 	}
 	if cmd.Inbox != nil && *cmd.Inbox && place.Name != "INBOX" {
 		_, err := c.Move(uid, "INBOX").Wait()
@@ -138,7 +172,7 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 
 // Saved tells whether Update saves the change in the database itself, so no sync is needed for it.
 func Saved(cmd msg.MessageUpdate) bool {
-	return cmd.Inbox == nil && cmd.SnoozeUntil == nil && cmd.Archive == nil && cmd.Trash == nil
+	return cmd.Inbox == nil && cmd.SnoozeUntil == nil && cmd.Archive == nil && cmd.Trash == nil && cmd.Spam == nil
 }
 
 // specialFolder finds the folder with the given role, the same way Sync assigns roles. A missing one is created

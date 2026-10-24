@@ -392,3 +392,38 @@ test.skipIf(!process.env.DATABASE_URL)("a rich mail's form only goes to public h
 		await db.delete(user).where(eq(user.id, me.id));
 	}
 });
+
+test.skipIf(!process.env.DATABASE_URL)("sender rules are saved, changed and forgotten", async () => {
+	const { db } = await import("./db");
+	const { senderRule, user } = await import("./db/schema");
+	const { eq } = await import("drizzle-orm");
+	const me = await signedIn("Lena");
+	const sender = "a".repeat(64);
+	const put = (body: object) =>
+		app.request("/rules", {
+			method: "PUT",
+			headers: { cookie: me.cookie, "content-type": "application/json" },
+			body: JSON.stringify({ sender, messages: [], ...body }),
+		});
+	const rules = () => db.select().from(senderRule).where(eq(senderRule.userId, me.id));
+	try {
+		expect((await app.request("/rules", { method: "PUT" })).status).toBe(401);
+		expect((await put({ category: "newsletters", spam: null })).status).toBe(204);
+		expect((await put({ category: null, spam: true })).status).toBe(204);
+		expect(await rules()).toMatchObject([{ sender, category: null, spam: true }]);
+		await put({ category: null, spam: null });
+		expect(await rules()).toEqual([]);
+		expect((await put({ sender: "not a hash", category: "primary", spam: null })).status).toBe(400);
+		// One-click unsubscribing only goes to public https addresses, like rich mail forms.
+		const unsubscribe = (url: string) =>
+			app.request("/unsubscribe", {
+				method: "POST",
+				headers: { cookie: me.cookie, "content-type": "application/json" },
+				body: JSON.stringify({ url }),
+			});
+		expect((await unsubscribe("http://example.com/u")).status).toBe(400);
+		expect((await unsubscribe("https://127.0.0.1/u")).status).toBe(502);
+	} finally {
+		await db.delete(user).where(eq(user.id, me.id));
+	}
+});

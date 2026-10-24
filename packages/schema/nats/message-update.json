@@ -11,7 +11,9 @@
 		"trash": { "type": "boolean", "description": "Move the message to the trash folder." },
 		"archive": { "type": "boolean", "description": "Move the message to the archive folder." },
 		"snoozeUntil": { "type": "string", "format": "date-time", "description": "Move it to Snoozed until then, then back to the INBOX." },
-		"inbox": { "type": "boolean", "description": "Move the message back to the INBOX." }
+		"inbox": { "type": "boolean", "description": "Move the message back to the INBOX." },
+		"category": { "enum": ["primary", "promotions", "social", "updates", "newsletters"], "description": "Put it into another inbox tab." },
+		"spam": { "type": "boolean", "description": "Spam moves it to the junk folder, not spam back to the INBOX." }
 	},
 	"required": ["accountId", "messageId"],
 	"additionalProperties": false

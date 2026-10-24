@@ -804,3 +804,41 @@ func TestSort(t *testing.T) {
 		t.Errorf("unsubscribe %+v", u)
 	}
 }
+
+// Sorting by hand changes the tab in the database alone; spam moves to the junk folder and back.
+func TestSortByHand(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	master := bytes.Repeat([]byte{7}, 32)
+	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
+	f.appendTo("Junk", "From: x@spam.example\r\nSubject: Old spam\r\nMessage-ID: <o@spam.example>\r\n\r\nx")
+	f.add("Hello")
+	sync := func() {
+		if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sync()
+	q := db.New(f.pool)
+	news, yes, no := msg.MessageUpdateCategoryNewsletters, true, false
+	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: f.find(t, "Hello").ID, Category: &news}); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	_ = f.pool.QueryRow(ctx, `SELECT category FROM message WHERE id = $1`, f.find(t, "Hello").ID).Scan(&got)
+	if got != "newsletters" {
+		t.Fatalf("category %q", got)
+	}
+	for _, c := range []struct {
+		spam *bool
+		role string
+	}{{&yes, "junk"}, {&no, "inbox"}} {
+		if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: f.find(t, "Hello").ID, Spam: c.spam}); err != nil {
+			t.Fatal(err)
+		}
+		sync()
+		if m := f.find(t, "Hello"); m.Role != c.role {
+			t.Fatalf("spam %v: in %q, want %q", *c.spam, m.Role, c.role)
+		}
+	}
+}

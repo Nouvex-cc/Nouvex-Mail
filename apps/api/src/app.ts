@@ -18,10 +18,11 @@ import {
 	mailAccount,
 	mailbox,
 	message,
+	senderRule,
 	userKey,
 	userPrefs,
 } from "./db/schema";
-import { fetchImage, postForm } from "./image";
+import { fetchImage, post } from "./image";
 import { nats } from "./nats";
 import { seal } from "./secret";
 
@@ -54,6 +55,8 @@ app.use("/accounts/*", signedIn);
 app.use("/groups/*", signedIn);
 app.use("/order", signedIn);
 app.use("/rich/*", signedIn);
+app.use("/rules", signedIn);
+app.use("/unsubscribe", signedIn);
 
 // Someone else's account answers like a missing one.
 app.use("/accounts/:accountId/*", async (c, next) => {
@@ -660,6 +663,8 @@ const Mailbox = z.object({
 	role: z.enum(["inbox", "sent", "drafts", "trash", "junk", "archive", "snoozed", ""]),
 });
 
+const Category = z.enum(["primary", "promotions", "social", "updates", "newsletters"]);
+
 const Message = z.object({
 	id: z.string(),
 	mailboxId: z.string(),
@@ -667,8 +672,10 @@ const Message = z.object({
 	sentAt: z.iso.datetime({ offset: true }),
 	flags: z.array(z.string()),
 	size: z.int(),
-	/** The inbox tab it belongs in, sorted by the engine from its headers. */
-	category: z.enum(["primary", "promotions", "social", "updates", "newsletters"]),
+	/** The inbox tab it belongs in, sorted by the engine (engine/internal/mail/sort.go). */
+	category: Category,
+	/** The engine took it for spam; it shows under Junk. */
+	spam: z.boolean(),
 	/** The message's own key, sealed to the user's public key (engine/internal/seal). */
 	key: z.base64(),
 	/**
@@ -875,7 +882,88 @@ app.openapi(
 	}),
 	async (c) => {
 		const { action, fields } = c.req.valid("json");
-		return (await postForm(action, fields)) ? c.body(null, 204) : c.body(null, 502);
+		return (await post(action, "application/json", JSON.stringify(fields))) ? c.body(null, 204) : c.body(null, 502);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "put",
+		path: "/rules",
+		operationId: "setSenderRule",
+		description:
+			"Where a sender's mail goes from now on: a tab, spam or not spam; null for both forgets the rule. The messages listed, the sender's mail the client has, move along.",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							/** SHA-256 (hex) of the lowercased address, or of "@domain" for a whole domain. */
+							sender: z.string().regex(/^[0-9a-f]{64}$/),
+							category: Category.nullable(),
+							spam: z.boolean().nullable(),
+							messages: z.array(z.object({ accountId: z.string(), id: z.string() })).max(2000),
+						}),
+					},
+				},
+			},
+		},
+		responses: { 204: { description: "Saved, the messages are moving" } },
+	}),
+	async (c) => {
+		const userId = c.get("userId");
+		const { sender, category, spam, messages } = c.req.valid("json");
+		if (category === null && spam === null) {
+			await db.delete(senderRule).where(and(eq(senderRule.userId, userId), eq(senderRule.sender, sender)));
+		} else {
+			await db
+				.insert(senderRule)
+				.values({ userId, sender, category, spam })
+				.onConflictDoUpdate({ target: [senderRule.userId, senderRule.sender], set: { category, spam } });
+		}
+		const mine = messages.length
+			? await db
+					.select({ id: message.id, accountId: message.accountId })
+					.from(message)
+					.innerJoin(mailAccount, eq(mailAccount.id, message.accountId))
+					.where(
+						and(
+							eq(mailAccount.userId, userId),
+							inArray(
+								message.id,
+								messages.map((m) => m.id),
+							),
+						),
+					)
+			: [];
+		const { js } = await nats();
+		for (const m of mine) {
+			const cmd: MessageUpdate = {
+				accountId: m.accountId,
+				messageId: m.id,
+				...(category && { category }),
+				...(spam !== null && { spam }),
+			};
+			await js.publish("cmd.message.update", JSON.stringify(cmd));
+		}
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/unsubscribe",
+		operationId: "unsubscribe",
+		description: "Leaves a list with one click (RFC 8058), from the server, so the sender doesn't learn the reader's address.",
+		request: {
+			body: { content: { "application/json": { schema: z.object({ url: z.url({ protocol: /^https$/ }) }) } } },
+		},
+		responses: { 204: { description: "The sender took it" }, 502: { description: "The sender didn't take it" } },
+	}),
+	async (c) => {
+		const ok = await post(c.req.valid("json").url, "application/x-www-form-urlencoded", "List-Unsubscribe=One-Click");
+		return ok ? c.body(null, 204) : c.body(null, 502);
 	},
 );
 
@@ -885,7 +973,7 @@ app.openapi(
 		path: "/accounts/{accountId}/messages/{messageId}/update",
 		operationId: "updateMessage",
 		description:
-			"Mark a message read or unread, or move it to the trash or the archive. Shows up in /changes once the server has it.",
+			"Mark a message read or unread, move it to the trash or the archive, put it into another tab, or mark it spam or not. Shows up in /changes once the server has it.",
 		request: {
 			params: z.object({ accountId: z.string(), messageId: z.string() }),
 			body: {
@@ -897,6 +985,8 @@ app.openapi(
 							trash: z.boolean().optional(),
 							archive: z.boolean().optional(),
 							snoozeUntil: z.iso.datetime().optional(),
+							category: Category.optional(),
+							spam: z.boolean().optional(),
 						}),
 					},
 				},
