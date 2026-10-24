@@ -411,7 +411,7 @@ test.skipIf(!process.env.DATABASE_URL)("sender rules are saved, changed and forg
 		expect((await put({ category: "newsletters", spam: null })).status).toBe(204);
 		expect((await put({ category: null, spam: true })).status).toBe(204);
 		expect(await rules()).toMatchObject([{ sender, category: null, spam: true }]);
-		await put({ category: null, spam: null });
+		await put({});
 		expect(await rules()).toEqual([]);
 		expect((await put({ sender: "not a hash", category: "primary", spam: null })).status).toBe(400);
 		// One-click unsubscribing only goes to public https addresses, like rich mail forms.

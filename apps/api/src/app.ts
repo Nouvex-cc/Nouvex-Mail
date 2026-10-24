@@ -892,7 +892,7 @@ app.openapi(
 		path: "/rules",
 		operationId: "setSenderRule",
 		description:
-			"Where a sender's mail goes from now on: a tab, spam or not spam; null for both forgets the rule. The messages listed, the sender's mail the client has, move along.",
+			"Where a sender's mail goes from now on: a tab, spam or not spam; neither forgets the rule. The messages listed, the sender's mail the client has, move along.",
 		request: {
 			body: {
 				content: {
@@ -900,8 +900,9 @@ app.openapi(
 						schema: z.object({
 							/** SHA-256 (hex) of the lowercased address, or of "@domain" for a whole domain. */
 							sender: z.string().regex(/^[0-9a-f]{64}$/),
-							category: Category.nullable(),
-							spam: z.boolean().nullable(),
+							// Left out or null: no say. The Swift client can't send null, it leaves the field out.
+							category: Category.nullish(),
+							spam: z.boolean().nullish(),
 							messages: z.array(z.object({ accountId: z.string(), id: z.string() })).max(2000),
 						}),
 					},
@@ -912,7 +913,9 @@ app.openapi(
 	}),
 	async (c) => {
 		const userId = c.get("userId");
-		const { sender, category, spam, messages } = c.req.valid("json");
+		const { sender, messages, ...body } = c.req.valid("json");
+		const category = body.category ?? null;
+		const spam = body.spam ?? null;
 		if (category === null && spam === null) {
 			await db.delete(senderRule).where(and(eq(senderRule.userId, userId), eq(senderRule.sender, sender)));
 		} else {
