@@ -11,6 +11,20 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addContacts = `-- name: AddContacts :exec
+INSERT INTO contact (user_id, hash) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING
+`
+
+type AddContactsParams struct {
+	UserID string
+	Hashes []string
+}
+
+func (q *Queries) AddContacts(ctx context.Context, arg AddContactsParams) error {
+	_, err := q.db.Exec(ctx, addContacts, arg.UserID, arg.Hashes)
+	return err
+}
+
 const addJob = `-- name: AddJob :exec
 INSERT INTO scheduled (id, account_id, run_at, kind, payload) VALUES ($1, $2, $3, $4, $5)
 `
@@ -332,8 +346,8 @@ func (q *Queries) HasMessage(ctx context.Context, arg HasMessageParams) (bool, e
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed, spam)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (mailbox_id, uid) DO NOTHING
 `
 
@@ -351,6 +365,7 @@ type InsertMessageParams struct {
 	Category  string
 	Key       []byte
 	Sealed    []byte
+	Spam      bool
 }
 
 func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (int64, error) {
@@ -368,6 +383,7 @@ func (q *Queries) InsertMessage(ctx context.Context, arg InsertMessageParams) (i
 		arg.Category,
 		arg.Key,
 		arg.Sealed,
+		arg.Spam,
 	)
 	if err != nil {
 		return 0, err
@@ -440,6 +456,30 @@ func (q *Queries) ListArchivedAccountIDs(ctx context.Context) ([]string, error) 
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listContacts = `-- name: ListContacts :many
+SELECT hash FROM contact WHERE user_id = $1
+`
+
+func (q *Queries) ListContacts(ctx context.Context, userID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listContacts, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var hash string
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		items = append(items, hash)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -536,6 +576,36 @@ func (q *Queries) ListMailboxes(ctx context.Context, accountID string) ([]Mailbo
 			&i.HighestModSeq,
 			&i.Local,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSenderRules = `-- name: ListSenderRules :many
+SELECT sender, category, spam FROM sender_rule WHERE user_id = $1
+`
+
+type ListSenderRulesRow struct {
+	Sender   string
+	Category pgtype.Text
+	Spam     pgtype.Bool
+}
+
+func (q *Queries) ListSenderRules(ctx context.Context, userID string) ([]ListSenderRulesRow, error) {
+	rows, err := q.db.Query(ctx, listSenderRules, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSenderRulesRow
+	for rows.Next() {
+		var i ListSenderRulesRow
+		if err := rows.Scan(&i.Sender, &i.Category, &i.Spam); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

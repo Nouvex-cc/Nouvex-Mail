@@ -47,6 +47,11 @@ type ChangeLog struct {
 	CreatedAt pgtype.Timestamptz
 }
 
+type Contact struct {
+	UserID string
+	Hash   string
+}
+
 type MailAccount struct {
 	ID          string
 	UserID      string
@@ -96,6 +101,7 @@ type Message struct {
 	Category  string
 	Key       []byte
 	Sealed    []byte
+	Spam      bool
 }
 
 type Passkey struct {
@@ -118,6 +124,13 @@ type Scheduled struct {
 	RunAt     pgtype.Timestamptz
 	Kind      string
 	Payload   []byte
+}
+
+type SenderRule struct {
+	UserID   string
+	Sender   string
+	Category pgtype.Text
+	Spam     pgtype.Bool
 }
 
 type Session struct {

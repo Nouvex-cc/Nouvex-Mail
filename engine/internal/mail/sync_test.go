@@ -48,6 +48,8 @@ type fixture struct {
 	key    *ecdh.PrivateKey
 	// cut closes every open connection, like a server ending an idle one.
 	cut func()
+	// appendTo puts a message into a folder, made if it isn't there.
+	appendTo func(box, raw string)
 }
 
 var noDrop = func(context.Context, string) error { return nil }
@@ -133,6 +135,12 @@ func setup(t *testing.T) fixture {
 			t.Error(err)
 		}
 	}
+	appendTo := func(box, raw string) {
+		_ = u.Create(box, nil)
+		if _, err := u.Append(box, bytes.NewReader([]byte(raw)), &imap.AppendOptions{}); err != nil {
+			t.Error(err)
+		}
+	}
 	add := func(subject string) {
 		raw := fmt.Sprintf("From: Lena Hartmann <lena@example.com>\r\nSubject: %s\r\nDate: Thu, 8 Oct 2026 09:12:00 +0200\r\nMessage-ID: <%s@example.com>\r\n\r\nHi", subject, rand.Text())
 		if _, err := u.Append("INBOX", bytes.NewReader([]byte(raw)), &imap.AppendOptions{}); err != nil {
@@ -185,7 +193,7 @@ func setup(t *testing.T) fixture {
 	if _, err := pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, id, key.PublicKey().Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	return fixture{pool, id, add, addRaw, key, cut}
+	return fixture{pool, id, add, addRaw, key, cut, appendTo}
 }
 
 func TestSync(t *testing.T) {
@@ -759,5 +767,40 @@ func TestSeed(t *testing.T) {
 	}
 	if n := len(f.messages(t)); n != 0 {
 		t.Fatalf("%d messages after archiving", n)
+	}
+}
+
+// New mail is sorted by what the user said about its sender, then by whether they wrote to it, then by the message.
+func TestSort(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.appendTo("Sent", "From: lena@example.com\r\nTo: Max <Max@friend.org>\r\nSubject: Dinner\r\nMessage-ID: <d@example.com>\r\n\r\nTomorrow?")
+	// From someone Lena wrote to, even with a list's headers.
+	f.addRaw("From: Max <max@friend.org>\r\nSubject: Club news\r\nList-Unsubscribe: <https://friend.org/u>\r\nMessage-ID: <c@friend.org>\r\n\r\nSee you at practice.")
+	f.addRaw("From: Shop <news@mail.shop.example>\r\nSubject: New in\r\nList-Unsubscribe: <https://shop.example/u>, <mailto:u@shop.example>\r\n" +
+		"List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\nMessage-ID: <n@shop.example>\r\n\r\nOur autumn collection.")
+	f.addRaw("From: Store <hi@store.example>\r\nSubject: Weekly\r\nList-Unsubscribe: <https://store.example/u>\r\nMessage-ID: <w@store.example>\r\n\r\nThis week.")
+	f.addRaw("Authentication-Results: mx.example.com; dkim=none; spf=softfail\r\nFrom: \"PayPal\" <secure@account-verify-center.top>\r\nSubject: Your account has been limited\r\n" +
+		"Message-ID: <p@top>\r\nContent-Type: text/html\r\n\r\n<p>Dear Customer, your account access has been limited until you verify your identity. " +
+		`<a href="http://account-verify-center.top/login">www.paypal.com</a> Confirm your billing information within 24 hours or your account will be suspended.</p>`)
+	// Lena moved the store's mail to Promotions before.
+	if _, err := f.pool.Exec(ctx, `INSERT INTO sender_rule (user_id, sender, category) VALUES ($1, $2, 'promotions')`, f.id, Sender("@store.example")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Sync(ctx, f.pool, Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
+	}
+	for subject, want := range map[string]string{
+		"Club news": "primary false", "New in": "newsletters false", "Weekly": "promotions false",
+		"Your account has been limited": "primary true",
+	} {
+		var got string
+		_ = f.pool.QueryRow(ctx, `SELECT category || ' ' || spam FROM message WHERE id = $1`, f.find(t, subject).ID).Scan(&got)
+		if got != want {
+			t.Errorf("%s: %q, want %q", subject, got, want)
+		}
+	}
+	if u := f.find(t, "New in").Unsubscribe; u == nil || u.URL != "https://shop.example/u" || u.Mailto != "mailto:u@shop.example" || !u.OneClick {
+		t.Errorf("unsubscribe %+v", u)
 	}
 }

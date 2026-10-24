@@ -13,11 +13,12 @@ The code is in `engine/internal/seal`, `packages/sdk/src/crypto.ts` and `apps/ap
 
 ## What the server still sees
 
-- **Mail while it passes through.** The engine reads each message once, in memory, to encrypt it, find codes and meetings and sort it into a tab. Mail you send passes through in plain text on its way to your provider. Someone who changes the engine's code could keep a copy. Running your own server (docs/deploy.md) is the answer to that.
+- **Mail while it passes through.** The engine reads each message once, in memory, to encrypt it, find codes and meetings, sort it into a tab and judge whether it's spam. Mail you send passes through in plain text on its way to your provider. Someone who changes the engine's code could keep a copy. Running your own server (docs/deploy.md) is the answer to that.
 - **The passwords of your mail accounts.** The engine needs them to sync while none of your devices is on. They are encrypted with the server's `SECRETS_KEY`, so they're safe in a stolen backup, not from whoever runs the server.
 - **Metadata:**
   - when a message was sent, its size and flags (read, starred)
-  - which tab it's sorted into
+  - which tab it's sorted into, and whether the engine took it for spam
+  - the addresses you wrote to and the senders you sorted by hand, kept only as SHA-256; like Message-IDs, a guessed address can be checked against them
   - your folder names, your account addresses and mail servers
   - the names of your groups and their focus times, your accounts' short names, colors and order
   - which messages belong to one conversation (Message-IDs are kept only as SHA-256)
