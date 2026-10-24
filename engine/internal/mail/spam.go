@@ -154,14 +154,15 @@ func signed(h mail.Header) bool {
 
 // spam is the engine's own verdict, and a careful one: the words alone never decide, since the corpora it learned
 // from are English and old. It also takes a trick (a link or a name showing another domain), or a provider that
-// checked where the mail comes from and couldn't confirm it (no DMARC, DKIM or SPF pass).
+// checked where the mail comes from and couldn't confirm it (no DMARC, DKIM or SPF pass). Mail that proves where it's
+// from is the provider's to judge: newsletters link through tracking domains all the time.
 func spam(h mail.Header, tokens []string) bool {
-	if logit, threshold := SpamScore(tokens); logit < threshold {
+	if logit, threshold := SpamScore(tokens); logit < threshold || signed(h) {
 		return false
 	}
 	if slices.Contains(tokens, "t:link-mismatch") || slices.Contains(tokens, "t:name-elsewhere") {
 		return true
 	}
 	results := strings.ToLower(h.Get("Authentication-Results"))
-	return results != "" && !signed(h) && !strings.Contains(results, "spf=pass")
+	return results != "" && !strings.Contains(results, "spf=pass")
 }

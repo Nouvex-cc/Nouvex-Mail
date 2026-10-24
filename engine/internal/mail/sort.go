@@ -43,6 +43,10 @@ func Sender(addr string) string {
 // sent or drafted is never spam.
 func (s *syncer) sort(boxID, from string, p Parsed) (category string, spam bool) {
 	category, spam = p.Category, p.Spam
+	// A message that couldn't be read has no tab of its own; clients only know the five.
+	if category == "" {
+		category = "primary"
+	}
 	if s.contacts[Sender(from)] {
 		category, spam = "primary", false
 	}

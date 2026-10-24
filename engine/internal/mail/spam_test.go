@@ -25,8 +25,9 @@ func TestSpam(t *testing.T) {
 		// German wording alone isn't enough: the model learned from English mail.
 		{"bank notice", bank, false},
 		{"bank notice the provider couldn't confirm", "Authentication-Results: mx.gmx.net; dkim=none; spf=softfail\r\n" + bank, true},
-		// Proven to come from its domain and nothing tricky in it: the provider's filter decides, not ours.
+		// Proven to come from its domain: the provider's filter decides, not ours, even with a link to elsewhere.
 		{"signed bank notice", "Authentication-Results: mx.gmx.net; dkim=pass header.d=spk-sicherheit-update.com\r\n" + bank, false},
+		{"signed newsletter", "Authentication-Results: mx.google.com; dkim=pass header.i=@account-verify-center.top; dmarc=pass\r\n" + phish, false},
 	} {
 		p, err := Content([]byte(c.raw))
 		if err != nil {
