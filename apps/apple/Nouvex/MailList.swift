@@ -665,7 +665,8 @@ struct InboxChips: View {
         let ids = mail.inView.map(\.id)
         let found = ValueObservation.tracking { db in
             let sql = "SELECT category, MIN(seen) FROM message WHERE spam = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within) GROUP BY category"
-            return try Row.fetchAll(db, sql: sql, arguments: [ids.json]).map { (String($0[0]) ?? "", Bool($0[1]) ?? true) }
+            // Typed on purpose: Bool(row[1]) would read the number as text first, and GRDB stops the app on that.
+            return try Row.fetchAll(db, sql: sql, arguments: [ids.json]).map { row -> (String, Bool) in (row[0], row[1]) }
         }
         do {
             for try await rows in found.values(in: Store.db) {
