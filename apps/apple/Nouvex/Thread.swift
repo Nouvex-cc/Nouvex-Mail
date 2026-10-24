@@ -145,6 +145,10 @@ struct ThreadView: View {
                         back()
                     }
                     Button("Snooze…", systemImage: "clock") { snoozing = true }
+                    if let last = messages.last {
+                        Divider()
+                        SortMenu(message: last)
+                    }
                     Divider()
                     Button("Delete", systemImage: "trash", role: .destructive) { leave { mail.update(inFolder, trash: true) } }
                 }
@@ -188,6 +192,9 @@ struct ThreadView: View {
         ToolbarItemGroup {
             Button("Archive", systemImage: "archivebox") { leave { mail.update(inFolder, archive: true) } }.help("Archive (E)")
             Button("Delete", systemImage: "trash") { leave { mail.update(inFolder, trash: true) } }.help("Delete (#)")
+            if let last = messages.last {
+                Menu("More", systemImage: "ellipsis") { SortMenu(message: last) }
+            }
         }
     }
 

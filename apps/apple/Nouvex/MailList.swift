@@ -37,7 +37,8 @@ struct MailList: View {
             rows
                 .environment(\.compact, compact || narrow)
                 .onGeometryChange(for: Bool.self) { $0.size.width < 600 } action: { narrow = $0 }
-                .navigationTitle(query.isEmpty && tokens.isEmpty ? mail.folder.name : "Search")
+                // A chip filters the inbox; the title stays Inbox.
+                .navigationTitle(query.isEmpty && tokens.isEmpty ? (!mail.prefs.categories && mail.folder.isCategory ? "Inbox" : mail.folder.name) : "Search")
                 .overlay {
                     if conversations.isEmpty {
                         Text(query.isEmpty ? "Nothing here" : "No mail matches").font(.md).foregroundStyle(.muted)
@@ -49,7 +50,12 @@ struct MailList: View {
                 .onAppear { focused = true }
                 .onKeyPress(phases: .down) { press in key(press, scroll) }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { banners }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                if !mail.prefs.categories, query.isEmpty, tokens.isEmpty, mail.folder == .inbox || mail.folder.isCategory { InboxChips() }
+                banners
+            }
+        }
         #if os(macOS)
         .overlay(alignment: .bottom) {
             if !selection.isEmpty { bulkBar.padding(.bottom, 16).transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom))) }
@@ -316,6 +322,8 @@ struct MailList: View {
         Button(c.unread ? "Mark as Read" : "Mark as Unread") { mail.update(c.messages, seen: c.unread) }
         Button(c.starred ? "Unstar" : "Star") { mail.update(c.messages, starred: !c.starred) }
         Button("Snooze…") { snoozing = c.id }
+        Divider()
+        SortMenu(message: c.latest)
         Divider()
         Button("Delete", role: .destructive) { act(c) { mail.update(c.messages, trash: true) } }
     }
@@ -587,5 +595,83 @@ enum SearchToken: Identifiable, Hashable {
             return .since(cal.date(from: DateComponents(year: year, month: i + 1, day: 1))!, cal.monthSymbols[i])
         }
         return nil
+    }
+}
+
+/// Where a sender's mail goes from now on: a tab, spam or not, and leaving its list. In a row's context menu and an
+/// open conversation's More menu.
+struct SortMenu: View {
+    let message: Message
+    @Environment(Mail.self) private var mail
+
+    var body: some View {
+        Menu("Always sort as", systemImage: "tray.2") {
+            ForEach(tabs, id: \.0) { id, name in
+                Button(name) { mail.sortSender(message, category: id) }.disabled(message.category == id)
+            }
+        }
+        Button(message.spam ? "Not spam" : "Report spam", systemImage: message.spam ? "tray.and.arrow.up" : "xmark.bin") {
+            mail.sortSender(message, spam: !message.spam)
+        }
+        if message.unsubscribe != nil {
+            Button("Unsubscribe", systemImage: "envelope.badge.shield.half.filled") { mail.unsubscribe(message) }
+        }
+    }
+}
+
+/// With everything in one inbox, chips over the list filter it by tab; each only when there's mail for it, with a dot
+/// for unread.
+struct InboxChips: View {
+    @Environment(Mail.self) private var mail
+    @State private var present: Set<String> = []
+    @State private var unread: Set<String> = []
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                chip("All", folder: .inbox, dot: false)
+                ForEach(tabs.filter { present.contains($0.0) }, id: \.0) { id, name in
+                    chip(name, folder: .category(id), dot: unread.contains(id))
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        .scrollIndicators(.hidden)
+        .opacity(present.count > 1 ? 1 : 0)
+        .frame(height: present.count > 1 ? nil : 0)
+        .task(id: mail.inView.map(\.id)) { await observe() }
+    }
+
+    private func chip(_ name: String, folder: Folder, dot: Bool) -> some View {
+        let on = mail.folder == folder
+        return Button {
+            mail.folder = folder
+            mail.thread = nil
+        } label: {
+            HStack(spacing: 6) {
+                Text(name).font(.sm.weight(.medium))
+                if dot { Circle().frame(width: 6, height: 6).accessibilityLabel("Unread") }
+            }
+            .foregroundStyle(on ? Color.onInk : Color.muted)
+            .padding(.horizontal, 12).frame(height: 32)
+            .background(on ? Color.ink : Color.clear, in: Capsule())
+            .overlay(Capsule().strokeBorder(on ? Color.ink : Color.line))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func observe() async {
+        let ids = mail.inView.map(\.id)
+        let found = ValueObservation.tracking { db in
+            let sql = "SELECT category, MIN(seen) FROM message WHERE spam = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within) GROUP BY category"
+            return try Row.fetchAll(db, sql: sql, arguments: [ids.json]).map { (String($0[0]) ?? "", Bool($0[1]) ?? true) }
+        }
+        do {
+            for try await rows in found.values(in: Store.db) {
+                present = Set(rows.map(\.0))
+                unread = Set(rows.filter { !$0.1 }.map(\.0))
+            }
+        } catch {}
     }
 }
