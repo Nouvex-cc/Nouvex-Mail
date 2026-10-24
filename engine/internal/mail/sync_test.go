@@ -800,6 +800,16 @@ func TestSort(t *testing.T) {
 			t.Errorf("%s: %q, want %q", subject, got, want)
 		}
 	}
+	// Contacts kept before this existed fill in once from the Sent folder.
+	var n int
+	_, _ = f.pool.Exec(ctx, `DELETE FROM contact WHERE user_id = $1`, f.id)
+	if _, err := Sync(ctx, f.pool, Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM contact WHERE user_id = $1 AND hash = $2`, f.id, Sender("max@friend.org")).Scan(&n)
+	if n != 1 {
+		t.Errorf("contact after backfill: %d", n)
+	}
 	if u := f.find(t, "New in").Unsubscribe; u == nil || u.URL != "https://shop.example/u" || u.Mailto != "mailto:u@shop.example" || !u.OneClick {
 		t.Errorf("unsubscribe %+v", u)
 	}
