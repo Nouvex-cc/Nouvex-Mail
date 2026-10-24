@@ -149,3 +149,8 @@ db.version(9)
 	.upgrade((tx) =>
 		Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
 	);
+// Pulls used to skip messages they couldn't open, e.g. in a tab still holding the key from before a reset, and moved on
+// without them. Everything is fetched again once.
+db.version(10).upgrade((tx) =>
+	Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
+);
