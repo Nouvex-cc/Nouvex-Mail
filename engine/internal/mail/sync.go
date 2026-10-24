@@ -319,9 +319,10 @@ func (s *syncer) restart() error {
 // are compared.
 func (s *syncer) folder(name, role string, st *imap.StatusData, box *db.Mailbox) error {
 	ctx := s.ctx
+	backfill := role == "sent" && len(s.contacts) == 0
 	if box != nil && st != nil && st.NumMessages != nil && box.HighestModSeq > 0 && box.Role == role &&
 		box.UidValidity == int64(st.UIDValidity) && box.UidNext == int64(st.UIDNext) &&
-		box.MessageCount == int64(*st.NumMessages) && uint64(box.HighestModSeq) == st.HighestModSeq {
+		box.MessageCount == int64(*st.NumMessages) && uint64(box.HighestModSeq) == st.HighestModSeq && !backfill {
 		return nil
 	}
 	var last int64
@@ -407,6 +408,19 @@ func (s *syncer) folder(name, role string, st *imap.StatusData, box *db.Mailbox)
 		}
 	} else if err := s.allFlags(box.ID, sel.NumMessages); err != nil {
 		return err
+	}
+
+	// Mail sent before Nouvex learned whom the user writes to: those addresses come once, from the envelopes alone.
+	if backfill && len(s.contacts) == 0 && sel.NumMessages > 0 {
+		var all imap.SeqSet
+		all.AddRange(1, 0)
+		sent, err := s.c.Fetch(all, &imap.FetchOptions{Envelope: true}).Collect()
+		if err != nil {
+			return err
+		}
+		if err := s.wroteTo(sent); err != nil {
+			return err
+		}
 	}
 
 	if box.UidNext != int64(sel.UIDNext) || box.MessageCount != int64(sel.NumMessages) || box.HighestModSeq != int64(sel.HighestModSeq) {
