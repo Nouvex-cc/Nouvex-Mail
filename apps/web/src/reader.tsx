@@ -8,6 +8,7 @@ import {
 	Button,
 	Dialog,
 	MailFrame,
+	Menu,
 	RichFrame,
 	Spinner,
 	Thread,
@@ -15,12 +16,12 @@ import {
 	Tooltip,
 	useShortcut,
 } from "@nouvex/ui";
-import { Archive, ChevronLeft, Mail, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
+import { Archive, ChevronLeft, Mail, More, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { useAccounts } from "./accounts";
-import type { Message } from "./db";
+import { type Category, type Message, tabs } from "./db";
 import { messageKey } from "./keys";
 import { usePref } from "./prefs";
 import type { Draft } from "./write";
@@ -40,6 +41,9 @@ export function Reader({
 	composer,
 	draft,
 	onResume,
+	onSort,
+	onSpam,
+	onUnsubscribe,
 }: {
 	messages: Message[];
 	starred: boolean;
@@ -54,13 +58,24 @@ export function Reader({
 	/** Our unsent reply to this conversation; Reply continues it instead of starting over. */
 	draft?: Message;
 	onResume: (draft: Message) => void;
+	/** From now on, the sender's mail goes into this tab. */
+	onSort: (category: Category) => void;
+	/** The sender's mail is spam from now on, or isn't. */
+	onSpam: (spam: boolean) => void;
+	onUnsubscribe: () => void;
 }) {
 	useShortcut("Escape", onClose);
 	const accounts = useAccounts();
 	const [replyTo] = usePref("replyDefault");
 	const [classic, setClassic] = useState(false);
+	const newest = messages.at(-1);
 	const actions = (
 		<div className="flex gap-1">
+			{newest?.unsubscribe && (
+				<Button variant="ghost" size="sm" onClick={onUnsubscribe}>
+					Unsubscribe
+				</Button>
+			)}
 			<Tooltip content={starred ? "Unstar" : "Star"}>
 				<Button variant="ghost" size="icon" aria-label={starred ? "Unstar" : "Star"} onClick={onStar}>
 					{starred ? <StarFilled /> : <Star strokeWidth={1.75} />}
@@ -83,9 +98,26 @@ export function Reader({
 					<Trash2 strokeWidth={1.75} />
 				</Button>
 			</Tooltip>
+			<Menu.Root>
+				<Menu.Trigger render={<Button variant="ghost" size="icon" aria-label="More" />}>
+					<More strokeWidth={1.75} />
+				</Menu.Trigger>
+				<Menu.Popup align="end">
+					<Menu.SubmenuRoot>
+						<Menu.SubmenuTrigger>Always sort as</Menu.SubmenuTrigger>
+						<Menu.Popup>
+							{tabs.map(([c, name]) => (
+								<Menu.Item key={c} disabled={newest?.category === c} onClick={() => onSort(c)}>
+									{name}
+								</Menu.Item>
+							))}
+						</Menu.Popup>
+					</Menu.SubmenuRoot>
+					<Menu.Item onClick={() => onSpam(!newest?.spam)}>{newest?.spam ? "Not spam" : "Report spam"}</Menu.Item>
+				</Menu.Popup>
+			</Menu.Root>
 		</div>
 	);
-	const newest = messages.at(-1);
 	const html = useQuery({
 		queryKey: ["body", newest?.id],
 		queryFn: () => body(newest as Message),

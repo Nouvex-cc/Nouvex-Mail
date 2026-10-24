@@ -11,6 +11,7 @@ import {
 	SearchField,
 	type SearchQuery,
 	Sidebar,
+	Tabs,
 	useShortcut,
 	useShortcutsDialog,
 	useToast,
@@ -37,14 +38,14 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { asleep, named, resting, useAccounts, useGroups, wake, wakes } from "../accounts";
 import { AddAccount } from "../add-account";
 import { session } from "../auth";
-import { type Category, db, type Message, once } from "../db";
+import { type Category, db, type Message, once, tabs } from "../db";
 import { signOut, unlocked } from "../keys";
 import { Now } from "../now";
 import { usePref } from "../prefs";
 import { body, Reader, text } from "../reader";
 import { matches } from "../search";
 import { shortcuts } from "../shortcuts";
-import { arrived, forget, listen, pull, update } from "../sync";
+import { arrived, forget, listen, pull, sortSender, unsubscribe, update } from "../sync";
 import { storedLook } from "../theme";
 import { type Draft, Write, when } from "../write";
 
@@ -74,12 +75,13 @@ const key = (thread: Message[]) => (thread[0] ? keyOf(thread[0]) : "");
 
 // The folder and the open conversation live in the URL, so the browser's back button goes from a message to its
 // folder and from folder to folder, and a link to a conversation opens it.
-type Search = { folder?: string; thread?: string };
+type Search = { folder?: string; thread?: string; tab?: Category };
 
 export const Route = createFileRoute("/")({
 	validateSearch: (s: Record<string, unknown>): Search => ({
 		folder: typeof s.folder === "string" ? s.folder : undefined,
 		thread: typeof s.thread === "string" ? s.thread : undefined,
+		tab: tabs.find(([c]) => c === s.tab)?.[0],
 	}),
 	beforeLoad: async () => {
 		const { data } = await session();
@@ -127,7 +129,8 @@ function Inbox() {
 	const role = category ? "inbox" : folder;
 	const tab: Category | undefined = searching
 		? undefined
-		: (category ?? (folder === "inbox" && bundling ? "primary" : undefined));
+		: (category ?? (folder === "inbox" ? (bundling ? "primary" : search.tab) : undefined));
+	const setTab = (t?: Category) => navigate({ to: "/", search: { folder: search.folder, tab: t } });
 	const [adding, setAdding] = useState(false);
 	const [draft, setDraft] = useState<Draft>();
 	const toast = useToast();
@@ -195,7 +198,7 @@ function Inbox() {
 			return db.messages
 				.orderBy("sentAt")
 				.reverse()
-				.filter((m) => inView.has(m.mailboxId) && matches(m, query))
+				.filter((m) => inView.has(m.mailboxId) && !m.spam && matches(m, query))
 				.limit(limit)
 				.toArray();
 		}
@@ -215,15 +218,29 @@ function Inbox() {
 					: db.messages.where("[mailboxId+sentAt]").between([id, Dexie.minKey], [id, Dexie.maxKey])
 				)
 					.reverse()
+					// Spam shows under Junk only, from whichever folder it's in.
+					.filter((m) => folder === "junk" || !m.spam)
 					.limit(limit)
 					.toArray(),
 			),
 		);
-		return newest
+		if (folder === "junk") {
+			const mine = new Set(boxes.map((b) => b.id));
+			newest.push(
+				await db.messages
+					.where("[spam+sentAt]")
+					.between([1, Dexie.minKey], [1, Dexie.maxKey])
+					.reverse()
+					.filter((m) => mine.has(m.mailboxId))
+					.limit(limit)
+					.toArray(),
+			);
+		}
+		return [...new Map(newest.flat().map((m) => [m.id, m])).values()]
 			.flat()
 			.sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 			.slice(0, limit);
-	}, [shown.join(), query, limit, folder, tab]);
+	}, [shown.join(), boxes.length, query, limit, folder, tab]);
 	// Except for answers to what was sent from them: those still show in All inboxes.
 	const [archivedReplies] = usePref("archivedReplies");
 	const sleeping = every.filter((b) => archived.has(b.accountId) && current === "all" && !withArchived);
@@ -259,7 +276,7 @@ function Inbox() {
 	const listed = replies?.length
 		? [...(messages ?? []), ...replies].sort((a, b) => b.sentAt.localeCompare(a.sentAt)).slice(0, limit)
 		: messages;
-	const inList = [...shown, ...replyBoxes.map((b) => b.id)];
+	const inList = [...shown, ...replyBoxes.map((b) => b.id), ...(folder === "junk" ? boxes.map((b) => b.id) : [])];
 	const inboxes = boxes
 		.filter((b) => b.role === "inbox" && (current !== "all" || !quiet.has(b.accountId)))
 		.map((b) => b.id);
@@ -271,32 +288,45 @@ function Inbox() {
 					inboxes.map((id) =>
 						bundling
 							? db.messages.where("[mailboxId+category+seen]").equals([id, "primary", 0]).first()
-							: db.messages.where("[mailboxId+seen]").equals([id, 0]).first(),
+							: db.messages
+									.where("[mailboxId+seen]")
+									.equals([id, 0])
+									.filter((m) => !m.spam)
+									.first(),
 					),
 				)
 			).some(Boolean),
 		[inboxes.join(), bundling],
 	);
-	// Whether each category has unread mail, for its dot.
-	const unreadIn = useLiveQuery(
-		async () =>
-			new Set(
-				(
-					await Promise.all(
-						categories.map(async ([c]) =>
-							(
-								await Promise.all(
-									inboxes.map((id) => db.messages.where("[mailboxId+category+seen]").equals([id, c, 0]).first()),
-								)
-							).some(Boolean)
-								? [c]
-								: [],
-						),
-					)
-				).flat(),
+	// Which categories have mail in the inbox, and which unread mail, for their chips and dots.
+	const inCategory = (c: Category, seen?: 0) =>
+		Promise.all(
+			inboxes.map((id) =>
+				(seen === 0
+					? db.messages.where("[mailboxId+category+seen]").equals([id, c, 0])
+					: db.messages.where("[mailboxId+category+sentAt]").between([id, c, Dexie.minKey], [id, c, Dexie.maxKey])
+				)
+					.filter((m) => !m.spam)
+					.first(),
 			),
+		).then((found) => found.some(Boolean));
+	const unreadIn = useLiveQuery(
+		async () => new Set((await Promise.all(tabs.map(async ([c]) => ((await inCategory(c, 0)) ? [c] : [])))).flat()),
 		[inboxes.join()],
 	);
+	const present = useLiveQuery(
+		async () => new Set((await Promise.all(tabs.map(async ([c]) => ((await inCategory(c)) ? [c] : [])))).flat()),
+		[inboxes.join()],
+	);
+	// Junk shows wherever there's spam, also for accounts without a junk folder.
+	const hasSpam = useLiveQuery(async () => {
+		const mine = new Set(boxes.map((b) => b.id));
+		return !!(await db.messages
+			.where("[spam+sentAt]")
+			.between([1, Dexie.minKey], [1, Dexie.maxKey])
+			.filter((m) => mine.has(m.mailboxId))
+			.first());
+	}, [boxes.map((b) => b.id).join()]);
 	const own =
 		current === "all" || group ? [] : boxes.filter((b) => !b.role).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -373,6 +403,45 @@ function Inbox() {
 		else setOpen(k);
 		if (markWhen === "instant") markRead(thread);
 		else if (markWhen === "delay") setTimeout(() => openNow.current === k && markRead(thread), 2000);
+	};
+	// What the user says about a sender holds for all of its mail, new mail too; a toast can take it back.
+	const sortAs = async (thread: Message[], change: { category?: Category; spam?: boolean }) => {
+		const m = thread.at(-1);
+		if (!m) return;
+		if (change.spam !== undefined) setOpen(undefined);
+		const undo = await sortSender(m.fromAddr, change);
+		const name = m.fromName || m.fromAddr;
+		toast.add({
+			title:
+				change.spam === true
+					? `Mail from ${name} goes to Junk`
+					: change.spam === false
+						? `Mail from ${name} isn't spam`
+						: `Mail from ${name} goes to ${tabs.find(([c]) => c === change.category)?.[1]}`,
+			actionProps: { children: "Undo", onClick: () => void undo() },
+		});
+	};
+	const leave = async (thread: Message[]) => {
+		const m = thread.findLast((t) => t.unsubscribe);
+		if (!m) return;
+		const ok = await unsubscribe(m).catch(() => false);
+		toast.add(
+			ok
+				? {
+						title: `Unsubscribed from ${m.fromName || m.fromAddr}`,
+						actionProps: { children: "Archive this", onClick: () => moveThread(thread, { archive: true }) },
+					}
+				: {
+						title: "Couldn't unsubscribe",
+						description: "The sender didn't take it.",
+						...(m.unsubscribe?.url && {
+							actionProps: {
+								children: "Open their page",
+								onClick: () => window.open(m.unsubscribe?.url, "_blank", "noopener"),
+							},
+						}),
+					},
+		);
 	};
 	// A conversation is starred when any of its messages is; starring marks the newest.
 	const isStarred = (thread: Message[]) => thread.some((m) => m.starred === 1);
@@ -471,7 +540,9 @@ function Inbox() {
 					<Sidebar.Section>
 						<Sidebar.Item label="Write" icon={<PenLine strokeWidth={1.75} />} onSelect={() => setDraft({})} />
 						{standard
-							.filter((f) => f.role === "inbox" || boxes.some((b) => b.role === f.role))
+							.filter(
+								(f) => f.role === "inbox" || (f.role === "junk" && hasSpam) || boxes.some((b) => b.role === f.role),
+							)
 							.map(({ role, label, Icon }) => (
 								<Fragment key={role}>
 									<Sidebar.Item
@@ -560,6 +631,9 @@ function Inbox() {
 					onStar={() => toggleStar(conversation)}
 					onTrash={() => moveOpen(conversation, { trash: true })}
 					onArchive={folder === "archive" ? undefined : () => moveOpen(conversation, { archive: true })}
+					onSort={(category) => void sortAs(conversation, { category })}
+					onSpam={(spam) => void sortAs(conversation, { spam })}
+					onUnsubscribe={() => void leave(conversation)}
 				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">
@@ -594,6 +668,27 @@ function Inbox() {
 							</Button>
 						</div>
 					))}
+					{folder === "inbox" && !bundling && !searching && (present?.size ?? 0) > 1 && (
+						<Tabs.Root value={tab ?? "all"} onValueChange={(v) => setTab(v === "all" ? undefined : (v as Category))}>
+							<Tabs.List variant="chips">
+								<Tabs.Tab variant="chips" value="all">
+									All
+								</Tabs.Tab>
+								{tabs
+									.filter(([c]) => present?.has(c))
+									.map(([c, name]) => (
+										<Tabs.Tab key={c} variant="chips" value={c}>
+											{name}
+											{unreadIn?.has(c) && (
+												<span className="size-1.5 rounded-full bg-accent">
+													<span className="sr-only">Unread</span>
+												</span>
+											)}
+										</Tabs.Tab>
+									))}
+							</Tabs.List>
+						</Tabs.Root>
+					)}
 					<MessageList onSelectionChange={(rows) => setSelected(new Set(rows.map((i) => key(threads[i] ?? []))))}>
 						{threads.map((thread) => {
 							// biome-ignore lint/style/noNonNullAssertion: groupBy never makes an empty group
