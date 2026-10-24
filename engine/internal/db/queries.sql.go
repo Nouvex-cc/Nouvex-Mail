@@ -291,7 +291,7 @@ func (q *Queries) GetMessageID(ctx context.Context, arg GetMessageIDParams) (str
 }
 
 const getMessagePlace = `-- name: GetMessagePlace :one
-SELECT m.uid, m.flags, b.name, b.local FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2
+SELECT m.uid, m.flags, b.name, b.local, b.role FROM message m JOIN mailbox b ON b.id = m.mailbox_id WHERE m.id = $1 AND m.account_id = $2
 `
 
 type GetMessagePlaceParams struct {
@@ -304,6 +304,7 @@ type GetMessagePlaceRow struct {
 	Flags []string
 	Name  string
 	Local bool
+	Role  string
 }
 
 func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams) (GetMessagePlaceRow, error) {
@@ -314,6 +315,7 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 		&i.Flags,
 		&i.Name,
 		&i.Local,
+		&i.Role,
 	)
 	return i, err
 }
@@ -818,6 +820,37 @@ type SetSyncErrorParams struct {
 
 func (q *Queries) SetSyncError(ctx context.Context, arg SetSyncErrorParams) error {
 	_, err := q.db.Exec(ctx, setSyncError, arg.ID, arg.SyncError)
+	return err
+}
+
+const sortMessage = `-- name: SortMessage :exec
+WITH changed AS (
+  UPDATE message SET category = coalesce($3::text, category), spam = coalesce($4::boolean, spam)
+  WHERE id = $2 AND account_id = $1
+    AND (category <> coalesce($3::text, category) OR spam <> coalesce($4::boolean, spam))
+  RETURNING id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = $1 AND EXISTS (SELECT FROM changed) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT $1, v.version, 'message', $2, 'upsert' FROM v
+`
+
+type SortMessageParams struct {
+	AccountID string
+	ID        string
+	Category  pgtype.Text
+	Spam      pgtype.Bool
+}
+
+// Puts a message into a tab or marks it spam or not, and logs the change, unless nothing changes.
+func (q *Queries) SortMessage(ctx context.Context, arg SortMessageParams) error {
+	_, err := q.db.Exec(ctx, sortMessage,
+		arg.AccountID,
+		arg.ID,
+		arg.Category,
+		arg.Spam,
+	)
 	return err
 }
 

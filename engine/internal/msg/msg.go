@@ -4,6 +4,7 @@ package msg
 
 import "encoding/json"
 import "fmt"
+import "reflect"
 import "time"
 
 // Request: API asks the engine whether these settings log in to IMAP and SMTP,
@@ -387,6 +388,9 @@ type MessageUpdate struct {
 	// Move the message to the archive folder.
 	Archive *bool `json:"archive,omitempty,omitzero"`
 
+	// Put it into another inbox tab.
+	Category *MessageUpdateCategory `json:"category,omitempty,omitzero"`
+
 	// Starred.
 	Flagged *bool `json:"flagged,omitempty,omitzero"`
 
@@ -402,8 +406,47 @@ type MessageUpdate struct {
 	// Move it to Snoozed until then, then back to the INBOX.
 	SnoozeUntil *time.Time `json:"snoozeUntil,omitempty,omitzero"`
 
+	// Spam moves it to the junk folder, not spam back to the INBOX.
+	Spam *bool `json:"spam,omitempty,omitzero"`
+
 	// Move the message to the trash folder.
 	Trash *bool `json:"trash,omitempty,omitzero"`
+}
+
+type MessageUpdateCategory string
+
+const MessageUpdateCategoryNewsletters MessageUpdateCategory = "newsletters"
+const MessageUpdateCategoryPrimary MessageUpdateCategory = "primary"
+const MessageUpdateCategoryPromotions MessageUpdateCategory = "promotions"
+const MessageUpdateCategorySocial MessageUpdateCategory = "social"
+const MessageUpdateCategoryUpdates MessageUpdateCategory = "updates"
+
+var enumValues_MessageUpdateCategory = []interface{}{
+	"primary",
+	"promotions",
+	"social",
+	"updates",
+	"newsletters",
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageUpdateCategory) UnmarshalJSON(value []byte) error {
+	var v string
+	if err := json.Unmarshal(value, &v); err != nil {
+		return err
+	}
+	var ok bool
+	for _, expected := range enumValues_MessageUpdateCategory {
+		if reflect.DeepEqual(v, expected) {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return fmt.Errorf("invalid value (expected one of %#v): %#v", enumValues_MessageUpdateCategory, v)
+	}
+	*j = MessageUpdateCategory(v)
+	return nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.

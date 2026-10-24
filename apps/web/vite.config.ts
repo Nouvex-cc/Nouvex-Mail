@@ -14,6 +14,8 @@ export default defineConfig({
 			"/groups": "http://localhost:3000",
 			"/order": "http://localhost:3000",
 			"/rich": "http://localhost:3000",
+			"/rules": "http://localhost:3000",
+			"/unsubscribe": "http://localhost:3000",
 			"/keys": "http://localhost:3000",
 			"/password": "http://localhost:3000",
 			"/invites": "http://localhost:3000",

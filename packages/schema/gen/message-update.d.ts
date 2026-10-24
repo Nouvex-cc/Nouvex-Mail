@@ -32,4 +32,12 @@ export interface MessageUpdate {
    * Move the message back to the INBOX.
    */
   inbox?: boolean;
+  /**
+   * Put it into another inbox tab.
+   */
+  category?: "primary" | "promotions" | "social" | "updates" | "newsletters";
+  /**
+   * Spam moves it to the junk folder, not spam back to the INBOX.
+   */
+  spam?: boolean;
 }
