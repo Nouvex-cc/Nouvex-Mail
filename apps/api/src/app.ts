@@ -750,8 +750,10 @@ app.openapi(
 				mailboxes: { upserted: mailboxes, deleted: boxes.deleted },
 				messages: {
 					upserted: messages.map(
-						({ accountId: _, uid: __, refs: ___, messageId: ____, sentAt, key, sealed, ...m }) => ({
+						({ accountId: _, uid: __, refs: ___, messageId: ____, sentAt, key, sealed, category, ...m }) => ({
 							...m,
+							// The Apple app drops a whole page over a tab it doesn't know.
+							category: Category.safeParse(category).data ?? "primary",
 							sentAt: sentAt.toISOString(),
 							key: key.toBase64(),
 							sealed: sealed.toBase64(),
