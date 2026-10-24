@@ -88,18 +88,11 @@ func main() {
 	// The threshold sits just above the ham the target lets through, and never below even odds.
 	allowed := int(*fpr * float64(len(hamScores)))
 	threshold := math.Max(0, hamScores[len(hamScores)-1-allowed]+0.01)
-	caught := 0
-	for _, s := range spamScores {
-		if s >= threshold {
-			caught++
-		}
+	over := func(scores []float64) int {
+		return len(scores) - sort.SearchFloat64s(scores, threshold)
 	}
-	flagged := 0
-	for _, s := range hamScores {
-		if s >= threshold {
-			flagged++
-		}
-	}
+	sort.Float64s(spamScores)
+	caught, flagged := over(spamScores), over(hamScores)
 	log.Printf("held back: %d ham, %d spam; log-odds threshold %.2f flags %d ham (%.2f%%) and catches %.1f%% of spam",
 		len(hamScores), len(spamScores), threshold, flagged, 100*float64(flagged)/float64(len(hamScores)),
 		100*float64(caught)/float64(len(spamScores)))
