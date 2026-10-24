@@ -88,8 +88,8 @@ const reading = prefsPage({ id: "reading", title: "Reading", icon: <BookOpen str
 	},
 	{
 		key: "categories",
-		label: "Categories",
-		hint: "Promotions, social networks, updates and newsletters get their own place under Inbox",
+		label: "Separate categories",
+		hint: "Promotions, social networks, updates and newsletters leave the inbox for their own place under it. Off, everything stays in one inbox and filters on top sort it",
 		keywords: "categories primary promotions social updates newsletters sort tabs group",
 		options: [
 			[true, "On"],

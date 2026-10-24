@@ -30,6 +30,10 @@ export interface Message {
 	rich?: boolean;
 	/** Put into the inbox by Nouvex itself, so its nx-actions may open places in the app. */
 	seeded?: boolean;
+	/** How to leave the list it came from (List-Unsubscribe). */
+	unsubscribe?: { url?: string; mailto?: string; oneClick?: boolean };
+	// 1 when the engine or the user took it for spam: it shows under Junk, wherever it is on the server.
+	spam?: 0 | 1;
 	// 1 when actions isn't empty, so the sidebar finds them through an index.
 	acts?: 0 | 1;
 	// 1 when flags has \Seen. Only here so unread mail can be found through an index; IndexedDB can't index booleans.
@@ -39,6 +43,14 @@ export interface Message {
 }
 
 export type Category = "primary" | "promotions" | "social" | "updates" | "newsletters";
+// The tabs by name, in the order chips and menus show them.
+export const tabs: [Category, string][] = [
+	["primary", "People"],
+	["updates", "Updates"],
+	["newsletters", "Newsletters"],
+	["promotions", "Promotions"],
+	["social", "Social"],
+];
 
 export type Action = {
 	kind: "code" | "meeting";
@@ -154,3 +166,17 @@ db.version(9)
 db.version(10).upgrade((tx) =>
 	Promise.all([tx.table("messages").clear(), tx.table("mailboxes").clear(), tx.table("cursor").clear()]),
 );
+// Spam shows under Junk, newest first, from whichever folder it's in.
+db.version(11)
+	.stores({
+		messages:
+			"id, mailboxId, sentAt, threadId, acts, [mailboxId+sentAt], [mailboxId+category+sentAt], [mailboxId+category+seen], [mailboxId+seen], [starred+sentAt], [spam+sentAt]",
+	})
+	.upgrade((tx) =>
+		tx
+			.table("messages")
+			.toCollection()
+			.modify((m: { spam?: unknown }) => {
+				m.spam = m.spam ? 1 : 0;
+			}),
+	);

@@ -14,7 +14,8 @@ export type Prefs = {
 	meetingLead: 5 | 10 | 15 | 30 | 60;
 	/** Minutes a sign-in code stays in the sidebar. */
 	codeLife: 1 | 5 | 10 | 15;
-	/** Promotions, social, updates and newsletters leave the inbox for their own place under it. */
+	/** Promotions, social, updates and newsletters leave the inbox for their own place under it. Off, everything stays
+	 * in one inbox and chips over the list filter it. */
 	categories: boolean;
 };
 
@@ -27,7 +28,7 @@ export const defaults: Prefs = {
 	archivedReplies: true,
 	meetingLead: 15,
 	codeLife: 5,
-	categories: true,
+	categories: false,
 };
 
 // The last answer is kept in the browser, so the first paint already has the user's choices.

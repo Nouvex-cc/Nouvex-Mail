@@ -283,6 +283,19 @@ export const Moon = icon(
 		/>
 	</>,
 );
+export const More = icon(
+	<>
+		<path
+			fill="currentColor"
+			d="M12.5 12a.5.5 0 1 1-1 0a.5.5 0 0 1 1 0m6 0a.5.5 0 1 1-1 0a.5.5 0 0 1 1 0m-12 0a.5.5 0 1 1-1 0a.5.5 0 0 1 1 0"
+		/>
+		<path
+			fill="none"
+			stroke="currentColor"
+			d="M12.5 12a.5.5 0 1 1-1 0a.5.5 0 0 1 1 0Zm6 0a.5.5 0 1 1-1 0a.5.5 0 0 1 1 0Zm-12 0a.5.5 0 1 1-1 0a.5.5 0 0 1 1 0Z"
+		/>
+	</>,
+);
 export const Palette = icon(
 	<>
 		<path
