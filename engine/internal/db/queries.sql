@@ -26,9 +26,18 @@ SELECT COALESCE(MAX(uid), 0)::bigint FROM message WHERE mailbox_id = $1;
 SELECT count(*) FROM message WHERE mailbox_id = $1;
 
 -- name: InsertMessage :execrows
-INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed, spam)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (mailbox_id, uid) DO NOTHING;
+
+-- name: ListContacts :many
+SELECT hash FROM contact WHERE user_id = $1;
+
+-- name: AddContacts :exec
+INSERT INTO contact (user_id, hash) SELECT $1, unnest(sqlc.arg(hashes)::text[]) ON CONFLICT DO NOTHING;
+
+-- name: ListSenderRules :many
+SELECT sender, category, spam FROM sender_rule WHERE user_id = $1;
 
 -- name: GetUserKey :one
 SELECT k.public_key FROM user_key k JOIN mail_account a ON a.user_id = k.user_id WHERE a.id = $1;

@@ -30,7 +30,7 @@ var (
 // category sorts a message into an inbox tab from its headers and subject, the way Proton does, without reading the
 // body: social for networks, promotions for bulk mail selling something, updates for notifications and receipts,
 // newsletters for other bulk mail, primary for the rest.
-// ponytail: fixed rules; learning from where the user moves mail is the next step, a model only for what's left.
+// What the user said about a sender and whom they wrote to come first (sort.go); this is for everyone else.
 func category(h mail.Header, subject string, acts []Action) string {
 	var from string
 	if list, _ := h.AddressList("From"); len(list) > 0 {

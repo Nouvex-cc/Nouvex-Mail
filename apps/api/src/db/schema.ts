@@ -152,6 +152,9 @@ export const message = pgTable(
 		category: text("category", { enum: ["primary", "promotions", "social", "updates", "newsletters"] })
 			.notNull()
 			.default("primary"),
+		// The engine thinks it's spam (engine/internal/mail/spam.go); it stays where it is on the server, clients show it
+		// under Junk.
+		spam: boolean("spam").notNull().default(false),
 	},
 	(t) => [
 		unique().on(t.mailboxId, t.uid),
@@ -160,6 +163,33 @@ export const message = pgTable(
 		index().on(t.accountId, t.messageId),
 		index().using("gin", t.refs),
 	],
+);
+
+// Addresses the user wrote to, as SHA-256 of the lowercased address: mail from them is from people, never spam.
+export const contact = pgTable(
+	"contact",
+	{
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		hash: text("hash").notNull(),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.hash] })],
+);
+
+// Where the user put a sender's mail: a tab, spam or not spam. sender is the SHA-256 of the lowercased address, or of
+// "@domain" for a whole domain.
+export const senderRule = pgTable(
+	"sender_rule",
+	{
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		sender: text("sender").notNull(),
+		category: text("category", { enum: ["primary", "promotions", "social", "updates", "newsletters"] }),
+		spam: boolean("spam"),
+	},
+	(t) => [primaryKey({ columns: [t.userId, t.sender] })],
 );
 
 // One row per change, version is monotonic per account. Clients ask for "everything after version N".

@@ -52,6 +52,8 @@ type Meta struct {
 	Rich bool `json:"rich,omitempty"`
 	// Nouvex put it into the inbox itself (Seed), so its nx-actions may open places in the app.
 	Seeded bool `json:"seeded,omitempty"`
+	// How to leave the list it came from, if it says.
+	Unsubscribe *Unsubscribe `json:"unsubscribe,omitempty"`
 }
 
 // Hashed is how Message-IDs are stored: equal ones still match, for conversations, without keeping the header.
@@ -133,6 +135,9 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 	}
 
 	s.c = c
+	if err := s.loadSorting(); err != nil {
+		return 0, err
+	}
 
 	stored, err := s.q.ListMailboxes(ctx, acc.ID)
 	if err != nil {
@@ -146,6 +151,16 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 		}
 	}
 	listed := map[string]bool{}
+	// Sent first: who the user writes to tells mail from people apart in the folders after it.
+	slices.SortStableFunc(boxes, func(a, b *imap.ListData) int {
+		if (role(a) == "sent") == (role(b) == "sent") {
+			return 0
+		}
+		if role(a) == "sent" {
+			return -1
+		}
+		return 1
+	})
 	for _, b := range boxes {
 		listed[b.Mailbox] = true
 		if err := s.folder(b.Mailbox, role(b), b.Status, known[b.Mailbox]); err != nil {
@@ -209,6 +224,10 @@ type syncer struct {
 	acc      db.MailAccount
 	pub      []byte
 	changes  db.LogChangesParams
+	// What sorts new mail: the user's own rules by sender hash, the people they wrote to, and each folder's role.
+	rules    map[string]db.ListSenderRulesRow
+	contacts map[string]bool
+	roles    map[string]string
 }
 
 func (s *syncer) begin() (err error) {
@@ -363,6 +382,7 @@ func (s *syncer) folder(name, role string, st *imap.StatusData, box *db.Mailbox)
 		s.log("mailbox", box.ID, "upsert")
 	}
 
+	s.roles[box.ID] = role
 	if newCmd != nil {
 		if err := s.save(box.ID, last, fresh); err != nil {
 			return err
@@ -478,6 +498,11 @@ func (s *syncer) save(boxID string, last int64, msgs []*imapclient.FetchMessageB
 	if err := errors.Join(errs...); err != nil {
 		return err
 	}
+	if s.roles[boxID] == "sent" {
+		if err := s.wroteTo(msgs); err != nil {
+			return err
+		}
+	}
 	for _, row := range ready {
 		if row == nil {
 			continue
@@ -531,12 +556,12 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 		To: addrs(m.Envelope.To), Cc: addrs(m.Envelope.Cc),
 		// Empty lists rather than null.
 		Attachments: append([]File{}, parsed.Files...), Actions: append([]Action{}, parsed.Actions...),
-		Rich: parsed.Rich != "",
+		Rich: parsed.Rich != "", Unsubscribe: parsed.Unsubscribe,
 	}
 	if len(m.Envelope.From) > 0 {
 		meta.FromName, meta.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
 	}
-	row.Category = parsed.Category
+	row.Category, row.Spam = s.sort(boxID, meta.FromAddr, parsed)
 	refs := References(raw)
 	for i, r := range refs {
 		refs[i] = Hashed(r)
