@@ -955,7 +955,8 @@ app.openapi(
 		method: "post",
 		path: "/unsubscribe",
 		operationId: "unsubscribe",
-		description: "Leaves a list with one click (RFC 8058), from the server, so the sender doesn't learn the reader's address.",
+		description:
+			"Leaves a list with one click (RFC 8058), from the server, so the sender doesn't learn the reader's address.",
 		request: {
 			body: { content: { "application/json": { schema: z.object({ url: z.url({ protocol: /^https$/ }) }) } } },
 		},
