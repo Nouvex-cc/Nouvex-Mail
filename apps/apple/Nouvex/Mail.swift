@@ -323,12 +323,11 @@ struct Toast: Identifiable {
             let since = try await Store.db.read { try Cursor.fetchOne($0, key: accountId)?.version } ?? 0
             let page = try await API.client.getChanges(path: .init(accountId: accountId), query: .init(since: since)).ok.body.json
             guard let mine = Keys.stored else { return fresh }
-            // One that doesn't open (sealed to a key from before a reset) is left out rather than holding up the rest.
-            let messages = page.messages.upserted.compactMap { m -> Message? in
+            // One that doesn't open stops the pull before the cursor moves: skipping it would lose it here for good.
+            let messages = try page.messages.upserted.map { m -> Message in
                 let key = Data(base64Encoded: m.key) ?? Data()
-                guard let plain = try? Crypto.decrypt(Crypto.openKey(mine, key), "meta", Data(base64Encoded: m.sealed) ?? Data()),
-                      let meta = try? metaDecoder.decode(Meta.self, from: plain)
-                else { return nil }
+                let plain = try Crypto.decrypt(Crypto.openKey(mine, key), "meta", Data(base64Encoded: m.sealed) ?? Data())
+                let meta = try metaDecoder.decode(Meta.self, from: plain)
                 var message = Message(
                     id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: meta.messageId, threadId: m.threadId,
                     subject: meta.subject, snippet: meta.snippet, fromName: meta.fromName, fromAddr: meta.fromAddr, to: meta.to,

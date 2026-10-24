@@ -63,6 +63,11 @@ function keys() {
 	return opened;
 }
 
+/** Forgets the key opened for this page, so the next use reads the one stored now, e.g. after a reset in another tab. */
+export const reload = () => {
+	opened = undefined;
+};
+
 /** Opens a message's own key, which opens its meta, body and attachments. */
 export const messageKey = async (m: { key: string }) => openKey(await keys(), Uint8Array.fromBase64(m.key));
 

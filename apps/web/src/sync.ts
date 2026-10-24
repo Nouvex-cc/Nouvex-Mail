@@ -2,7 +2,7 @@
 import type { MailboxSynced, MailboxSyncing, MessageSent } from "@nouvex/schema";
 import { decrypt } from "@nouvex/sdk/crypto";
 import { db, local, type Mailbox, type Message } from "./db";
-import { messageKey } from "./keys";
+import { messageKey, reload } from "./keys";
 
 type Meta = Pick<
 	Message,
@@ -47,11 +47,12 @@ export function pull(accountId: string) {
 				const res = await fetch(`/accounts/${accountId}/changes?since=${since}`);
 				if (!res.ok) throw new Error(`changes: ${res.status}`);
 				const { version, more, mailboxes, messages }: Changes = await res.json();
-				// Before the transaction: IndexedDB ends one that waits for anything else. One that doesn't open (sealed to
-				// a key from before a reset) is left out rather than holding up the rest.
-				const upserted = (await Promise.allSettled(messages.upserted.map(open))).flatMap((r) =>
-					r.status === "fulfilled" ? [r.value] : [],
-				);
+				// Before the transaction: IndexedDB ends one that waits for anything else. If one doesn't open, the cursor
+				// stays, or the message would be lost here for good. Most likely this tab holds the key from before a reset.
+				const upserted = await Promise.all(messages.upserted.map(open)).catch((e) => {
+					reload();
+					throw e;
+				});
 				await db.transaction("rw", db.messages, db.mailboxes, db.cursor, async () => {
 					const known = await db.messages.bulkGet(upserted.map((m) => m.id));
 					for (const [i, m] of upserted.entries()) if (!known[i]) arrived.set(m.id, Date.now());
