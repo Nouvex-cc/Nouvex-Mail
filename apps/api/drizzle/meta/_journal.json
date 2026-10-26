@@ -162,6 +162,13 @@
       "when": 1793005787989,
       "tag": "0022_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793010138693,
+      "tag": "0023_outbox",
+      "breakpoints": true
     }
   ]
 }

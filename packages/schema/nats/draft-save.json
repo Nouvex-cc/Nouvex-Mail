@@ -4,15 +4,72 @@
 	"description": "Command: API asks the engine to store a draft in the account's Drafts folder, replacing its previous version. Without text and recipients it only deletes the draft.",
 	"type": "object",
 	"properties": {
-		"accountId": { "type": "string" },
-		"draftId": { "type": "string" },
-		"to": { "type": "array", "items": { "type": "string" } },
-		"cc": { "type": "array", "items": { "type": "string" } },
-		"bcc": { "type": "array", "items": { "type": "string" } },
-		"subject": { "type": "string" },
-		"text": { "type": "string" },
-		"inReplyTo": { "type": "string", "description": "Message-ID header of the message this answers, for the thread headers." },
-		"discard": { "type": "boolean", "description": "Delete the draft instead of storing it." }
+		"accountId": {
+			"type": "string"
+		},
+		"draftId": {
+			"type": "string"
+		},
+		"to": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"cc": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"bcc": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"subject": {
+			"type": "string"
+		},
+		"text": {
+			"type": "string"
+		},
+		"inReplyTo": {
+			"type": "string",
+			"description": "Message-ID header of the message this answers, for the thread headers."
+		},
+		"discard": {
+			"type": "boolean",
+			"description": "Delete the draft instead of storing it."
+		},
+		"rev": {
+			"type": "integer",
+			"description": "When the client wrote this version, in milliseconds; an older one arriving late is dropped."
+		},
+		"attachments": {
+			"type": "array",
+			"description": "Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.",
+			"items": {
+				"type": "object",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					},
+					"type": {
+						"type": "string"
+					}
+				},
+				"required": ["id", "name", "type"],
+				"additionalProperties": false
+			}
+		},
+		"html": {
+			"type": "string",
+			"description": "An HTML version next to the text, like a forwarded message with its formatting."
+		}
 	},
 	"required": ["accountId", "draftId", "to", "cc", "bcc", "subject", "text"],
 	"additionalProperties": false

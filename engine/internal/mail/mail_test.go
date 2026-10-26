@@ -77,24 +77,51 @@ func TestRich(t *testing.T) {
 }
 
 func TestCompose(t *testing.T) {
-	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{
-		To: []string{"lena@hartmann.example"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},
-		Subject: "Schlüssel für Freitag", Text: "Bis Freitag!",
-	}, "parent@x.example", "", nil, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC))
+	parent := "<parent@x.example>"
+	cmd := msg.MessageSend{
+		To: []string{"Lena Hartmann <lena@hartmann.example>"}, Cc: []string{"jonas@weber.example"}, Bcc: []string{"secret@x.example"},
+		Subject: "Schlüssel für Freitag", Text: "Bis Freitag!", InReplyTo: &parent,
+		References: []string{"<first@x.example>", "parent@x.example", "bad id\r\nX-Evil: 1"},
+	}
+	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, cmd, "d1@nouvex.cc", nil, time.Date(2026, 10, 9, 9, 0, 0, 0, time.UTC), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	if strings.Contains(s, "secret@x.example") {
-		t.Fatal("bcc leaked into the headers")
+	if strings.Contains(s, "secret@x.example") || strings.Contains(s, "X-Evil") {
+		t.Fatalf("bcc or a broken reference leaked into the headers:\n%s", s)
 	}
 	h, err := Parse(strings.NewReader(s))
 	if err != nil || h.Subject != "Schlüssel für Freitag" || h.From != `"Mateo Coerdts" <mateo@nouvex.cc>` {
 		t.Fatalf("%+v %v", h, err)
 	}
-	for _, want := range []string{"To: <lena@hartmann.example>", "Cc: <jonas@weber.example>", "Message-Id: <", "@nouvex.cc>", "In-Reply-To: <parent@x.example>", "References: <parent@x.example>", "Bis Freitag!"} {
+	for _, want := range []string{`To: "Lena Hartmann" <lena@hartmann.example>`, "Cc: <jonas@weber.example>", "Message-Id: <d1@nouvex.cc>",
+		"In-Reply-To: <parent@x.example>", "References: <first@x.example> <parent@x.example>", "Bis Freitag!"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in\n%s", want, s)
+		}
+	}
+	// The copy kept in Sent knows the Bcc.
+	kept, _ := Compose(mail.Address{Address: "mateo@nouvex.cc"}, cmd, "d1@nouvex.cc", nil, time.Now(), true)
+	if !strings.Contains(string(kept), "Bcc: <secret@x.example>") {
+		t.Fatalf("no Bcc in the kept copy:\n%s", kept)
+	}
+}
+
+// A forward: the user's text, the original as HTML next to it, its files attached. Read back the way received mail is.
+func TestComposeHTML(t *testing.T) {
+	html := `<p>Hi</p><blockquote><p>Original <a href="https://x.example">link</a></p></blockquote>`
+	for _, files := range [][]File{nil, {{Name: "Plan.pdf", Type: "application/pdf", Data: []byte("%PDF-1")}}} {
+		raw, err := Compose(mail.Address{Address: "mateo@nouvex.cc"}, msg.MessageSend{To: []string{"lena@x.example"}, Subject: "Fwd: Plan", Text: "Hi", Html: &html}, "", files, time.Now(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := Content(raw)
+		if err != nil || !strings.Contains(p.Body, "Original") || !strings.Contains(p.Body, "https://x.example") || len(p.Files) != len(files) {
+			t.Fatalf("%d files: body %q, files %v, %v", len(files), p.Body, p.Files, err)
+		}
+		if !strings.Contains(string(raw), "multipart/alternative") {
+			t.Fatalf("no alternative part:\n%s", raw)
 		}
 	}
 }
@@ -117,8 +144,8 @@ func TestAttachments(t *testing.T) {
 }
 
 func TestComposeWithFiles(t *testing.T) {
-	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{To: []string{"lena@hartmann.example"}, Subject: "Contract", Text: "Attached."}, "", "",
-		[]File{{Name: "Vertrag.pdf", Type: "application/pdf", Data: []byte("%PDF-1")}}, time.Now())
+	raw, err := Compose(mail.Address{Name: "Mateo Coerdts", Address: "mateo@nouvex.cc"}, msg.MessageSend{To: []string{"lena@hartmann.example"}, Subject: "Contract", Text: "Attached."}, "",
+		[]File{{Name: "Vertrag.pdf", Type: "application/pdf", Data: []byte("%PDF-1")}}, time.Now(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

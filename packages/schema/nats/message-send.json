@@ -4,26 +4,78 @@
 	"description": "Command: API asks the engine to send a message from one account.",
 	"type": "object",
 	"properties": {
-		"accountId": { "type": "string" },
-		"to": { "type": "array", "items": { "type": "string" } },
-		"cc": { "type": "array", "items": { "type": "string" } },
-		"bcc": { "type": "array", "items": { "type": "string" } },
-		"subject": { "type": "string" },
-		"text": { "type": "string" },
-		"draftId": { "type": "string", "description": "The draft this was written in; it is deleted once sent." },
-		"sendAt": { "type": "string", "format": "date-time", "description": "Send then instead of now." },
-		"inReplyTo": { "type": "string", "description": "Message-ID header of the message this answers, for the thread headers." },
+		"accountId": {
+			"type": "string"
+		},
+		"to": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"cc": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"bcc": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			}
+		},
+		"subject": {
+			"type": "string"
+		},
+		"text": {
+			"type": "string"
+		},
+		"draftId": {
+			"type": "string",
+			"description": "The draft this was written in, the key of the send: one draft goes out once. Its draft is deleted once sent, and a message that can't be sent comes back as it."
+		},
+		"sendAt": {
+			"type": "string",
+			"format": "date-time",
+			"description": "Send then instead of now."
+		},
+		"inReplyTo": {
+			"type": "string",
+			"description": "Message-ID header of the message this answers, for the thread headers."
+		},
 		"attachments": {
 			"type": "array",
 			"description": "Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.",
 			"items": {
 				"type": "object",
-				"properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string" } },
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					},
+					"type": {
+						"type": "string"
+					}
+				},
 				"required": ["id", "name", "type"],
 				"additionalProperties": false
 			}
+		},
+		"html": {
+			"type": "string",
+			"description": "An HTML version next to the text, e.g. a forwarded message with its formatting."
+		},
+		"references": {
+			"type": "array",
+			"items": {
+				"type": "string"
+			},
+			"description": "Message-IDs of the conversation, oldest first, for the References header."
 		}
 	},
-	"required": ["accountId", "to", "cc", "bcc", "subject", "text"],
+	"required": ["accountId", "draftId", "to", "cc", "bcc", "subject", "text"],
 	"additionalProperties": false
 }

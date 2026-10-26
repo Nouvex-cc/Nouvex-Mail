@@ -16,6 +16,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	mathrand "math/rand/v2"
@@ -532,7 +533,7 @@ func TestWatchSkipsArchived(t *testing.T) {
 func TestSaveSent(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
-	raw, _ := Compose(mail.Address{Address: "lena@example.com"}, msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", "", nil, time.Now())
+	raw, _ := Compose(mail.Address{Address: "lena@example.com"}, msg.MessageSend{To: []string{"a@x.example"}, Subject: "Hi", Text: "Hi"}, "", nil, time.Now(), false)
 	// The test server has no Sent folder, so it gets created.
 	if err := SaveSent(ctx, db.New(f.pool), bytes.Repeat([]byte{7}, 32), f.id, raw); err != nil {
 		t.Fatal(err)
@@ -656,17 +657,28 @@ func TestDrafts(t *testing.T) {
 	ctx := context.Background()
 	q := db.New(f.pool)
 	master := bytes.Repeat([]byte{7}, 32)
-	save := func(text string, discard bool) {
-		d := msg.DraftSave{AccountId: f.id, DraftId: "d1", To: []string{"a@x.example"}, Cc: []string{}, Bcc: []string{}, Subject: "Plan", Text: text}
+	draft := f.id + "-d1"
+	files := map[string][]byte{"upload/" + f.id + "/f1": []byte("%PDF-1")}
+	get := func(_ context.Context, key string) ([]byte, error) {
+		if b, ok := files[key]; ok {
+			return b, nil
+		}
+		return nil, errors.New("no such file")
+	}
+	save := func(text string, rev int, discard bool) {
+		t.Helper()
+		d := msg.DraftSave{AccountId: f.id, DraftId: draft, To: []string{"a@x.example"}, Cc: []string{}, Bcc: []string{"b@x.example"},
+			Subject: "Plan", Text: text, Rev: &rev, Attachments: []msg.DraftSaveAttachmentsElem{{Id: "f1", Name: "Plan.pdf", Type: "application/pdf"}}}
 		if discard {
 			d.Discard = &discard
 		}
-		if err := SaveDraft(ctx, q, master, d); err != nil {
+		if err := SaveDraft(ctx, q, get, master, d, "upload/"+f.id+"/"); err != nil {
 			t.Fatal(err)
 		}
 	}
 	acc, _ := q.GetAccount(ctx, f.id)
 	drafts := func() []string {
+		t.Helper()
 		c, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), "lena", "hunter2", nil)
 		if err != nil {
 			t.Fatal(err)
@@ -677,25 +689,42 @@ func TestDrafts(t *testing.T) {
 			return nil
 		}
 		whole := &imap.FetchItemBodySection{}
-		msgs, _ := c.Fetch(imap.SeqSetNum(1), &imap.FetchOptions{BodySection: []*imap.FetchItemBodySection{whole}}).Collect()
+		var all imap.SeqSet
+		all.AddRange(1, 0)
+		msgs, _ := c.Fetch(all, &imap.FetchOptions{BodySection: []*imap.FetchItemBodySection{whole}}).Collect()
 		var out []string
 		for _, m := range msgs {
-			p, _ := Content(m.FindBodySection(whole))
+			raw := m.FindBodySection(whole)
+			p, _ := Content(raw)
+			if !strings.Contains(string(raw), "Bcc: <b@x.example>") || len(p.Files) != 1 || p.Files[0].Name != "Plan.pdf" {
+				t.Fatalf("draft without its Bcc or file:\n%s", raw)
+			}
 			out = append(out, p.Snippet)
-		}
-		if sel.NumMessages != uint32(len(out)) {
-			t.Fatalf("%d drafts", sel.NumMessages)
 		}
 		return out
 	}
-	save("first", false)
-	save("second", false)
+	save("first", 1, false)
+	save("second", 2, false)
 	if got := drafts(); !slices.Equal(got, []string{"second"}) {
 		t.Fatalf("drafts %v", got)
 	}
-	save("", true)
+	// An older save that was retried arrives last; the newer text stays.
+	save("first", 1, false)
+	if got := drafts(); !slices.Equal(got, []string{"second"}) {
+		t.Fatalf("drafts %v after a late older save", got)
+	}
+	save("", 3, true)
 	if got := drafts(); len(got) != 0 {
 		t.Fatalf("drafts %v after discard", got)
+	}
+	// Sent meanwhile: a save still on its way doesn't bring the draft back.
+	if _, err := q.StartSend(ctx, db.StartSendParams{DraftID: draft, AccountID: f.id, Payload: []byte{}}); err != nil {
+		t.Fatal(err)
+	}
+	_ = q.EndSend(ctx, db.EndSendParams{DraftID: draft, State: "sent"})
+	save("third", 4, false)
+	if got := drafts(); len(got) != 0 {
+		t.Fatalf("drafts %v after the message was sent", got)
 	}
 }
 
@@ -1097,5 +1126,36 @@ func TestSortByHand(t *testing.T) {
 		if m := f.find(t, "Hello"); m.Role != c.role {
 			t.Fatalf("spam %v: in %q, want %q", *c.spam, m.Role, c.role)
 		}
+	}
+}
+
+// Folders of servers without SPECIAL-USE are known by their names, also German ones and ones under INBOX.
+func TestRoleByName(t *testing.T) {
+	for name, want := range map[string]string{"INBOX.Sent": "sent", "Gesendet": "sent", "Gesendete Elemente": "sent", "INBOX.Drafts": "drafts",
+		"Entwürfe": "drafts", "INBOX/Trash": "trash", "Papierkorb": "trash", "Archiv": "archive", "INBOX.Projekte": ""} {
+		delim := '.'
+		if strings.Contains(name, "/") {
+			delim = '/'
+		}
+		if got := role(&imap.ListData{Mailbox: name, Delim: delim}); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Answers go to Reply-To when a mail has one other than its sender.
+func TestReplyTo(t *testing.T) {
+	f := setup(t)
+	f.addRaw("From: Shop <news@shop.example>\r\nReply-To: Support <help@shop.example>\r\nSubject: Order\r\nMessage-ID: <o1@shop.example>\r\n\r\nHi")
+	f.addRaw("From: Lena <lena@example.com>\r\nReply-To: lena@example.com\r\nSubject: Same\r\nMessage-ID: <o2@example.com>\r\n\r\nHi")
+	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
+	if _, err := Sync(context.Background(), f.pool, store, bytes.Repeat([]byte{7}, 32), f.id, func(int64, []string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.find(t, "Order").ReplyTo; got != "help@shop.example" {
+		t.Fatalf("reply to %q", got)
+	}
+	if got := f.find(t, "Same").ReplyTo; got != "" {
+		t.Fatalf("reply to %q for the sender's own address", got)
 	}
 }

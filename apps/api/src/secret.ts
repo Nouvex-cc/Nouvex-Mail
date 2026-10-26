@@ -20,3 +20,15 @@ export async function seal(
 	const parts = [...(await encrypt(master, dataKey)), ...(await encrypt(dataKey, new TextEncoder().encode(secret)))];
 	return Buffer.concat([Uint8Array.of(1), ...parts]);
 }
+
+/** Opens what seal, or the engine (engine/internal/secret.Seal), sealed. */
+export async function open(
+	sealed: Uint8Array<ArrayBuffer>,
+	master = new Uint8Array(Buffer.from(process.env.SECRETS_KEY ?? "", "base64")),
+) {
+	const decrypt = async (raw: Uint8Array<ArrayBuffer>, iv: Uint8Array<ArrayBuffer>, data: Uint8Array<ArrayBuffer>) =>
+		new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, await gcm(raw, "decrypt"), data));
+	if (sealed[0] !== 1) throw new Error("unknown secret format");
+	const dataKey = await decrypt(master, sealed.slice(1, 13), sealed.slice(13, 61));
+	return new TextDecoder().decode(await decrypt(dataKey, sealed.slice(61, 73), sealed.slice(73)));
+}

@@ -53,6 +53,8 @@ type Meta struct {
 	Rich bool `json:"rich,omitempty"`
 	// Nouvex put it into the inbox itself (Seed), so its nx-actions may open places in the app.
 	Seeded bool `json:"seeded,omitempty"`
+	// Where answers go when it isn't the sender, like a mailing list or a support desk.
+	ReplyTo string `json:"replyTo,omitempty"`
 	// How to leave the list it came from, if it says.
 	Unsubscribe *Unsubscribe `json:"unsubscribe,omitempty"`
 }
@@ -608,6 +610,9 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 	if len(m.Envelope.From) > 0 {
 		meta.FromName, meta.FromAddr = m.Envelope.From[0].Name, m.Envelope.From[0].Addr()
 	}
+	if len(m.Envelope.ReplyTo) > 0 && !strings.EqualFold(m.Envelope.ReplyTo[0].Addr(), meta.FromAddr) {
+		meta.ReplyTo = m.Envelope.ReplyTo[0].Addr()
+	}
 	row.Category, row.Spam = s.sort(boxID, meta.FromAddr, parsed)
 	refs := References(raw)
 	for i, r := range refs {
@@ -739,13 +744,15 @@ var roles = map[imap.MailboxAttr]string{
 	imap.MailboxAttrAll:     "archive",
 }
 
-// Names servers without SPECIAL-USE commonly use.
+// Names servers without SPECIAL-USE commonly use, also German ones, and also under INBOX (INBOX.Sent).
 var roleNames = map[string]string{
-	"sent": "sent", "sent items": "sent", "sent messages": "sent",
-	"drafts": "drafts",
-	"trash":  "trash", "deleted items": "trash", "deleted messages": "trash",
-	"junk": "junk", "spam": "junk",
-	"archive": "archive",
+	"sent": "sent", "sent items": "sent", "sent messages": "sent", "gesendet": "sent", "gesendete objekte": "sent",
+	"gesendete elemente": "sent",
+	"drafts":             "drafts", "entwürfe": "drafts",
+	"trash": "trash", "deleted items": "trash", "deleted messages": "trash", "papierkorb": "trash",
+	"gelöschte elemente": "trash", "gelöschte objekte": "trash",
+	"junk": "junk", "spam": "junk", "junk-e-mail": "junk",
+	"archive": "archive", "archiv": "archive",
 	"snoozed": "snoozed",
 }
 
@@ -770,7 +777,11 @@ func role(b *imap.ListData) string {
 			return r
 		}
 	}
-	return roleNames[strings.ToLower(b.Mailbox)]
+	name := strings.ToLower(b.Mailbox)
+	if b.Delim != 0 {
+		name = strings.TrimPrefix(name, "inbox"+string(b.Delim))
+	}
+	return roleNames[name]
 }
 
 func addrs(list []imap.Address) []string {
