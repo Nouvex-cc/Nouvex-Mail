@@ -49,6 +49,10 @@ Try it on yourself first. Announcing the same message again (same Message-ID) ad
 
 New mail reaches the iPhone app as a push while it isn't running. Set `APNS_KEY`, `APNS_KEY_ID` and `APNS_TEAM_ID` in `deploy/.env` (see `.env.example`), with a key from the team the app is signed with; `cc.nouvex.Nouvex` is the topic. A push carries the message's sender and subject only sealed, and the app opens them (docs/security.md). Without the key the app notifies while it's open, as before.
 
+## Sorting
+
+The `embed` container turns mail into vectors (Text Embeddings Inference with multilingual-e5-small), which the engine sorts tabs and spam with, and a model per user learns from (docs/security.md). It needs about 1 GB of memory and downloads the model, about 500 MB, on its first start. While it isn't up, the engine sorts by rules alone. Without `EMBED_URL` the engine doesn't use it at all.
+
 ## Passkeys in the Apple apps
 
 Passkeys work in the web app on any domain. The Apple apps are tied to `mail.nouvex.cc` (`apps/apple/Nouvex/Nouvex.entitlements`), so on another domain they sign in with a password; for passkeys there, build the apps with your own team and domain in the entitlements, `deploy/` is unchanged apart from the team id in `apps/web/public/.well-known/apple-app-site-association`.

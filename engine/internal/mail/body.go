@@ -4,7 +4,6 @@ package mail
 
 import (
 	"bytes"
-	"errors"
 	"html"
 	"io"
 	"regexp"
@@ -54,6 +53,8 @@ type Parsed struct {
 	Spam   bool
 	// The sender's way to unsubscribe, from List-Unsubscribe.
 	Unsubscribe *Unsubscribe
+	// What the sorting model looks at (embed.go).
+	Sample Sample
 }
 
 // Content reads a raw message. Sanitizing happens where it is shown.
@@ -68,11 +69,9 @@ func Content(raw []byte) (Parsed, error) {
 	var htmlPart, textPart, calendar string
 	for {
 		p, err := mr.NextPart()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+		// A broken message, or one cut short like the start read for sorting (learn.go), keeps the parts read so far.
 		if err != nil {
-			return Parsed{}, err
+			break
 		}
 		// Senders get the encoding wrong now and then (a stray "=" in quoted-printable); like other mail apps, keep
 		// what could be read instead of losing the whole message.
@@ -130,5 +129,6 @@ func Content(raw []byte) (Parsed, error) {
 	out.Tokens = Features(mr.Header, subject, text, htmlPart)
 	out.Spam = spam(mr.Header, out.Tokens)
 	out.Unsubscribe = unsubscribe(mr.Header)
+	out.Sample = sampled(mr.Header, subject, text, out.Actions)
 	return out, nil
 }

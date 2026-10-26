@@ -12,6 +12,7 @@ x-backend: &backend
     S3_BUCKET: nouvex
     BETTER_AUTH_URL: https://${DOMAIN}
     WEB_ORIGIN: https://${DOMAIN}
+    EMBED_URL: http://embed:80
   depends_on:
     postgres: { condition: service_healthy }
     nats: { condition: service_started }
@@ -60,12 +61,23 @@ services:
       test: ["CMD", "bun", "-e", "process.exit((await fetch('http://localhost:3000/health')).ok ? 0 : 1)"]
       interval: 5s
 
+  # Turns mail into vectors for sorting (engine/internal/mail/embed.go), on this machine only. The model is
+  # downloaded into its volume on the first start; until it's there, the engine sorts by rules.
+  embed:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
+    restart: unless-stopped
+    command: >-
+      --model-id intfloat/multilingual-e5-small --tokenization-workers 2 --max-batch-tokens 4096
+      --max-client-batch-size 50 --max-concurrent-requests 64
+    volumes: [models:/data]
+
   # Starts once the api has brought the schema up to date.
   engine:
     <<: *backend
     build: ../engine
     depends_on:
       api: { condition: service_healthy }
+      embed: { condition: service_started }
     # A message on its way out finishes before the engine stops (up to 30 seconds), so it isn't sent again.
     stop_grace_period: 40s
 
@@ -83,3 +95,4 @@ volumes:
   nats:
   s3:
   caddy:
+  models:

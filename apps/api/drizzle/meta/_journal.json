@@ -169,6 +169,13 @@
       "when": 1793010138693,
       "tag": "0023_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793020058815,
+      "tag": "0024_sort_model",
+      "breakpoints": true
     }
   ]
 }

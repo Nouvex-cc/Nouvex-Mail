@@ -162,6 +162,13 @@ type Session struct {
 	UserID    string
 }
 
+type SortModel struct {
+	UserID    string
+	Weights   []byte
+	Metrics   []byte
+	TrainedAt pgtype.Timestamptz
+}
+
 type TwoFactor struct {
 	ID                      string
 	Secret                  string

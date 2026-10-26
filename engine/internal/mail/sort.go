@@ -3,6 +3,7 @@
 package mail
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/emersion/go-imap/v2"
@@ -40,15 +41,17 @@ func Sender(addr string) string {
 
 // sort decides a new message's tab and whether it's spam. What the user said about the sender wins, the address over
 // its domain; mail from someone they wrote to is from a person; then what the message itself shows. Mail the user
-// sent or drafted is never spam.
-func (s *syncer) sort(boxID, from string, p Parsed) (category string, spam bool) {
+// sent or drafted is never spam. pinned says the rules were sure: the user said so, a contact wrote, or the mail is
+// a sign-in code or from a social network; the sorting model only decides the rest (model in sync.go).
+func (s *syncer) sort(boxID, from string, p Parsed) (category string, spam, pinned bool) {
 	category, spam = p.Category, p.Spam
 	// A message that couldn't be read has no tab of its own; clients only know the five.
 	if category == "" {
 		category = "primary"
 	}
+	pinned = category == "social" || slices.ContainsFunc(p.Actions, func(a Action) bool { return a.Kind == "code" })
 	if s.contacts[Sender(from)] {
-		category, spam = "primary", false
+		category, spam, pinned = "primary", false, true
 	}
 	for _, key := range []string{Sender("@" + domainOf(from)), Sender(from)} {
 		r, ok := s.rules[key]
@@ -61,11 +64,12 @@ func (s *syncer) sort(boxID, from string, p Parsed) (category string, spam bool)
 		if r.Spam.Valid {
 			spam = r.Spam.Bool
 		}
+		pinned = true
 	}
 	if role := s.roles[boxID]; role == "sent" || role == "drafts" {
-		spam = false
+		spam, pinned = false, true
 	}
-	return category, spam
+	return category, spam, pinned
 }
 
 // wroteTo remembers everyone the user sent these messages to.
