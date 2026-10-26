@@ -98,7 +98,7 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
-	s := &syncer{ctx: ctx, pool: pool, store: store, progress: progress, acc: acc, pub: pub}
+	s := &syncer{ctx: ctx, pool: pool, store: store, progress: progress, acc: acc, pub: pub, master: master}
 	if err := s.begin(); err != nil {
 		return 0, err
 	}
@@ -239,6 +239,7 @@ type syncer struct {
 	arrived []string
 	acc     db.MailAccount
 	pub     []byte
+	master  []byte
 	changes db.LogChangesParams
 	// What sorts new mail: the user's own rules by sender hash, the people they wrote to, and each folder's role.
 	rules    map[string]db.ListSenderRulesRow
@@ -521,7 +522,7 @@ func (s *syncer) fetchNew(boxID string, last int64) error {
 // save stores the fetched messages above last and commits them. Parsing and uploads run in parallel, the rows go
 // in one by one, since a message can join the conversation of the one before.
 func (s *syncer) save(boxID string, last int64, msgs []*imapclient.FetchMessageBuffer) error {
-	ready := make([]*db.InsertMessageParams, len(msgs))
+	ready := make([]*prepared, len(msgs))
 	errs := make([]error, len(msgs))
 	var wg sync.WaitGroup
 	limit := make(chan struct{}, uploads)
@@ -544,13 +545,15 @@ func (s *syncer) save(boxID string, last int64, msgs []*imapclient.FetchMessageB
 			return err
 		}
 	}
+	s.model(ready)
 	// A folder's first sync brings old mail, none of it new.
 	// ponytail: the first mail into an empty inbox isn't announced either.
 	loud := last > 0 && s.roles[boxID] == "inbox"
-	for _, row := range ready {
-		if row == nil {
+	for _, p := range ready {
+		if p == nil {
 			continue
 		}
+		row := p.row
 		added, err := s.insert(row)
 		if err != nil {
 			return err
@@ -579,7 +582,14 @@ func (s *syncer) insert(row *db.InsertMessageParams) (bool, error) {
 }
 
 // prepare reads a new message and puts its parts in the bucket, ready for its row.
-func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.InsertMessageParams, error) {
+// prepared is a message ready to store, with what sorting it still needs.
+type prepared struct {
+	row    *db.InsertMessageParams
+	sample Sample
+	pinned bool
+}
+
+func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*prepared, error) {
 	sent := m.Envelope.Date
 	if sent.IsZero() {
 		sent = m.InternalDate
@@ -613,13 +623,14 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*db.In
 	if len(m.Envelope.ReplyTo) > 0 && !strings.EqualFold(m.Envelope.ReplyTo[0].Addr(), meta.FromAddr) {
 		meta.ReplyTo = m.Envelope.ReplyTo[0].Addr()
 	}
-	row.Category, row.Spam = s.sort(boxID, meta.FromAddr, parsed)
+	var pinned bool
+	row.Category, row.Spam, pinned = s.sort(boxID, meta.FromAddr, parsed)
 	refs := References(raw)
 	for i, r := range refs {
 		refs[i] = Hashed(r)
 	}
 	row.Refs = refs
-	return &row, s.keep(&row, meta, parsed)
+	return &prepared{row: &row, sample: parsed.Sample, pinned: pinned}, s.keep(&row, meta, parsed)
 }
 
 // keep seals a message for the user: its key and Meta into the row, its parts into the bucket.
@@ -803,4 +814,31 @@ func flagStrings(flags []imap.Flag) []string {
 	}
 	slices.Sort(s)
 	return s
+}
+
+// model lets the user's sorting model decide what the rules weren't sure of. Without the embed service, or when it
+// fails, the rules stay.
+func (s *syncer) model(ready []*prepared) {
+	if Sorting == nil {
+		return
+	}
+	var open []*prepared
+	var samples []Sample
+	for _, p := range ready {
+		if p != nil && !p.pinned {
+			open = append(open, p)
+			samples = append(samples, p.sample)
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	probs, err := Sorting.Classify(s.ctx, s.q, s.master, s.acc.UserID, samples)
+	if err != nil {
+		slog.Warn("sorting model", "account", s.acc.ID, "err", err)
+		return
+	}
+	for i, p := range open {
+		p.row.Category, p.row.Spam = decide(probs[i], p.row.Category, p.row.Spam, p.sample)
+	}
 }

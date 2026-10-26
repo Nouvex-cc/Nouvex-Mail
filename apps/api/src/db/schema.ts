@@ -255,3 +255,14 @@ export const device = pgTable(
 	},
 	(t) => [index().on(t.userId)],
 );
+
+// Each user's sorting model (engine/internal/mail/head.go), sealed with SECRETS_KEY: the engine sorts with it while
+// it syncs. metrics are only counts, from the mail it held back while training.
+export const sortModel = pgTable("sort_model", {
+	userId: text("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	weights: bytea("weights").notNull(),
+	metrics: jsonb("metrics").notNull(),
+	trainedAt: timestamp("trained_at", { withTimezone: true }).notNull().defaultNow(),
+});

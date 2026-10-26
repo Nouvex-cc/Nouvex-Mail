@@ -347,6 +347,22 @@ func (q *Queries) GetMessagePlace(ctx context.Context, arg GetMessagePlaceParams
 	return i, err
 }
 
+const getSortModel = `-- name: GetSortModel :one
+SELECT weights, trained_at FROM sort_model WHERE user_id = $1
+`
+
+type GetSortModelRow struct {
+	Weights   []byte
+	TrainedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetSortModel(ctx context.Context, userID string) (GetSortModelRow, error) {
+	row := q.db.QueryRow(ctx, getSortModel, userID)
+	var i GetSortModelRow
+	err := row.Scan(&i.Weights, &i.TrainedAt)
+	return i, err
+}
+
 const getUserKey = `-- name: GetUserKey :one
 SELECT k.public_key FROM user_key k JOIN mail_account a ON a.user_id = k.user_id WHERE a.id = $1
 `
@@ -645,6 +661,71 @@ func (q *Queries) ListSenderRules(ctx context.Context, userID string) ([]ListSen
 	return items, nil
 }
 
+const listSorted = `-- name: ListSorted :many
+SELECT id, uid, category, spam FROM message WHERE mailbox_id = $1 AND uid = ANY($2::bigint[])
+`
+
+type ListSortedParams struct {
+	MailboxID string
+	Uids      []int64
+}
+
+type ListSortedRow struct {
+	ID       string
+	Uid      int64
+	Category string
+	Spam     bool
+}
+
+func (q *Queries) ListSorted(ctx context.Context, arg ListSortedParams) ([]ListSortedRow, error) {
+	rows, err := q.db.Query(ctx, listSorted, arg.MailboxID, arg.Uids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSortedRow
+	for rows.Next() {
+		var i ListSortedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uid,
+			&i.Category,
+			&i.Spam,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserAccountIDs = `-- name: ListUserAccountIDs :many
+SELECT id FROM mail_account WHERE user_id = $1 AND archived_at IS NULL
+`
+
+func (q *Queries) ListUserAccountIDs(ctx context.Context, userID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listUserAccountIDs, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const localMailbox = `-- name: LocalMailbox :one
 SELECT id, account_id, name, uid_validity, role, uid_next, message_count, highest_mod_seq, local FROM mailbox WHERE account_id = $1 AND local
 `
@@ -784,6 +865,22 @@ type SaveFlagsParams struct {
 // Sets a message's flags and logs the change, unless it has them already.
 func (q *Queries) SaveFlags(ctx context.Context, arg SaveFlagsParams) error {
 	_, err := q.db.Exec(ctx, saveFlags, arg.AccountID, arg.ID, arg.Flags)
+	return err
+}
+
+const saveSortModel = `-- name: SaveSortModel :exec
+INSERT INTO sort_model (user_id, weights, metrics) VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE SET weights = EXCLUDED.weights, metrics = EXCLUDED.metrics, trained_at = now()
+`
+
+type SaveSortModelParams struct {
+	UserID  string
+	Weights []byte
+	Metrics []byte
+}
+
+func (q *Queries) SaveSortModel(ctx context.Context, arg SaveSortModelParams) error {
+	_, err := q.db.Exec(ctx, saveSortModel, arg.UserID, arg.Weights, arg.Metrics)
 	return err
 }
 

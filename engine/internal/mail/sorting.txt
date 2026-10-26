@@ -1,0 +1,582 @@
+Mail every new user's sorting starts from, before their own mail and corrections teach it more (sort.go).
+Each one starts with "=== <label>", then headers, a blank line and the text. Written for this, not anyone's mail.
+
+=== primary
+From: Lena Hartmann <lena.hartmann@posteo.de>
+Subject: Samstag?
+
+Hey, steht Samstag noch? Ich könnte gegen zehn bei dir sein und Brötchen mitbringen. Sag kurz Bescheid.
+
+=== primary
+From: Jonas Weber <jonas@weber-architekten.de>
+Subject: Re: Entwurf Grundriss
+In-Reply-To: <a1@weber-architekten.de>
+
+Danke für die Rückmeldung. Ich habe die Küche nach links verschoben und schicke dir morgen die neue Version.
+
+=== primary
+From: Sarah Miller <sarah.miller@gmail.com>
+Subject: Dinner on Friday
+
+Hi! We're doing a small dinner at our place on Friday around 7. Would love to see you, just bring yourself.
+
+=== primary
+From: Max Bauer <max.bauer@kanzlei-bauer.de>
+Subject: Vertrag zur Durchsicht
+
+Guten Tag, anbei wie besprochen der Entwurf. Können Sie bis Donnerstag kurz drüberschauen und mir Ihre Anmerkungen schicken?
+
+=== primary
+From: Tom Fischer <tom@fischer-design.studio>
+Subject: Quick question about the logo
+
+Hey, do you have the logo as SVG? The printer needs a vector file by tomorrow. Thanks a lot!
+
+=== primary
+From: Mama <brigitte.koch@web.de>
+Subject: Weihnachten
+
+Hallo mein Schatz, wir planen gerade Weihnachten. Kommt ihr am 24. schon mittags? Papa fragt, ob du Wein mitbringst.
+
+=== primary
+From: Anna Schulz <a.schulz@uni-heidelberg.de>
+Subject: Re: Termin nächste Woche
+In-Reply-To: <b2@uni-heidelberg.de>
+
+Dienstag um 14 Uhr passt mir gut. Ich buche den Raum im zweiten Stock.
+
+=== primary
+From: David Chen <david@chen.dev>
+Subject: Intro: you two should talk
+
+Hi both, I wanted to connect you since you're both working on email clients. Mateo, meet Priya; Priya, meet Mateo.
+
+=== primary
+From: Julia Becker <julia.becker@t-online.de>
+Subject: Fotos vom Wochenende
+
+Hier sind die Fotos vom Wochenende, war echt schön mit euch! Das eine am See ist mein Favorit.
+
+=== primary
+From: Kevin Wagner <k.wagner@wagner-gmbh.de>
+Subject: Angebot für die Website
+
+Hallo, wie am Telefon besprochen würden wir gerne ein Angebot für den Relaunch unserer Website bekommen. Budget liegt bei etwa 15.000 Euro.
+
+=== primary
+From: Priya Raman <priya@raman.io>
+Subject: Re: Coffee next week?
+In-Reply-To: <c3@raman.io>
+
+Wednesday works! There's a nice place near the station, I'll send you the address.
+
+=== primary
+From: Lisa Hoffmann <lisa.hoffmann@gmx.de>
+Subject: Kannst du mir helfen?
+
+Mein Laptop startet nicht mehr, nur ein schwarzer Bildschirm. Hast du am Abend kurz Zeit, dir das anzuschauen?
+
+=== updates
+From: GitHub <notifications@github.com>
+Subject: Re: [acme/shop] Fix checkout total for discounts (PR #62)
+List-Id: acme/shop <shop.acme.github.com>
+List-Unsubscribe: <mailto:unsub+abc@reply.github.com>
+Precedence: list
+
+@lisa-m merged commit e93ab55 into main. Reply to this email directly, view it on GitHub, or unsubscribe.
+
+=== updates
+From: GitHub <notifications@github.com>
+Subject: [acme/shop] Run failed: ci - main (7412465)
+List-Id: acme/shop <shop.acme.github.com>
+List-Unsubscribe: <mailto:unsub+def@reply.github.com>
+Precedence: list
+
+ci: All jobs have failed. View workflow run. ts failed in 1m14s.
+
+=== updates
+From: GitLab <gitlab@mg.gitlab.com>
+Subject: Merge request !412 was approved
+List-Unsubscribe: <https://gitlab.com/-/sent_notifications/x/unsubscribe>
+
+Julia Becker approved merge request !412: Add rate limiting to the API.
+
+=== updates
+From: Jira <jira@acme.atlassian.net>
+Subject: [JIRA] (OPS-218) Server backup failing since Monday
+Auto-Submitted: auto-generated
+List-Unsubscribe: <https://acme.atlassian.net/unsubscribe>
+
+Tom Fischer created OPS-218. Priority: High. The nightly backup job fails with a timeout.
+
+=== updates
+From: Amazon.de <bestellbestaetigung@amazon.de>
+Subject: Ihre Amazon.de Bestellung von "USB-C Kabel" wurde versandt
+
+Ihre Sendung ist unterwegs. Voraussichtliche Zustellung: Donnerstag. Sendungsverfolgung über DHL.
+
+=== updates
+From: DHL Paket <noreply@dhl.de>
+Subject: Ihr Paket kommt heute
+
+Ihr Paket wird heute zwischen 12:00 und 15:00 Uhr zugestellt. Sendungsnummer 00340434161094042557.
+
+=== updates
+From: Deutsche Bahn <buchungsbestaetigung@bahn.de>
+Subject: Buchungsbestätigung (Auftrag 4X7K2P)
+
+Vielen Dank für Ihre Buchung. Fahrt am 12.11. von Karlsruhe Hbf nach Berlin Hbf, Abfahrt 07:58. Ihr Ticket im Anhang.
+
+=== updates
+From: Stripe <receipts@stripe.com>
+Subject: Your receipt from Vercel Inc. #2381-4402
+
+Receipt from Vercel Inc. Amount paid $20.00. Date paid Oct 24, 2026. Payment method Visa ending 4242.
+
+=== updates
+From: Telekom <rechnung@telekom.de>
+Subject: Ihre Telekom Rechnung für Oktober 2026
+
+Ihre Rechnung über 44,95 € steht im Kundencenter bereit. Der Betrag wird am 5. November abgebucht.
+
+=== updates
+From: Google <no-reply@accounts.google.com>
+Subject: Sicherheitswarnung
+
+Neue Anmeldung bei Ihrem Google-Konto auf einem Mac. Wenn Sie das waren, müssen Sie nichts weiter tun.
+
+=== updates
+From: Slack <feedback@slack.com>
+Subject: Your verification code is 482913
+
+Use this code to sign in to Slack: 482913. It expires in 10 minutes.
+
+=== updates
+From: Vercel <notifications@vercel.com>
+Subject: Deployment failed for nouvex-site
+List-Unsubscribe: <https://vercel.com/account/notifications>
+
+The deployment of nouvex-site on branch main failed. View build logs.
+
+=== updates
+From: Sparkasse <noreply@sparkasse.de>
+Subject: Neuer Kontoauszug verfügbar
+
+In Ihrem elektronischen Postfach ist ein neuer Kontoauszug für das Girokonto verfügbar.
+
+=== updates
+From: Calendly <notifications@calendly.com>
+Subject: New Event: Mateo Coerdts - 30 Minute Meeting
+
+A new event has been scheduled. Invitee: Priya Raman. Event date: Wednesday, November 4, 2026, 10:00.
+
+=== updates
+From: Apple <no_reply@email.apple.com>
+Subject: Ihre Rechnung von Apple
+
+Rechnung vom 22. Oktober 2026. iCloud+ 50 GB, 0,99 €. Bestellnummer MV7KQ2XP.
+
+=== updates
+From: Sentry <noreply@md.getsentry.com>
+Subject: [nouvex-api] TypeError: Cannot read properties of undefined
+List-Unsubscribe: <https://sentry.io/settings/account/notifications/>
+
+New issue in nouvex-api. First seen 2 minutes ago. 14 events in the last hour.
+
+=== promotions
+From: Zalando <info@service-mail.zalando.de>
+Subject: Nur heute: 30 % auf Winterjacken
+List-Unsubscribe: <https://www.zalando.de/unsubscribe>
+Precedence: bulk
+
+Jetzt zugreifen: 30 % Rabatt auf ausgewählte Winterjacken. Gratis Versand und 100 Tage Rückgabe. Jetzt shoppen.
+
+=== promotions
+From: MediaMarkt <newsletter@mediamarkt.de>
+Subject: Black Friday startet jetzt – bis zu 50 % sparen
+List-Unsubscribe: <https://www.mediamarkt.de/newsletter/abmelden>
+
+Die besten Deals des Jahres: Fernseher, Laptops und Kopfhörer stark reduziert. Nur solange der Vorrat reicht.
+
+=== promotions
+From: Nike <nike@notifications.nike.com>
+Subject: Members get 25% off this weekend
+List-Unsubscribe: <https://www.nike.com/unsubscribe>
+
+Use code MEMBER25 at checkout. Exclusions apply. Shop new arrivals and bestsellers now.
+
+=== promotions
+From: Lieferando <angebote@lieferando.de>
+Subject: 5 € Gutschein für deine nächste Bestellung
+List-Unsubscribe: <https://www.lieferando.de/abmelden>
+
+Hunger? Spar dir 5 € mit dem Code LECKER5 ab 20 € Bestellwert. Gültig bis Sonntag.
+
+=== promotions
+From: IKEA <ikea@news.email.ikea.de>
+Subject: Neu im Sortiment und reduziert
+List-Unsubscribe: <https://www.ikea.com/de/de/newsletter/abmelden>
+Precedence: bulk
+
+Entdecke unsere neuen Ideen fürs Wohnzimmer – und Angebote für IKEA Family Mitglieder.
+
+=== promotions
+From: Booking.com <email.campaign@sg.booking.com>
+Subject: Last-minute deals for your next weekend away
+List-Unsubscribe: <https://www.booking.com/unsubscribe>
+
+Save 15% or more on stays this weekend. Prices drop for a limited time. Book now, pay later.
+
+=== promotions
+From: Adobe <mail@mail.adobe.com>
+Subject: Creative Cloud for 40% less – this week only
+List-Unsubscribe: <https://www.adobe.com/unsubscribe>
+
+Get all Creative Cloud apps at 40% off for your first year. Offer ends Sunday.
+
+=== promotions
+From: Otto <newsletter@otto.de>
+Subject: Versandkostenfrei bestellen nur bis Mitternacht
+List-Unsubscribe: <https://www.otto.de/newsletter/abmelden>
+Precedence: bulk
+
+Heute ohne Versandkosten bestellen. Tausende Artikel im Sale. Jetzt Schnäppchen sichern.
+
+=== promotions
+From: Spotify <no-reply@spotify.com>
+Subject: 3 Monate Premium für 0 €
+List-Unsubscribe: <https://www.spotify.com/unsubscribe>
+
+Hol dir Spotify Premium 3 Monate kostenlos. Danach 10,99 € im Monat. Jederzeit kündbar. Angebot gilt nur für kurze Zeit.
+
+=== promotions
+From: Uber Eats <uber@uber.com>
+Subject: €10 off your next 3 orders
+List-Unsubscribe: <https://www.uber.com/unsubscribe>
+
+Treat yourself: €10 off your next three orders over €25. Promo applied automatically.
+
+=== promotions
+From: Decathlon <newsletter@decathlon.de>
+Subject: Sale: Laufschuhe ab 29,99 €
+List-Unsubscribe: <https://www.decathlon.de/newsletter/abmelden>
+
+Starte in die Saison: Laufschuhe, Jacken und Zubehör jetzt reduziert. Nur online.
+
+=== promotions
+From: Apple <News@insideapple.apple.com>
+Subject: Das neue iPhone. Jetzt mit Eintauschbonus.
+List-Unsubscribe: <https://www.apple.com/de/unsubscribe>
+Precedence: bulk
+
+Tausche dein altes Gerät ein und erhalte bis zu 650 € Guthaben für ein neues iPhone. Jetzt kaufen.
+
+=== social
+From: LinkedIn <messages-noreply@linkedin.com>
+Subject: Priya Raman hat Ihnen eine Nachricht gesendet
+List-Unsubscribe: <https://www.linkedin.com/e/unsubscribe>
+
+Priya Raman: Hi Mateo, I saw your post about email clients and would love to chat.
+
+=== social
+From: LinkedIn <invitations@linkedin.com>
+Subject: Jonas Weber möchte sich mit Ihnen vernetzen
+
+Jonas Weber, Architekt bei Weber Architekten, möchte sich mit Ihnen vernetzen. Einladung annehmen.
+
+=== social
+From: Instagram <no-reply@mail.instagram.com>
+Subject: lena.hartmann hat dein Foto kommentiert
+
+lena.hartmann: "Wie schön! Wo ist das?" Sieh dir den Kommentar an.
+
+=== social
+From: Facebook <notification@facebookmail.com>
+Subject: You have new friend suggestions
+
+People you may know: Sarah Miller, Tom Fischer and 8 others. See all suggestions.
+
+=== social
+From: X <info@x.com>
+Subject: David Chen replied to your post
+List-Unsubscribe: <https://x.com/unsubscribe>
+
+David Chen replied: "Interesting take on local-first sync, are you using CRDTs?"
+
+=== social
+From: Discord <notifications@discord.com>
+Subject: You have 3 unread messages in Nouvex Community
+
+#general: Julia: has anyone tried the new outbox? #dev: 2 new messages.
+
+=== social
+From: Strava <no-reply@strava.com>
+Subject: Tom Fischer gave you kudos
+
+Tom Fischer gave you kudos on your activity "Morning Run". Keep it up!
+
+=== social
+From: Xing <mailrobot@mail.xing.com>
+Subject: Ihr Profil wurde 12 Mal besucht
+
+Diese Woche haben 12 Mitglieder Ihr Profil angesehen, darunter Personalverantwortliche aus Karlsruhe.
+
+=== social
+From: Reddit <noreply@redditmail.com>
+Subject: "Best self-hosted mail setup?" in r/selfhosted
+List-Unsubscribe: <https://www.reddit.com/mail/unsubscribe>
+
+Trending in r/selfhosted: Best self-hosted mail setup in 2026? 214 comments.
+
+=== social
+From: YouTube <noreply@youtube.com>
+Subject: Fireship hat ein neues Video hochgeladen
+
+Fireship: "I tried every email client so you don't have to". Jetzt ansehen.
+
+=== social
+From: Meetup <info@meetup.com>
+Subject: New event in Karlsruhe Go Meetup
+
+Karlsruhe Go Meetup scheduled "Testing with real servers" on Thursday, November 12. RSVP now.
+
+=== social
+From: Bluesky <noreply@bsky.app>
+Subject: Priya Raman followed you
+
+Priya Raman (@priya.raman.io) is now following you on Bluesky.
+
+=== newsletters
+From: The Pragmatic Engineer <pragmaticengineer@substack.com>
+Subject: The state of developer productivity in 2026
+List-Unsubscribe: <https://substack.com/unsubscribe>
+List-Id: <pragmaticengineer.substack.com>
+Precedence: bulk
+
+This week: what we learned from surveying 3,000 engineers about AI tools, on-call and remote work.
+
+=== newsletters
+From: heise online <newsletter@heise.de>
+Subject: heise-Newsletter: Neue Sicherheitslücke in Exchange
+List-Unsubscribe: <https://www.heise.de/newsletter/abmelden>
+Precedence: bulk
+
+Die wichtigsten Meldungen des Tages: Microsoft warnt vor Lücke in Exchange, EU einigt sich auf neue Regeln für KI.
+
+=== newsletters
+From: Morning Brew <crew@morningbrew.com>
+Subject: ☕ Markets rally as rates hold
+List-Unsubscribe: <https://www.morningbrew.com/unsubscribe>
+Precedence: bulk
+
+Good morning. Stocks climbed after the Fed kept rates unchanged. Plus: why everyone is talking about local-first software.
+
+=== newsletters
+From: Golang Weekly <go@golangweekly.com>
+Subject: Go 1.27 is out
+List-Unsubscribe: <https://golangweekly.com/unsubscribe>
+List-Id: <golangweekly.com>
+
+This week's issue: Go 1.27 released, a deep dive into the new iterators, and a fast JSON library.
+
+=== newsletters
+From: Die Zeit <newsletter@zeit.de>
+Subject: Was jetzt? Der Morgen-Newsletter
+List-Unsubscribe: <https://www.zeit.de/newsletter/abmelden>
+Precedence: bulk
+
+Guten Morgen. Heute geht es um die Haushaltsdebatte, die Lage in Nahost und einen Tipp fürs Wochenende.
+
+=== newsletters
+From: TLDR <dan@tldrnewsletter.com>
+Subject: Apple Glasses leak, OpenAI device, Rust in the kernel
+List-Unsubscribe: <https://tldr.tech/unsubscribe>
+Precedence: bulk
+
+Headlines and launches: a closer look at Apple's glasses. Deep dives: how Discord stores trillions of messages.
+
+=== newsletters
+From: Stadtbibliothek Karlsruhe <info@stadtbibliothek-karlsruhe.de>
+Subject: Veranstaltungen im November
+List-Unsubscribe: <https://www.karlsruhe.de/bibliothek/newsletter>
+
+Lesungen, Workshops und Kinderprogramm im November. Der Eintritt ist frei, Anmeldung erbeten.
+
+=== newsletters
+From: Hacker Newsletter <kale@hackernewsletter.com>
+Subject: Hacker Newsletter #712
+List-Unsubscribe: <https://hackernewsletter.com/unsubscribe>
+List-Id: <hackernewsletter.com>
+
+Favorites: The case for boring technology. Show HN: a mail client that keeps everything sealed.
+
+=== newsletters
+From: Notion <team@makenotion.com>
+Subject: What's new in Notion this month
+List-Unsubscribe: <https://www.notion.so/unsubscribe>
+Precedence: bulk
+
+New: database automations, faster search and a refreshed sidebar. Read the full changelog.
+
+=== newsletters
+From: Verein Lauftreff Durlach <vorstand@lauftreff-durlach.de>
+Subject: Vereinsnews Oktober
+List-Id: <mitglieder.lauftreff-durlach.de>
+Precedence: list
+
+Liebe Mitglieder, hier die Neuigkeiten aus dem Verein: Termine für den Herbstlauf, neue Trainingszeiten und ein Rückblick aufs Sommerfest.
+
+=== newsletters
+From: Figma <hello@figma.com>
+Subject: Config 2026 recap
+List-Unsubscribe: <https://www.figma.com/unsubscribe>
+Precedence: bulk
+
+Missed Config? Here are the biggest announcements, the talks worth watching and what's coming next.
+
+=== newsletters
+From: t3n <newsletter@t3n.de>
+Subject: t3n Daily: Die Zukunft der E-Mail
+List-Unsubscribe: <https://t3n.de/newsletter/abmelden>
+Precedence: bulk
+
+Heute im Daily: Warum E-Mail nicht stirbt, wie Startups Inbox-Zero angehen und 5 Tools für mehr Fokus.
+
+=== spam
+From: "PayPal Service" <secure@account-verify-center.top>
+Subject: Your account has been limited
+
+Dear Customer, we noticed unusual activity. Your account access has been limited until you verify your identity within 24 hours.
+
+=== spam
+From: Sparkasse <info@spk-sicherheit-update.com>
+Subject: Wichtig: Ihr Konto wurde gesperrt
+
+Sehr geehrter Kunde, aufgrund verdächtiger Aktivitäten wurde Ihr Online-Banking gesperrt. Bitte bestätigen Sie Ihre Daten über den folgenden Link.
+
+=== spam
+From: DHL Express <support@dhl-paket-zustellung.info>
+Subject: Ihr Paket konnte nicht zugestellt werden
+
+Ihre Sendung wartet. Bitte zahlen Sie die Zollgebühr von 1,99 € innerhalb von 48 Stunden, sonst wird das Paket zurückgeschickt.
+
+=== spam
+From: Netflix <billing@netflix-account-renew.com>
+Subject: Payment declined – update your billing
+
+We were unable to process your last payment. Update your payment details now to avoid interruption of your membership.
+
+=== spam
+From: Dr. James Williams <jwilliams.trust@outlook.example>
+Subject: Confidential business proposal
+
+I am contacting you regarding an inheritance of $12,500,000 left by a deceased client who shares your surname. Reply with your full name and bank details.
+
+=== spam
+From: Krypto Gewinn <info@schnell-reich-werden.biz>
+Subject: Verdienen Sie 3.000 € am Tag mit Bitcoin
+
+Prominente verraten ihr Geheimnis: Mit dieser App verdienen Anleger täglich bis zu 3.000 €. Jetzt kostenlos registrieren, nur noch wenige Plätze.
+
+=== spam
+From: Microsoft 365 <no-reply@m365-mailbox-quota.xyz>
+Subject: Your mailbox is almost full
+
+Your mailbox has reached 99% of its storage. Click here to upgrade your storage for free or you will stop receiving emails.
+
+=== spam
+From: Amazon <account-update@amazon-security-check.net>
+Subject: Ungewöhnliche Anmeldung – Konto bestätigen
+
+Wir haben eine ungewöhnliche Anmeldung festgestellt. Bestätigen Sie Ihr Konto innerhalb von 24 Stunden, sonst wird es gesperrt.
+
+=== spam
+From: Lotto Gewinnspiel <gewinner@lotto-gewinn-2026.top>
+Subject: Herzlichen Glückwunsch! Sie haben gewonnen
+
+Sie wurden als Gewinner eines iPhone 17 Pro ausgewählt. Bestätigen Sie jetzt Ihre Adresse, um Ihren Preis zu erhalten.
+
+=== spam
+From: Pharma Direct <sales@cheap-meds-online.ru>
+Subject: Best prices, no prescription needed
+
+Order now and save up to 80% on all medications. Discreet worldwide shipping, no prescription required.
+
+=== spam
+From: Apple Support <support@apple-id-verification.club>
+Subject: Ihre Apple-ID wurde deaktiviert
+
+Ihre Apple-ID wurde aus Sicherheitsgründen deaktiviert. Klicken Sie hier, um sie innerhalb von 12 Stunden wiederherzustellen.
+
+=== spam
+From: SEO Expert <rankings@seo-boost-agency.co>
+Subject: Your website is not ranking on Google
+
+Hi, I checked your website and found 37 errors. We can get you on page 1 of Google in 30 days, guaranteed. Reply for a free audit.
+
+=== updates
+From: GitHub <notifications@github.com>
+Subject: Re: [acme/shop] Search returns nothing for umlauts (Issue #318)
+List-Id: acme/shop <shop.acme.github.com>
+List-Unsubscribe: <mailto:unsub+ghi@reply.github.com>
+Precedence: list
+
+jan-k commented on this issue. I can reproduce it on main, the query isn't normalized before it hits the index. You are receiving this because you were mentioned.
+
+=== updates
+From: GitHub <noreply@github.com>
+Subject: [GitHub] A new SSH key was added to your account
+
+The following SSH key was added to your account: ed25519 laptop. If you believe this key was added in error, you can remove the key and disable access.
+
+=== updates
+From: Vercel <notifications@vercel.com>
+Subject: Failed production deployment on acme-web
+List-Unsubscribe: <https://vercel.com/account/notifications>
+
+The deployment of acme-web to production failed. Build error: Type error in app/page.tsx. View build logs.
+
+=== updates
+From: Sentry <noreply@md.getsentry.com>
+Subject: [acme-api] TypeError: Cannot read properties of undefined (reading 'id')
+List-Unsubscribe: <https://sentry.io/settings/account/notifications/>
+
+New issue in acme-api production. First seen 2 minutes ago, 34 events, 12 users affected.
+
+=== updates
+From: Linear <notifications@linear.app>
+Subject: ENG-142 Onboarding emails go out twice was assigned to you
+List-Unsubscribe: <https://linear.app/settings/notifications>
+
+Mara assigned ENG-142 to you. Priority: Urgent. Status: Todo.
+
+=== updates
+From: GitLab <gitlab@mg.gitlab.com>
+Subject: acme/infra | Pipeline #8812 has failed for main
+List-Unsubscribe: <https://gitlab.com/-/sent_notifications/y/unsubscribe>
+
+Pipeline #8812 triggered by Julia Becker has failed. Job deploy:staging failed in stage deploy.
+
+=== updates
+From: Google <no-reply@accounts.google.com>
+Subject: Sicherheitswarnung
+
+Neue Anmeldung bei Ihrem Google-Konto auf einem Mac. Wenn Sie das waren, müssen Sie nichts weiter tun. Andernfalls helfen wir Ihnen, Ihr Konto zu schützen.
+
+=== spam
+From: DHL Zustellung <info@dhl-sendung-zoll.shop>
+Subject: Ihr Paket wartet: Zollgebühr offen
+
+Ihr Paket konnte nicht zugestellt werden. Bitte zahlen Sie die offene Zollgebühr von 1,99 EUR innerhalb von 24 Stunden, sonst wird es zurückgesendet.
+
+=== spam
+From: Account Team <support@mail-webmail-upgrade.top>
+Subject: Your mailbox will be deactivated
+
+Your email account has exceeded its storage limit and will be deactivated today. Click here to verify your account and keep your messages.
+
+=== spam
+From: Invest Pro <news@fast-bitcoin-profit.biz>
+Subject: Verdienen Sie 3.000 € pro Tag von zu Hause
+
+Unsere künstliche Intelligenz handelt für Sie. Prominente nutzen es bereits. Jetzt mit nur 250 € starten und sofort Gewinne sehen.

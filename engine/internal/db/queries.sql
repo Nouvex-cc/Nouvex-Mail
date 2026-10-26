@@ -202,3 +202,16 @@ RETURNING draft_id, account_id, payload;
 
 -- name: ForgetSent :exec
 DELETE FROM outbox WHERE state = 'sent' AND updated_at < now() - interval '7 days';
+
+-- name: GetSortModel :one
+SELECT weights, trained_at FROM sort_model WHERE user_id = $1;
+
+-- name: SaveSortModel :exec
+INSERT INTO sort_model (user_id, weights, metrics) VALUES ($1, $2, $3)
+ON CONFLICT (user_id) DO UPDATE SET weights = EXCLUDED.weights, metrics = EXCLUDED.metrics, trained_at = now();
+
+-- name: ListUserAccountIDs :many
+SELECT id FROM mail_account WHERE user_id = $1 AND archived_at IS NULL;
+
+-- name: ListSorted :many
+SELECT id, uid, category, spam FROM message WHERE mailbox_id = $1 AND uid = ANY(sqlc.arg(uids)::bigint[]);

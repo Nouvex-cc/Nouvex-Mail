@@ -38,6 +38,17 @@ services:
       USER_PASSWORD: "{PLAIN}hunter2"
     ports: ["31143:31143"]
 
+  # Embeddings for sorting, set EMBED_URL=http://localhost:8090 for the engine. On Apple silicon use
+  # EMBED_IMAGE=ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-1.9.4.
+  embed:
+    image: ${EMBED_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4}
+    profiles: [embed]
+    command: >-
+      --model-id intfloat/multilingual-e5-small --tokenization-workers 2 --max-batch-tokens 4096
+      --max-client-batch-size 50 --max-concurrent-requests 64
+    ports: ["8090:80"]
+    volumes: [models:/data]
+
   lgtm:
     image: grafana/otel-lgtm
     profiles: [obs]
@@ -47,3 +58,4 @@ volumes:
   pg:
   nats:
   s3:
+  models:

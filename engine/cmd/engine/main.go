@@ -67,6 +67,9 @@ func run() error {
 		return err
 	}
 	store := mail.Store{Put: bucket.Put, Drop: bucket.Drop}
+	if url := os.Getenv("EMBED_URL"); url != "" {
+		mail.Sorting = mail.NewSorter(url)
+	}
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
@@ -165,6 +168,33 @@ func run() error {
 		slog.Error("sweep", "err", err)
 	}
 
+	// learn trains the user's sorting model again once a day, after a sync of one of their accounts, and once after
+	// the first. One at a time per user, next to the syncs.
+	// ponytail: a new sender rule waits for the next day; sort() applies rules right away, the model learns later.
+	var learning sync.Map
+	learn := func(accountID string) {
+		if mail.Sorting == nil {
+			return
+		}
+		q := db.New(pool)
+		acc, err := q.GetAccount(ctx, accountID)
+		if err != nil {
+			return
+		}
+		if m, err := q.GetSortModel(ctx, acc.UserID); err == nil && time.Since(m.TrainedAt.Time) < 24*time.Hour {
+			return
+		}
+		if _, busy := learning.LoadOrStore(acc.UserID, true); busy {
+			return
+		}
+		go func() {
+			defer learning.Delete(acc.UserID)
+			if err := mail.Learn(ctx, pool, master, acc.UserID); err != nil {
+				slog.Error("learn", "user", acc.UserID, "err", err)
+			}
+		}()
+	}
+
 	// syncAccount syncs an account and tells clients while it runs and once it's done. Every saved batch goes out
 	// right away, so they fill up during a long first sync.
 	syncAccount := func(id string) error {
@@ -191,6 +221,7 @@ func run() error {
 		}
 		slog.Info("synced", "account", id, "version", v)
 		watch(id)
+		learn(id)
 		return nil
 	}
 
