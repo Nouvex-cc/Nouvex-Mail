@@ -7,6 +7,7 @@ export const shortcuts: ShortcutGroup[] = [
 		title: "Anywhere",
 		items: [
 			{ keys: "/", label: "Search" },
+			{ keys: "c", label: "New message" },
 			{ keys: "mod+,", label: "Settings" },
 			{ keys: "?", label: "All shortcuts" },
 			{ keys: "1", label: "All inboxes" },

@@ -505,8 +505,11 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sen
 				payload: await seal(JSON.stringify(cmd(failed))),
 			},
 		]);
-		const list = await (await json("GET", `/accounts/${id}/outbox`)).json();
-		expect(list.map((w: { draftId: string; state: string }) => [w.draftId, w.state]).sort()).toEqual(
+		// Sends above may be in it too, when an engine runs alongside the test.
+		const list = (
+			(await (await json("GET", `/accounts/${id}/outbox`)).json()) as { draftId: string; state: string }[]
+		).filter((w) => w.draftId === later || w.draftId === failed);
+		expect(list.map((w) => [w.draftId, w.state]).sort()).toEqual(
 			[
 				[later, "scheduled"],
 				[failed, "failed"],
@@ -520,7 +523,8 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sen
 		expect(await s3.file(`upload/${id}/${file}`).text()).toBe("%PDF-1");
 		expect(await s3.file(`outbox/${later}/${file}`).exists()).toBe(false);
 		expect((await json("DELETE", `/accounts/${id}/outbox/${failed}`)).status).toBe(202);
-		expect(await (await json("GET", `/accounts/${id}/outbox`)).json()).toEqual([]);
+		const left = (await (await json("GET", `/accounts/${id}/outbox`)).json()) as { draftId: string }[];
+		expect(left.filter((w) => w.draftId === later || w.draftId === failed)).toEqual([]);
 		expect((await json("DELETE", `/accounts/${id}/outbox/${later}`)).status).toBe(404);
 		await db.insert(outbox).values({ draftId: later, accountId: id, state: "sending", payload: await seal("{}") });
 		expect((await json("DELETE", `/accounts/${id}/outbox/${later}`)).status).toBe(409);

@@ -18,6 +18,7 @@ type Meta = Pick<
 	| "rich"
 	| "seeded"
 	| "unsubscribe"
+	| "replyTo"
 >;
 type Sealed = Omit<Message, "accountId" | "seen" | "starred" | "spam" | keyof Meta> & { sealed: string; spam: boolean };
 

@@ -21,6 +21,8 @@ export type MailFrameProps = {
 	proxy?(url: string): string;
 	/** Hides remote images until asked, even with a proxy. */
 	ask?: boolean;
+	/** A mailto: link, to write it here instead of in the system's mail app. */
+	onMailto?(url: string): void;
 	className?: string;
 };
 
@@ -158,7 +160,7 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 }
 
 /** Renders a mail in a sandboxed frame (no scripts) that grows with its content, so it never scrolls on its own. */
-export function MailFrame({ html, proxy, ask, className }: MailFrameProps) {
+export function MailFrame({ html, proxy, ask, onMailto, className }: MailFrameProps) {
 	const dark = useDark();
 	const [original, setOriginal] = useState(false);
 	const look = !dark || original ? "light" : ownDark.test(html) ? "own" : "flipped";
@@ -167,6 +169,8 @@ export function MailFrame({ html, proxy, ask, className }: MailFrameProps) {
 	const [showQuote, setShowQuote] = useState(false);
 	const [ready, setReady] = useState(false);
 	const frame = useRef<HTMLIFrameElement>(null);
+	const mailto = useRef(onMailto);
+	mailto.current = onMailto;
 	const { body, blocked, quoted, layout } = useMemo(() => prepare(html, allow, proxy), [html, allow, proxy]);
 
 	const slot = useContext(FrameSlot);
@@ -188,9 +192,17 @@ export function MailFrame({ html, proxy, ask, className }: MailFrameProps) {
 		resize.observe(d.documentElement);
 		fit();
 		const raf = requestAnimationFrame(() => setReady(true));
+		const click = (e: MouseEvent) => {
+			const a = (e.target as Element | null)?.closest?.("a[href^='mailto:' i]");
+			if (!a || !mailto.current) return;
+			e.preventDefault();
+			mailto.current(a.getAttribute("href") ?? "");
+		};
+		d.addEventListener("click", click);
 		return () => {
 			resize.disconnect();
 			cancelAnimationFrame(raf);
+			d.removeEventListener("click", click);
 		};
 	}, [doc]);
 
