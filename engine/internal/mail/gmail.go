@@ -71,17 +71,14 @@ func askTabs(conn io.ReadWriter, user, pass string) (map[imap.UID]int, error) {
 			return nil, err
 		}
 		for _, line := range lines {
-			found, ok := strings.CutPrefix(line, "* SEARCH")
-			if !ok {
-				continue
-			}
-			for f := range strings.FieldsSeq(found) {
-				if uid, err := strconv.ParseUint(f, 10, 32); err == nil {
-					tabs[imap.UID(uid)] = label
+			if found, ok := strings.CutPrefix(line, "* SEARCH"); ok {
+				for f := range strings.FieldsSeq(found) {
+					if uid, err := strconv.ParseUint(f, 10, 32); err == nil {
+						tabs[imap.UID(uid)] = label
+					}
 				}
 			}
 		}
 	}
-	_, _ = run("LOGOUT")
 	return tabs, nil
 }

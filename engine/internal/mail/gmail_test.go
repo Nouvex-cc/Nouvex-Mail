@@ -44,10 +44,6 @@ func gmail(t *testing.T, conn net.Conn) {
 		case strings.HasPrefix(cmd, "UID SEARCH"):
 			say("* SEARCH")
 			say("x OK SEARCH completed (Success)")
-		case cmd == "LOGOUT":
-			say("* BYE LOGOUT Requested")
-			say("x OK 73 good day (Success)")
-			return
 		default:
 			t.Errorf("unexpected %q", cmd)
 			say("x BAD")
