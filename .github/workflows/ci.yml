@@ -13,9 +13,6 @@ jobs:
         env: { POSTGRES_USER: nouvex, POSTGRES_PASSWORD: nouvex, POSTGRES_DB: nouvex }
         ports: ["5432:5432"]
         options: --health-cmd "pg_isready -U nouvex" --health-interval 2s
-      nats:
-        image: nats:2.15
-        ports: ["4222:4222"]
     env:
       DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
       NATS_URL: nats://localhost:4222
@@ -29,6 +26,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: touch .env && bun run db:migrate
+      # Not a service: services can't take arguments, and sends need JetStream, as on the server.
+      - run: docker run -d --name nats -p 4222:4222 nats:2.15 -js
       # Not a service: it needs docker/s3.json from the checkout.
       - name: S3
         run: |

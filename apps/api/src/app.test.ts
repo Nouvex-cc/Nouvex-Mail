@@ -443,6 +443,11 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sen
 			body: body && JSON.stringify(body),
 		});
 	const send = (body: object) => json("POST", `/accounts/${id}/send`, { subject: "Plan", text: "Hi", ...body });
+	// The engine makes the stream; without one running, the test does.
+	const { jetstreamManager } = await import("@nats-io/jetstream");
+	const { nats } = await import("./nats");
+	const jsm = await jetstreamManager((await nats()).nc);
+	await jsm.streams.add({ name: "COMMANDS", subjects: ["cmd.>"], retention: "workqueue" }).catch(() => {});
 	try {
 		await db.insert(mailAccount).values({
 			id,
