@@ -32,6 +32,8 @@ export interface Message {
 	seeded?: boolean;
 	/** How to leave the list it came from (List-Unsubscribe). */
 	unsubscribe?: { url?: string; mailto?: string; oneClick?: boolean };
+	/** Where answers go when it isn't the sender, like a mailing list. */
+	replyTo?: string;
 	// 1 when the engine or the user took it for spam: it shows under Junk, wherever it is on the server.
 	spam?: 0 | 1;
 	// 1 when actions isn't empty, so the sidebar finds them through an index.

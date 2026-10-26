@@ -21,6 +21,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
 import { useAccounts } from "./accounts";
+import { addresses, type Kind, subject as prefixed, references, text } from "./answering";
 import { type Category, type Message, tabs } from "./db";
 import { messageKey } from "./keys";
 import { usePref } from "./prefs";
@@ -51,7 +52,7 @@ export function Reader({
 	onClose: () => void;
 	onTrash: () => void;
 	onArchive?: () => void;
-	onWrite: (draft: Draft) => void;
+	onWrite: (draft: Omit<Draft, "draftId">) => void;
 	onMarkUnread: () => void;
 	/** A reply being written, in the reply bar's place. */
 	composer?: ReactNode;
@@ -129,9 +130,36 @@ export function Reader({
 	// Replies answer the newest message. When that's one of ours, they go to whoever it went to.
 	const mine = new Set(accounts.data?.map((a) => a.email.toLowerCase()));
 	const ours = mine.has(newest.fromAddr.toLowerCase());
-	const quoted = html.data === undefined ? undefined : text(html.data);
 	const others = [...new Set([newest.fromAddr, ...newest.to, ...newest.cc])].filter((a) => !mine.has(a.toLowerCase()));
-	const write = (draft: Draft) => quoted !== undefined && onWrite(draft);
+	// The body is waited for, so the quote is there; one that won't load is quoted by its preview.
+	const answer = async (kind: Kind) => {
+		const loaded = html.data ?? (await body(newest).catch(() => undefined));
+		const quoted = loaded === undefined ? newest.snippet : text(loaded);
+		const date = new Date(newest.sentAt).toLocaleString();
+		const subject = prefixed(kind, newest.subject);
+		if (kind === "forward") {
+			const files = await Promise.all(newest.attachments.map((_, i) => attachment(newest, i))).catch(() => []);
+			return onWrite({
+				accountId: newest.accountId,
+				kind,
+				subject,
+				forwarded: { from: sender(newest), date, subject: newest.subject, text: quoted, html: loaded },
+				files,
+			});
+		}
+		const { to, cc } = addresses(kind, newest, mine);
+		onWrite({
+			accountId: newest.accountId,
+			kind,
+			to,
+			cc,
+			subject,
+			quote: `\n\nOn ${date}, ${sender(newest)} wrote:\n${quoted.replace(/^/gm, "> ")}`,
+			inReplyTo: newest.messageId || undefined,
+			references: references(messages.map((m) => m.messageId)),
+			person: ours ? (to[0] ?? "") : newest.fromName || newest.fromAddr,
+		});
+	};
 	const back = (
 		<Button variant="ghost" size="sm" onClick={onClose}>
 			<ChevronLeft strokeWidth={1.75} />
@@ -158,10 +186,9 @@ export function Reader({
 							: newest.fromName || newest.fromAddr,
 				drafted: !!draft,
 				allFirst: replyTo === "all",
-				onReply: () =>
-					draft ? onResume(draft) : write(reply(newest, quoted ?? "", ours ? newest.to : [newest.fromAddr])),
-				onReplyAll: others.length > 1 ? () => write(reply(newest, quoted ?? "", others)) : undefined,
-				onForward: () => write(forward(newest, quoted ?? "")),
+				onReply: () => (draft ? onResume(draft) : void answer("reply")),
+				onReplyAll: others.length > 1 ? () => void answer("replyAll") : undefined,
+				onForward: () => void answer("forward"),
 			}}
 		>
 			{messages.map((m) => (
@@ -174,7 +201,7 @@ export function Reader({
 					snippet={m.snippet}
 					defaultExpanded={m.seen === 0}
 				>
-					<Entry message={m} />
+					<Entry message={m} onMailto={(url) => onWrite(mailto(url, m.accountId))} />
 				</ThreadMessage>
 			))}
 		</Thread>
@@ -298,27 +325,51 @@ function Rich({
 	);
 }
 
-// Opened here and saved as a download, never shown on our origin.
-async function download(m: Message, i: number) {
+// A message's file, opened here.
+export async function attachment(m: Message, i: number) {
 	const res = await fetch(`/accounts/${m.accountId}/messages/${m.id}/attachments/${i}`);
 	if (!res.ok) throw new Error(`attachment: ${res.status}`);
 	const file = m.attachments[i];
 	const data = await decrypt(await messageKey(m), `att/${i}`, new Uint8Array(await res.arrayBuffer()));
+	return new File([data], file?.name ?? "attachment", { type: file?.type || "application/octet-stream" });
+}
+
+// Saved as a download, never shown on our origin.
+async function download(m: Message, i: number) {
+	const file = await attachment(m, i);
 	const link = document.createElement("a");
-	link.href = URL.createObjectURL(new Blob([data], { type: file?.type || "application/octet-stream" }));
-	link.download = file?.name ?? "attachment";
+	link.href = URL.createObjectURL(file);
+	link.download = file.name;
 	link.click();
 	setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 }
 
+/** A new message from a mailto: link, with what it asks for. */
+export function mailto(url: string, accountId: string): Omit<Draft, "draftId"> {
+	const u = new URL(url);
+	const list = (s: string | null) =>
+		(s ?? "")
+			.split(",")
+			.map((a) => a.trim())
+			.filter(Boolean);
+	return {
+		accountId,
+		to: list(decodeURIComponent(u.pathname)),
+		cc: list(u.searchParams.get("cc")),
+		bcc: list(u.searchParams.get("bcc")),
+		subject: u.searchParams.get("subject") ?? "",
+		body: u.searchParams.get("body") ?? "",
+	};
+}
+
 // The body of one message; it loads when the message is first shown.
-function Entry({ message: m }: { message: Message }) {
+function Entry({ message: m, onMailto }: { message: Message; onMailto: (url: string) => void }) {
 	const [images] = usePref("remoteImages");
 	const html = useQuery({ queryKey: ["body", m.id], queryFn: () => body(m), staleTime: Number.POSITIVE_INFINITY });
 
 	return html.data !== undefined ? (
 		<>
-			<MailFrame html={html.data} proxy={image} ask={images === "ask"} />
+			<MailFrame html={html.data} proxy={image} ask={images === "ask"} onMailto={onMailto} />
 			{m.attachments.length > 0 && (
 				<AttachmentList>
 					{m.attachments.map((a, i) => (
@@ -339,24 +390,4 @@ function Entry({ message: m }: { message: Message }) {
 	);
 }
 
-// The mail as plain text for quoting. Block breaks of HTML mails get lost; plain text mails keep their lines.
-export const text = (html: string) => new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() ?? "";
-
-const prefixed = (prefix: string, subject: string) =>
-	subject.toLowerCase().startsWith(prefix.toLowerCase()) ? subject : `${prefix} ${subject}`;
-
 const sender = (m: Message) => (m.fromName ? `${m.fromName} <${m.fromAddr}>` : m.fromAddr);
-
-const reply = (m: Message, body: string, to: string[]): Draft => ({
-	accountId: m.accountId,
-	to,
-	subject: prefixed("Re:", m.subject),
-	quote: `\n\nOn ${new Date(m.sentAt).toLocaleString()}, ${sender(m)} wrote:\n${body.replace(/^/gm, "> ")}`,
-	inReplyTo: m.messageId || undefined,
-});
-
-const forward = (m: Message, body: string): Draft => ({
-	accountId: m.accountId,
-	subject: prefixed("Fwd:", m.subject),
-	quote: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m)}\nDate: ${new Date(m.sentAt).toLocaleString()}\nSubject: ${m.subject}\n\n${body}`,
-});

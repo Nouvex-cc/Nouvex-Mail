@@ -22,6 +22,7 @@ import {
 	File,
 	Folder,
 	Inbox as InboxIcon,
+	Layers,
 	LogOut,
 	PenLine,
 	Send,
@@ -37,12 +38,14 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { asleep, named, resting, useAccounts, useGroups, wake, wakes } from "../accounts";
 import { AddAccount } from "../add-account";
+import { text } from "../answering";
 import { session } from "../auth";
 import { type Category, db, type Message, once, tabs } from "../db";
 import { signOut, unlocked } from "../keys";
 import { Now } from "../now";
+import { Outbox, useOutbox } from "../outbox";
 import { usePref } from "../prefs";
-import { body, Reader, text } from "../reader";
+import { attachment, body, Reader } from "../reader";
 import { matches } from "../search";
 import { shortcuts } from "../shortcuts";
 import { arrived, forget, listen, pull, sortSender, unsubscribe, update } from "../sync";
@@ -133,9 +136,21 @@ function Inbox() {
 	const setTab = (t?: Category) => navigate({ to: "/", search: { folder: search.folder, tab: t } });
 	const [adding, setAdding] = useState(false);
 	const [draft, setDraft] = useState<Draft>();
+	// A composer's draft gets its id as it opens, so the same draft keeps it when it opens again.
+	const write = (d: Omit<Draft, "draftId"> & { draftId?: string }) =>
+		setDraft({ ...d, draftId: d.draftId ?? crypto.randomUUID() });
+	// Messages handed to the server, to open again when the engine can't send one.
+	const outgoing = useRef(new Map<string, Draft>());
+	useShortcut("c", () => write({}));
+	// A reply belongs to its conversation: leaving it keeps the reply as a draft (Write saves as it goes) and closes it.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: only when another conversation opens
+	useEffect(() => {
+		if (draft?.thread && draft.thread !== open) setDraft(undefined);
+	}, [open]);
 	const toast = useToast();
 	const queryClient = useQueryClient();
 	const accounts = useAccounts();
+	const outbox = useOutbox((accounts.data ?? []).filter((a) => !asleep(a)).map((a) => a.id));
 	const groups = useGroups().data ?? [];
 	const group = groups.find((g) => `group:${g.id}` === current);
 	// A resting group's accounts wait out of All inboxes; muted ones and those in a muted group don't count as unread.
@@ -150,13 +165,29 @@ function Inbox() {
 	const ids = (accounts.data ?? []).map((a) => a.id).join();
 	const [syncing, setSyncing] = useState<ReadonlySet<string>>(new Set());
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the socket stays open across renders; what a tapped toast calls only has to exist then
 	useEffect(() => {
 		if (!ids) return;
 		const list = ids.split(",");
 		for (const id of list) void pull(id);
 		return listen(
 			list,
-			(e) => toast.add(e.error ? { title: "Couldn't send", description: e.error } : { title: "Sent" }),
+			(e) => {
+				void queryClient.invalidateQueries({ queryKey: ["outbox"] });
+				// Scheduled: the composer said so already.
+				if (e.scheduled) return;
+				const sent = outgoing.current.get(e.draftId);
+				outgoing.current.delete(e.draftId);
+				if (!e.error) return toast.add({ title: "Sent" });
+				// The engine put it back into Drafts; this tab may still have it as it was written.
+				toast.add({
+					title: sent ? `Couldn't send “${sent.subject || "(no subject)"}”` : "Couldn't send",
+					description: `${e.error}${e.error.endsWith(".") ? "" : "."} It's back in Drafts.`,
+					actionProps: sent
+						? { children: "Open", onClick: () => setDraft(sent) }
+						: { children: "Drafts", onClick: () => setFolder("drafts") },
+				});
+			},
 			// A sync that failed or worked again changes the account's error.
 			() => void accounts.refetch(),
 			(id, running) =>
@@ -381,16 +412,29 @@ function Inbox() {
 		// The quoted message folds away again, from the line that introduces it.
 		const full = text(html);
 		// It answers the newest message of its conversation, so it stays in it and the reply is threaded.
-		const earlier = await db.messages.where("threadId").equals(m.threadId).sortBy("sentAt");
+		const earlier = (await db.messages.where("threadId").equals(m.threadId).sortBy("sentAt")).filter(
+			(e) => !drafts.has(e.mailboxId),
+		);
+		const parent = earlier.at(-1);
 		const at = full.search(/\n\s*On [^\n]+ wrote:\n/);
+		const files = await Promise.all(m.attachments.map((_, i) => attachment(m, i))).catch(() => []);
 		setDraft({
 			accountId: m.accountId,
+			kind: parent && thread ? "reply" : undefined,
 			to: m.to,
+			cc: m.cc,
 			subject: m.subject,
 			body: at < 0 ? full : full.slice(0, at),
 			quote: at < 0 ? undefined : full.slice(at),
-			inReplyTo: earlier.findLast((e) => !drafts.has(e.mailboxId))?.messageId || undefined,
-			thread,
+			files,
+			inReplyTo: parent?.messageId || undefined,
+			references: earlier
+				.map((e) => e.messageId)
+				.filter(Boolean)
+				.slice(-20),
+			person: parent ? parent.fromName || parent.fromAddr : undefined,
+			thread: parent ? thread : undefined,
+			saved: true,
 			draftId: /^draft-([0-9a-f-]{36})@/.exec(m.messageId)?.[1] ?? crypto.randomUUID(),
 		});
 	};
@@ -467,6 +511,8 @@ function Inbox() {
 				draft={draft}
 				placement={placement}
 				onClose={() => setDraft(undefined)}
+				onSent={(d) => outgoing.current.set(d.draftId, d)}
+				onReopen={setDraft}
 			/>
 		);
 	const [look] = useState(storedLook);
@@ -538,7 +584,7 @@ function Inbox() {
 						onAddAccount={() => setAdding(true)}
 					/>
 					<Sidebar.Section>
-						<Sidebar.Item label="Write" icon={<PenLine strokeWidth={1.75} />} onSelect={() => setDraft({})} />
+						<Sidebar.Item label="Write" icon={<PenLine strokeWidth={1.75} />} onSelect={() => write({})} />
 						{standard
 							.filter(
 								(f) => f.role === "inbox" || (f.role === "junk" && hasSpam) || boxes.some((b) => b.role === f.role),
@@ -572,6 +618,16 @@ function Inbox() {
 							active={!searching && folder === "starred"}
 							onSelect={() => setFolder("starred")}
 						/>
+						{/* Only while something waits there, or couldn't be sent. */}
+						{((outbox.data?.length ?? 0) > 0 || folder === "outbox") && (
+							<Sidebar.Item
+								label="Outbox"
+								icon={<Layers strokeWidth={1.75} />}
+								unread={outbox.data?.some((w) => w.error)}
+								active={!searching && folder === "outbox"}
+								onSelect={() => setFolder("outbox")}
+							/>
+						)}
 					</Sidebar.Section>
 					{own.length > 0 && (
 						<Sidebar.Section title="Folders" collapsible>
@@ -620,7 +676,7 @@ function Inbox() {
 					draft={unsent}
 					onResume={(m) => void resume(m, open)}
 					onClose={() => setOpen(undefined)}
-					onWrite={(d) => setDraft({ ...d, thread: open })}
+					onWrite={(d) => write({ ...d, thread: d.kind ? open : undefined })}
 					composer={draft?.thread !== undefined && draft.thread === open && writer("reply")}
 					onMarkUnread={() => {
 						setOpen(undefined);
@@ -634,6 +690,11 @@ function Inbox() {
 					onSort={(category) => void sortAs(conversation, { category })}
 					onSpam={(spam) => void sortAs(conversation, { spam })}
 					onUnsubscribe={() => void leave(conversation)}
+				/>
+			) : folder === "outbox" && !searching ? (
+				<Outbox
+					accountIds={(accounts.data ?? []).filter((a) => !asleep(a)).map((a) => a.id)}
+					onDrafts={() => setFolder("drafts")}
 				/>
 			) : accounts.data?.length === 0 ? (
 				<div className="grid h-full place-items-center">

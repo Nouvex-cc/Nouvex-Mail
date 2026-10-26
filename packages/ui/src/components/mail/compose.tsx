@@ -27,14 +27,21 @@ export type OutgoingMessage = {
 export type ComposerProps = {
 	contacts: Contact[];
 	defaultTo?: string[];
+	defaultCc?: string[];
+	defaultBcc?: string[];
 	defaultSubject?: string;
 	/** e.g. the quoted message when replying. */
 	defaultBody?: string;
-	onSend(message: OutgoingMessage): void;
-	/** Every edit, e.g. to save a draft; files and send time aren't part of a draft. */
-	onChange?(message: Omit<OutgoingMessage, "files" | "sendAt">): void;
-	/** After holding the discard button; the fields are cleared either way. */
+	/** Files it starts with, like a forwarded message's or a saved draft's. */
+	defaultFiles?: File[];
+	/** Whether the server took it; false keeps everything as it was, to try again. */
+	onSend(message: OutgoingMessage): Promise<boolean> | boolean | void;
+	/** Every edit, e.g. to save a draft; the send time isn't part of a draft. */
+	onChange?(message: Omit<OutgoingMessage, "sendAt">): void;
+	/** The discard button; the fields are cleared either way. */
 	onDiscard?(): void;
+	/** A forwarded message, shown as a card under the text: who wrote it, about what, its text on a click. */
+	original?: { from: string; date: string; subject: string; text: string };
 	/** `card` brings its own surface; `plain` fills whatever it's placed in, with the send row at the bottom. */
 	variant?: "card" | "plain";
 	/** A row above the recipients, e.g. the account it's sent from. */
@@ -50,6 +57,12 @@ export type ComposerProps = {
 };
 
 let nextId = 0;
+
+const entry = (file: File) => ({
+	id: nextId++,
+	file,
+	url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
+});
 
 const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
 
@@ -171,8 +184,12 @@ function Recipients({
 export function Composer({
 	contacts,
 	defaultTo = [],
+	defaultCc = [],
+	defaultBcc = [],
 	defaultSubject = "",
 	defaultBody = "",
+	defaultFiles = [],
+	original,
 	onSend,
 	onChange,
 	onDiscard,
@@ -184,17 +201,17 @@ export function Composer({
 	undo = 5,
 }: ComposerProps) {
 	const [to, setTo] = useState(defaultTo);
-	const [cc, setCc] = useState<string[]>([]);
-	const [bcc, setBcc] = useState<string[]>([]);
-	const [showCc, setShowCc] = useState(false);
-	const [showBcc, setShowBcc] = useState(false);
+	const [cc, setCc] = useState(defaultCc);
+	const [bcc, setBcc] = useState(defaultBcc);
+	const [showCc, setShowCc] = useState(defaultCc.length > 0);
+	const [showBcc, setShowBcc] = useState(defaultBcc.length > 0);
 	const [subject, setSubject] = useState(defaultSubject);
 	const [details, setDetails] = useState(!compact);
 	const [showQuote, setShowQuote] = useState(false);
 	const [body, setBody] = useState(defaultBody);
-	const [files, setFiles] = useState<{ id: number; file: File; url?: string }[]>([]);
+	const [files, setFiles] = useState<{ id: number; file: File; url?: string }[]>(() => defaultFiles.map(entry));
 	const [sendAt, setSendAt] = useState<Date>();
-	const [phase, setPhase] = useState<"idle" | "undo" | "done">("idle");
+	const [phase, setPhase] = useState<"idle" | "undo" | "sending" | "done">("idle");
 	const [dragging, setDragging] = useState(0);
 	const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const picker = useRef<HTMLInputElement>(null);
@@ -204,12 +221,20 @@ export function Composer({
 	const changed = useRef(onChange);
 	changed.current = onChange;
 	const opened = useRef(
-		JSON.stringify({ to: defaultTo, cc: [], bcc: [], subject: defaultSubject, body: defaultBody + quote }),
+		JSON.stringify({
+			to: defaultTo,
+			cc: defaultCc,
+			bcc: defaultBcc,
+			subject: defaultSubject,
+			body: defaultBody + quote,
+			files: defaultFiles.length,
+		}),
 	);
 	useEffect(() => {
 		const now = { to, cc, bcc, subject, body: body + quote };
-		if (JSON.stringify(now) !== opened.current) changed.current?.(now);
-	}, [to, cc, bcc, subject, body, quote]);
+		if (JSON.stringify({ ...now, files: files.length }) !== opened.current)
+			changed.current?.({ ...now, files: files.map((f) => f.file) });
+	}, [to, cc, bcc, subject, body, quote, files]);
 	const bodyCaret = useCaret(bodyField);
 
 	// A reply starts above the quoted message.
@@ -231,9 +256,12 @@ export function Composer({
 
 	const urls = useRef(files);
 	urls.current = files;
+	// Closed while Undo still runs: the message goes now, closing doesn't take it back.
+	const pendingSend = useRef<() => void>(undefined);
 	useEffect(
 		() => () => {
 			clearTimeout(timer.current);
+			pendingSend.current?.();
 			for (const f of urls.current) if (f.url) URL.revokeObjectURL(f.url);
 		},
 		[],
@@ -241,12 +269,7 @@ export function Composer({
 
 	const attach = (list: FileList | null) => {
 		if (!list) return;
-		const added = [...list].map((file) => ({
-			id: nextId++,
-			file,
-			url: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-		}));
-		setFiles((f) => [...f, ...added]);
+		setFiles((f) => [...f, ...[...list].map(entry)]);
 	};
 	const detach = (id: number) =>
 		setFiles((f) => {
@@ -257,35 +280,43 @@ export function Composer({
 
 	const reset = () => {
 		setTo(defaultTo);
-		setCc([]);
-		setBcc([]);
-		setShowCc(false);
-		setShowBcc(false);
+		setCc(defaultCc);
+		setBcc(defaultBcc);
+		setShowCc(defaultCc.length > 0);
+		setShowBcc(defaultBcc.length > 0);
 		setSubject(defaultSubject);
 		setBody(defaultBody);
 		setDetails(!compact);
 		setShowQuote(false);
 		for (const f of files) if (f.url) URL.revokeObjectURL(f.url);
-		setFiles([]);
+		setFiles(defaultFiles.map(entry));
 		setSendAt(undefined);
 		setPhase("idle");
 	};
 
-	const deliver = () => {
-		onSend({ to, cc, bcc, subject, body: body + quote, files: files.map((f) => f.file), sendAt });
+	// "Sent" only once the server took it; otherwise everything stays for another try.
+	const deliver = async () => {
+		pendingSend.current = undefined;
+		setPhase("sending");
+		const ok = await onSend({ to, cc, bcc, subject, body: body + quote, files: files.map((f) => f.file), sendAt });
+		if (ok === false) return setPhase("idle");
 		setPhase("done");
 		timer.current = setTimeout(reset, 1500);
 	};
 
 	const names = new Map(contacts.map((c) => [c.email, c.name]));
-	const canSend = to.length > 0 && [...to, ...cc, ...bcc].every(isEmail);
+	const canSend = [...to, ...cc, ...bcc].length > 0 && [...to, ...cc, ...bcc].every(isEmail);
 	const send = () => {
 		clearTimeout(timer.current);
-		if (phase === "undo") return setPhase("idle");
+		if (phase === "undo") {
+			pendingSend.current = undefined;
+			return setPhase("idle");
+		}
 		if (phase !== "idle" || !canSend) return;
-		if (sendAt || !undo) return deliver();
+		if (sendAt || !undo) return void deliver();
 		setPhase("undo");
-		timer.current = setTimeout(deliver, undo * 1000);
+		pendingSend.current = () => void deliver();
+		timer.current = setTimeout(() => void deliver(), undo * 1000);
 	};
 
 	const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
@@ -399,6 +430,22 @@ export function Composer({
 						{showQuote && <p className="mt-2 text-sm whitespace-pre-wrap text-muted">{quote.trim()}</p>}
 					</>
 				)}
+				{original && (
+					<div className="mt-2 rounded-md bg-sunken">
+						<button
+							type="button"
+							aria-expanded={showQuote}
+							onClick={() => setShowQuote((q) => !q)}
+							className="flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left outline-none focus-visible:outline-2"
+						>
+							<span className="text-sm font-medium">{original.subject || "(no subject)"}</span>
+							<span className="text-xs text-muted">
+								Forwarded · from {original.from} · {original.date}
+							</span>
+						</button>
+						{showQuote && <p className="px-3 pb-3 text-sm whitespace-pre-wrap text-muted">{original.text}</p>}
+					</div>
+				)}
 			</div>
 
 			{files.length > 0 && (
@@ -419,13 +466,13 @@ export function Composer({
 			<div className="flex items-center gap-1 border-t border-line px-3 py-2">
 				<Button
 					variant="primary"
-					disabled={!canSend && phase === "idle"}
+					disabled={(!canSend && phase === "idle") || phase === "sending"}
 					countdown={phase === "undo" ? undo * 1000 : undefined}
 					success={phase === "done" && (sendAt ? "Scheduled" : "Sent")}
-					labels={["Undo", "Sent", "Schedule", "Scheduled"]}
+					labels={["Undo", "Sent", "Schedule", "Scheduled", "Sending"]}
 					onClick={send}
 				>
-					{phase === "undo" ? "Undo" : sendAt ? "Schedule" : "Send"}
+					{phase === "undo" ? "Undo" : phase === "sending" ? "Sending" : sendAt ? "Schedule" : "Send"}
 				</Button>
 				<span className="ml-1 text-sm text-muted">
 					<TextMorph by="text">{sendAt ? formatWhen(sendAt) : ""}</TextMorph>
@@ -470,14 +517,14 @@ export function Composer({
 					}}
 				/>
 
-				<Tooltip content="Hold to discard">
+				<Tooltip content="Discard">
 					<Button
 						size="icon"
 						variant="ghost"
 						aria-label="Discard"
 						className="ml-auto"
-						hold={700}
-						onHoldComplete={() => {
+						disabled={phase !== "idle"}
+						onClick={() => {
 							clearTimeout(timer.current);
 							reset();
 							onDiscard?.();
