@@ -17,6 +17,8 @@ jobs:
       DATABASE_URL: postgres://nouvex:nouvex@localhost:5432/nouvex
       NATS_URL: nats://localhost:4222
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci
+      # 32 bytes, base64, for tests only.
+      SECRETS_KEY: Y2ktb25seS1zZWNyZXRzLWtleS1jaS1vbmx5LWtleSE=
       S3_ENDPOINT: http://localhost:8333
       S3_BUCKET: nouvex
       S3_ACCESS_KEY_ID: nouvex
