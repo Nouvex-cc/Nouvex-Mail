@@ -18,10 +18,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	mathrand "math/rand/v2"
 	"net"
 	"os"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +54,31 @@ type fixture struct {
 	cut func()
 	// appendTo puts a message into a folder, made if it isn't there.
 	appendTo func(box, raw string)
+	// silent makes the server stop answering on the connections it has, or answer again.
+	silent *atomic.Bool
+}
+
+// muted holds back what the server writes while silent is set.
+type muted struct {
+	net.Conn
+	silent *atomic.Bool
+}
+
+func (c muted) Write(b []byte) (int, error) {
+	for c.silent.Load() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return c.Conn.Write(b)
+}
+
+type mutedListener struct {
+	net.Listener
+	silent *atomic.Bool
+}
+
+func (l mutedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	return muted{c, l.silent}, err
 }
 
 var noDrop = func(context.Context, string) error { return nil }
@@ -171,8 +200,12 @@ func setup(t *testing.T) fixture {
 		Caps:      imap.CapSet{imap.CapIMAP4rev1: {}, imap.CapIdle: {}},
 		TLSConfig: selfSigned(t),
 	})
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(func() { _ = srv.Close() })
+	silent := &atomic.Bool{}
+	go func() { _ = srv.Serve(mutedListener{ln, silent}) }()
+	t.Cleanup(func() {
+		silent.Store(false)
+		_ = srv.Close()
+	})
 	t.Setenv("MAIL_INSECURE_TLS", "1")
 
 	id := rand.Text()
@@ -193,7 +226,7 @@ func setup(t *testing.T) fixture {
 	if _, err := pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, id, key.PublicKey().Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	return fixture{pool, id, add, addRaw, key, cut, appendTo}
+	return fixture{pool, id, add, addRaw, key, cut, appendTo, silent}
 }
 
 func TestSync(t *testing.T) {
@@ -402,6 +435,36 @@ func TestWatch(t *testing.T) {
 	}
 }
 
+// A sync stuck on its connection ends with an error, so the account's next command can run.
+func TestSyncStall(t *testing.T) {
+	f := setup(t)
+	defer func(d time.Duration) { stall = d }(stall)
+	stall = time.Second
+	master := bytes.Repeat([]byte{7}, 32)
+	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
+	f.add("Invoice")
+	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64) {}); err != nil {
+		t.Fatal(err)
+	}
+	// The kept connection is taken again, then nothing comes back on it; go-imap alone would wait forever.
+	f.silent.Store(true)
+	start := time.Now()
+	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64) {}); err == nil {
+		t.Fatal("a sync on a silent server succeeded")
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("took %v to give up", d)
+	}
+	f.silent.Store(false)
+	f.add("Receipt")
+	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64) {}); err != nil {
+		t.Fatal("after the server answers again:", err)
+	}
+	if f.find(t, "Receipt").ID == "" {
+		t.Fatal("new mail missing after the stall")
+	}
+}
+
 func TestWatchSkipsArchived(t *testing.T) {
 	f := setup(t)
 	if _, err := f.pool.Exec(context.Background(), `UPDATE mail_account SET archived_at = now() WHERE id = $1`, f.id); err != nil {
@@ -589,6 +652,61 @@ func TestDrafts(t *testing.T) {
 	}
 }
 
+// syncWithin syncs the account and fails the test if that errs or doesn't return: prod once waited forever.
+func (e *benchmark) syncWithin(t *testing.T, id, what string) int64 {
+	t.Helper()
+	type result struct {
+		v   int64
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := Sync(e.ctx, e.pool, Store{Put: e.put, Drop: noDrop}, e.master, id, func(int64) {})
+		done <- result{v, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatal(what, r.err)
+		}
+		return r.v
+	case <-time.After(20 * time.Second):
+		t.Fatal(what, ": sync hangs")
+		return 0
+	}
+}
+
+// sameAsServer fails the test unless the database holds exactly the server's messages and flags in the folders.
+func (e *benchmark) sameAsServer(t *testing.T, u *imapUser, id, what string, folders ...string) {
+	t.Helper()
+	for _, folder := range folders {
+		if _, err := u.c.Select(folder, &imap.SelectOptions{ReadOnly: true}).Wait(); err != nil {
+			t.Fatal(err)
+		}
+		var all imap.UIDSet
+		all.AddRange(1, 0)
+		msgs, err := u.c.Fetch(all, &imap.FetchOptions{UID: true, Flags: true}).Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var server, stored []string
+		for _, m := range msgs {
+			server = append(server, fmt.Sprint(m.UID, flagStrings(m.Flags)))
+		}
+		rows, _ := e.pool.Query(e.ctx, `SELECT m.uid, m.flags FROM message m JOIN mailbox b ON b.id = m.mailbox_id
+			WHERE m.account_id = $1 AND b.name = $2 ORDER BY m.uid`, id, folder)
+		for rows.Next() {
+			var uid int64
+			var flags []string
+			_ = rows.Scan(&uid, &flags)
+			stored = append(stored, fmt.Sprint(uid, flags))
+		}
+		if !slices.Equal(server, stored) {
+			t.Fatalf("%s, %s:\nserver %v\nstored %v", what, folder, server, stored)
+		}
+	}
+}
+
 // TestSyncCondstore runs the CONDSTORE path against a real server (IMAP_SERVER, see bench_test.go): after every
 // sync, the database holds exactly the server's messages and flags.
 func TestSyncCondstore(t *testing.T) {
@@ -601,40 +719,12 @@ func TestSyncCondstore(t *testing.T) {
 	var version int64
 	sync := func(what string, changes int64) {
 		t.Helper()
-		v, err := Sync(e.ctx, e.pool, Store{Put: e.put, Drop: noDrop}, e.master, id, func(int64) {})
-		if err != nil {
-			t.Fatal(what, err)
-		}
+		v := e.syncWithin(t, id, what)
 		if changes >= 0 && v-version != changes {
 			t.Errorf("%s: %d changes, want %d", what, v-version, changes)
 		}
 		version = v
-		for _, folder := range []string{"INBOX", "Archive"} {
-			if _, err := u.c.Select(folder, &imap.SelectOptions{ReadOnly: true}).Wait(); err != nil {
-				t.Fatal(err)
-			}
-			var all imap.UIDSet
-			all.AddRange(1, 0)
-			msgs, err := u.c.Fetch(all, &imap.FetchOptions{UID: true, Flags: true}).Collect()
-			if err != nil {
-				t.Fatal(err)
-			}
-			var server, stored []string
-			for _, m := range msgs {
-				server = append(server, fmt.Sprint(m.UID, flagStrings(m.Flags)))
-			}
-			rows, _ := e.pool.Query(e.ctx, `SELECT m.uid, m.flags FROM message m JOIN mailbox b ON b.id = m.mailbox_id
-				WHERE m.account_id = $1 AND b.name = $2 ORDER BY m.uid`, id, folder)
-			for rows.Next() {
-				var uid int64
-				var flags []string
-				_ = rows.Scan(&uid, &flags)
-				stored = append(stored, fmt.Sprint(uid, flags))
-			}
-			if !slices.Equal(server, stored) {
-				t.Fatalf("%s, %s:\nserver %v\nstored %v", what, folder, server, stored)
-			}
-		}
+		e.sameAsServer(t, u, id, what, "INBOX", "Archive")
 	}
 	inbox := func() {
 		if _, err := u.c.Select("INBOX", nil).Wait(); err != nil {
@@ -708,6 +798,116 @@ func TestSyncCondstore(t *testing.T) {
 	u.append(t, "Archive", reply("new-4", "new-3"))
 	sync("after a dropped connection", 1)
 	sync("nothing new again", 0)
+}
+
+// New mail that's gone again before the sync, like one archived in Gmail right away: the folder's UIDNEXT moved on,
+// but its newest message is still one we have. Prod synced Gmail and Purelymail accounts this way and never returned.
+func TestSyncNewestGone(t *testing.T) {
+	e := benchEnv(t)
+	u := e.mailbox(t, map[string]int{"INBOX": 5, "Archive": 0})
+	if !u.c.Caps().Has(imap.CapCondStore) {
+		t.Skip("server without CONDSTORE")
+	}
+	id := e.account(t, u, e.imap)
+	e.syncWithin(t, id, "first sync")
+	u.append(t, "INBOX", reply("gone", "INBOX-0"))
+	if _, err := u.c.Select("INBOX", nil).Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := u.c.Store(imap.UIDSetNum(1), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagSeen}}, nil).Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := u.c.Move(imap.UIDSetNum(6), "Archive").Wait(); err != nil {
+		t.Fatal(err)
+	}
+	e.syncWithin(t, id, "newest gone")
+	e.sameAsServer(t, u, id, "newest gone", "INBOX", "Archive")
+}
+
+// TestSyncConverges changes a mailbox at random between syncs, the way people and their other mail apps do, and
+// checks after every sync that the database matches the server. The seed is logged; SEED=n replays a run.
+func TestSyncConverges(t *testing.T) {
+	e := benchEnv(t)
+	u := e.mailbox(t, map[string]int{"INBOX": 8, "Archive": 4})
+	if !u.c.Caps().Has(imap.CapCondStore) {
+		t.Skip("server without CONDSTORE")
+	}
+	id := e.account(t, u, e.imap)
+	seed, _ := strconv.ParseUint(os.Getenv("SEED"), 10, 64)
+	if seed == 0 {
+		seed = uint64(time.Now().UnixNano())
+	}
+	t.Log("SEED", seed)
+	r := mathrand.New(mathrand.NewPCG(seed, seed))
+	folders := []string{"INBOX", "Archive"}
+	flags := []imap.Flag{imap.FlagSeen, imap.FlagFlagged, imap.FlagAnswered}
+	uids := func(folder string) []imap.UID {
+		if _, err := u.c.Select(folder, nil).Wait(); err != nil {
+			t.Fatal(err)
+		}
+		var all imap.UIDSet
+		all.AddRange(1, 0)
+		msgs, err := u.c.Fetch(all, &imap.FetchOptions{UID: true}).Collect()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []imap.UID
+		for _, m := range msgs {
+			out = append(out, m.UID)
+		}
+		return out
+	}
+	e.syncWithin(t, id, "first sync")
+	for round := range 40 {
+		var did []string
+		for range 1 + r.IntN(4) {
+			folder := folders[r.IntN(2)]
+			have := uids(folder)
+			op := r.IntN(5)
+			if len(have) == 0 {
+				op = 0
+			}
+			pick := func() imap.UID { return have[r.IntN(len(have))] }
+			switch op {
+			case 0:
+				u.append(t, folder, reply(rand.Text(), "INBOX-0"))
+				did = append(did, "new in "+folder)
+			case 1:
+				f := flags[r.IntN(len(flags))]
+				o := []imap.StoreFlagsOp{imap.StoreFlagsAdd, imap.StoreFlagsDel}[r.IntN(2)]
+				if err := u.c.Store(imap.UIDSetNum(pick()), &imap.StoreFlags{Op: o, Silent: true, Flags: []imap.Flag{f}}, nil).Close(); err != nil {
+					t.Fatal(err)
+				}
+				did = append(did, fmt.Sprint("flag ", f, " in ", folder))
+			case 2:
+				to := folders[1-slices.Index(folders, folder)]
+				if _, err := u.c.Move(imap.UIDSetNum(pick()), to).Wait(); err != nil {
+					t.Fatal(err)
+				}
+				did = append(did, "move from "+folder)
+			case 3:
+				if err := u.c.Store(imap.UIDSetNum(pick()), &imap.StoreFlags{Op: imap.StoreFlagsAdd, Silent: true, Flags: []imap.Flag{imap.FlagDeleted}}, nil).Close(); err != nil {
+					t.Fatal(err)
+				}
+				if err := u.c.Expunge().Close(); err != nil {
+					t.Fatal(err)
+				}
+				did = append(did, "delete in "+folder)
+			case 4:
+				// New and gone again before the sync, the case that hung prod.
+				u.append(t, folder, reply(rand.Text(), "INBOX-0"))
+				now := uids(folder)
+				to := folders[1-slices.Index(folders, folder)]
+				if _, err := u.c.Move(imap.UIDSetNum(now[len(now)-1]), to).Wait(); err != nil {
+					t.Fatal(err)
+				}
+				did = append(did, "new and moved from "+folder)
+			}
+		}
+		what := fmt.Sprintf("round %d (%s)", round, strings.Join(did, ", "))
+		e.syncWithin(t, id, what)
+		e.sameAsServer(t, u, id, what, folders...)
+	}
 }
 
 func TestGmailArchive(t *testing.T) {
