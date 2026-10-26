@@ -112,6 +112,16 @@ type Message struct {
 	Spam      bool
 }
 
+type Outbox struct {
+	DraftID   string
+	AccountID string
+	State     string
+	RunAt     pgtype.Timestamptz
+	Error     pgtype.Text
+	Payload   []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
 type Passkey struct {
 	ID           string
 	Name         pgtype.Text

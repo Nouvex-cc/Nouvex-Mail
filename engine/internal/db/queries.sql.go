@@ -190,6 +190,24 @@ func (q *Queries) DeleteMessage(ctx context.Context, id string) error {
 	return err
 }
 
+const endSend = `-- name: EndSend :exec
+UPDATE outbox SET state = $1, error = $2, updated_at = now(),
+	payload = CASE WHEN $1 = 'sent' THEN ''::bytea ELSE payload END
+WHERE draft_id = $3
+`
+
+type EndSendParams struct {
+	State   string
+	Error   pgtype.Text
+	DraftID string
+}
+
+// A sent one keeps only its key, to turn the same command away; what it said goes.
+func (q *Queries) EndSend(ctx context.Context, arg EndSendParams) error {
+	_, err := q.db.Exec(ctx, endSend, arg.State, arg.Error, arg.DraftID)
+	return err
+}
+
 const findByRole = `-- name: FindByRole :one
 SELECT m.id FROM message m JOIN mailbox b ON b.id = m.mailbox_id
 WHERE m.account_id = $1 AND m.message_id = $2 AND b.role = $3
@@ -240,6 +258,15 @@ func (q *Queries) FirstAccount(ctx context.Context, userID string) (MailAccount,
 		&i.Muted,
 	)
 	return i, err
+}
+
+const forgetSent = `-- name: ForgetSent :exec
+DELETE FROM outbox WHERE state = 'sent' AND updated_at < now() - interval '7 days'
+`
+
+func (q *Queries) ForgetSent(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, forgetSent)
+	return err
 }
 
 const getAccount = `-- name: GetAccount :one
@@ -760,6 +787,43 @@ func (q *Queries) SaveFlags(ctx context.Context, arg SaveFlagsParams) error {
 	return err
 }
 
+const scheduleSend = `-- name: ScheduleSend :execrows
+INSERT INTO outbox (draft_id, account_id, state, run_at, payload) VALUES ($1, $2, 'scheduled', $3, $4)
+ON CONFLICT (draft_id) DO UPDATE SET state = 'scheduled', run_at = EXCLUDED.run_at, payload = EXCLUDED.payload, error = NULL, updated_at = now()
+WHERE outbox.state <> 'sent' AND outbox.account_id = EXCLUDED.account_id
+`
+
+type ScheduleSendParams struct {
+	DraftID   string
+	AccountID string
+	RunAt     pgtype.Timestamptz
+	Payload   []byte
+}
+
+func (q *Queries) ScheduleSend(ctx context.Context, arg ScheduleSendParams) (int64, error) {
+	result, err := q.db.Exec(ctx, scheduleSend,
+		arg.DraftID,
+		arg.AccountID,
+		arg.RunAt,
+		arg.Payload,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sendState = `-- name: SendState :one
+SELECT state FROM outbox WHERE draft_id = $1
+`
+
+func (q *Queries) SendState(ctx context.Context, draftID string) (string, error) {
+	row := q.db.QueryRow(ctx, sendState, draftID)
+	var state string
+	err := row.Scan(&state)
+	return state, err
+}
+
 const setFlags = `-- name: SetFlags :exec
 UPDATE message SET flags = $2 WHERE id = $1
 `
@@ -854,6 +918,27 @@ func (q *Queries) SortMessage(ctx context.Context, arg SortMessageParams) error 
 	return err
 }
 
+const startSend = `-- name: StartSend :one
+INSERT INTO outbox (draft_id, account_id, state, payload) VALUES ($1, $2, 'sending', $3)
+ON CONFLICT (draft_id) DO UPDATE SET state = 'sending', payload = EXCLUDED.payload, error = NULL, updated_at = now()
+WHERE outbox.state <> 'sent' AND outbox.account_id = EXCLUDED.account_id
+RETURNING state
+`
+
+type StartSendParams struct {
+	DraftID   string
+	AccountID string
+	Payload   []byte
+}
+
+// Claims a draft's send. No row: it went out already.
+func (q *Queries) StartSend(ctx context.Context, arg StartSendParams) (string, error) {
+	row := q.db.QueryRow(ctx, startSend, arg.DraftID, arg.AccountID, arg.Payload)
+	var state string
+	err := row.Scan(&state)
+	return state, err
+}
+
 const takeDueJobs = `-- name: TakeDueJobs :many
 DELETE FROM scheduled
 WHERE id IN (SELECT id FROM scheduled WHERE run_at <= now() ORDER BY run_at LIMIT 20 FOR UPDATE SKIP LOCKED)
@@ -877,6 +962,44 @@ func (q *Queries) TakeDueJobs(ctx context.Context) ([]Scheduled, error) {
 			&i.Kind,
 			&i.Payload,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const takeDueSends = `-- name: TakeDueSends :many
+UPDATE outbox SET state = 'sending', updated_at = now()
+WHERE draft_id IN (
+	SELECT draft_id FROM outbox
+	WHERE (state = 'scheduled' AND run_at <= now()) OR (state = 'sending' AND run_at IS NOT NULL AND updated_at < now() - interval '30 minutes')
+	ORDER BY run_at LIMIT 20 FOR UPDATE SKIP LOCKED
+)
+RETURNING draft_id, account_id, payload
+`
+
+type TakeDueSendsRow struct {
+	DraftID   string
+	AccountID string
+	Payload   []byte
+}
+
+// Due ones, and ones taken before that never got anywhere, e.g. the engine stopped in between: sending one twice is
+// harmless, StartSend lets it out once.
+func (q *Queries) TakeDueSends(ctx context.Context) ([]TakeDueSendsRow, error) {
+	rows, err := q.db.Query(ctx, takeDueSends)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TakeDueSendsRow
+	for rows.Next() {
+		var i TakeDueSendsRow
+		if err := rows.Scan(&i.DraftID, &i.AccountID, &i.Payload); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

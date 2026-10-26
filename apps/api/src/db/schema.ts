@@ -221,6 +221,25 @@ export const scheduled = pgTable(
 	(t) => [index().on(t.runAt)],
 );
 
+// Every message on its way out, by the draft it was written in: one draft goes out once, however often the command
+// arrives. Written by the engine; the API lists and cancels what waits. payload is the send command sealed with
+// SECRETS_KEY, so a scheduled or failed one can go out later or back to Drafts.
+export const outbox = pgTable(
+	"outbox",
+	{
+		draftId: text("draft_id").primaryKey(),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		state: text("state", { enum: ["scheduled", "sending", "sent", "failed"] }).notNull(),
+		runAt: timestamp("run_at", { withTimezone: true }),
+		error: text("error"),
+		payload: bytea("payload").notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index().on(t.accountId), index().on(t.state, t.runAt)],
+);
+
 // iPhones that get a push for new mail (apps/api/src/push.ts). Focus times are judged in the device's time zone.
 export const device = pgTable(
 	"device",

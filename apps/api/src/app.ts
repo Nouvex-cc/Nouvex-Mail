@@ -4,7 +4,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
 import type { AccountCheck, AccountChecked, DraftSave, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
 import { s3 } from "bun";
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
@@ -19,13 +19,14 @@ import {
 	mailAccount,
 	mailbox,
 	message,
+	outbox,
 	senderRule,
 	userKey,
 	userPrefs,
 } from "./db/schema";
 import { fetchImage, post } from "./image";
 import { nats } from "./nats";
-import { seal } from "./secret";
+import { open, seal } from "./secret";
 
 type Env = { Variables: { userId: string } };
 export const app = new OpenAPIHono<Env>();
@@ -1070,39 +1071,81 @@ app.openapi(
 	},
 );
 
+// An address, or one with a name: "Lena Hartmann <lena@x.example>". No line breaks, they would end the header.
+const Recipient = z
+	.string()
+	.max(320)
+	.regex(/^(?:[^<>\r\n]*<\s*)?[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+(?:\s*>)?$/, "Not an email address");
+const MessageId = z
+	.string()
+	.max(998)
+	.regex(/^<?[^\s<>]+>?$/, "Not a Message-ID");
+const Attachments = z.array(z.object({ id: z.uuid(), name: z.string().max(255), type: z.string().max(255) })).max(20);
+// The limits keep a command below what one NATS message holds (1 MB), quote included.
+const maxFiles = 25 * 1024 * 1024;
+
+const Outgoing = z
+	.object({
+		to: z.array(Recipient).default([]),
+		cc: z.array(Recipient).default([]),
+		bcc: z.array(Recipient).default([]),
+		subject: z
+			.string()
+			.max(998)
+			.regex(/^[^\r\n]*$/),
+		text: z.string().max(200_000),
+		html: z.string().max(600_000).optional().describe("A version with formatting, like a forwarded message"),
+		inReplyTo: MessageId.optional().describe("Message-ID header of the message this answers"),
+		references: z.array(MessageId).max(20).optional().describe("Message-IDs of the conversation, oldest first"),
+		draftId: z
+			.uuid()
+			.optional()
+			.describe("The draft it was written in, the key of the send: a draft goes out once, however often it's sent"),
+		sendAt: z.iso.datetime().optional(),
+		attachments: Attachments.optional(),
+	})
+	.refine((m) => m.to.length + m.cc.length + m.bcc.length > 0, "Nobody to send it to")
+	.refine((m) => m.to.length + m.cc.length + m.bcc.length <= 100, "At most 100 recipients");
+
 app.openapi(
 	createRoute({
 		method: "post",
 		path: "/accounts/{accountId}/send",
 		operationId: "sendMessage",
-		description: "Sends a plain text message. The outcome arrives as an evt.message.sent event on /ws.",
+		description:
+			"Sends a message, now or at sendAt. The outcome arrives as an evt.message.sent event on /ws, with the draftId. A message that can't be sent comes back to Drafts.",
 		request: {
 			params: z.object({ accountId: z.string() }),
-			body: {
-				content: {
-					"application/json": {
-						schema: z.object({
-							to: z.array(z.email()).min(1),
-							cc: z.array(z.email()).default([]),
-							bcc: z.array(z.email()).default([]),
-							subject: z.string(),
-							text: z.string(),
-							inReplyTo: z.string().optional().describe("Message-ID header of the message this answers"),
-							draftId: z.uuid().optional(),
-							sendAt: z.iso.datetime().optional(),
-							attachments: z.array(z.object({ id: z.uuid(), name: z.string(), type: z.string() })).optional(),
-						}),
-					},
-				},
-			},
+			body: { content: { "application/json": { schema: Outgoing } } },
 		},
-		responses: { 202: { description: "Queued for sending" }, 404: { description: "No such account" } },
+		responses: {
+			202: {
+				description: "Queued for sending",
+				content: { "application/json": { schema: z.object({ draftId: z.uuid() }) } },
+			},
+			404: { description: "No such account" },
+			413: { description: "The attachments are over 25 MB together" },
+			422: { description: "An attachment isn't there (anymore)" },
+		},
 	}),
 	async (c) => {
-		const cmd: MessageSend = { accountId: c.req.valid("param").accountId, ...c.req.valid("json") };
+		const { accountId } = c.req.valid("param");
+		const body = c.req.valid("json");
+		const cmd: MessageSend = { accountId, ...body, draftId: body.draftId ?? crypto.randomUUID() };
+		const sizes = await Promise.all(
+			(cmd.attachments ?? []).map((a) =>
+				s3
+					.file(`upload/${accountId}/${a.id}`)
+					.stat()
+					.then((st) => st.size)
+					.catch(() => undefined),
+			),
+		);
+		if (sizes.includes(undefined)) return c.body(null, 422);
+		if (sizes.reduce<number>((a, b) => a + (b ?? 0), 0) > maxFiles) return c.body(null, 413);
 		const { js } = await nats();
 		await js.publish("cmd.message.send", JSON.stringify(cmd));
-		return c.body(null, 202);
+		return c.json({ draftId: cmd.draftId }, 202);
 	},
 );
 
@@ -1165,12 +1208,18 @@ app.openapi(
 );
 
 const Draft = z.object({
-	to: z.array(z.string()),
-	cc: z.array(z.string()).default([]),
-	bcc: z.array(z.string()).default([]),
-	subject: z.string(),
-	text: z.string(),
-	inReplyTo: z.string().optional().describe("Message-ID header of the message this answers"),
+	to: z.array(Recipient).max(100),
+	cc: z.array(Recipient).max(100).default([]),
+	bcc: z.array(Recipient).max(100).default([]),
+	subject: z
+		.string()
+		.max(998)
+		.regex(/^[^\r\n]*$/),
+	text: z.string().max(200_000),
+	html: z.string().max(600_000).optional(),
+	inReplyTo: MessageId.optional().describe("Message-ID header of the message this answers"),
+	rev: z.int().optional().describe("When the client wrote this version, in milliseconds: a late older one is dropped"),
+	attachments: Attachments.optional().describe("Uploaded files the draft keeps"),
 });
 
 const draft = async (cmd: DraftSave) => {
@@ -1206,6 +1255,95 @@ app.openapi(
 	}),
 	async (c) => {
 		await draft({ ...c.req.valid("param"), to: [], cc: [], bcc: [], subject: "", text: "", discard: true });
+		return c.body(null, 202);
+	},
+);
+
+const Waiting = z.object({
+	draftId: z.string(),
+	state: z.enum(["scheduled", "failed"]),
+	runAt: z.iso.datetime().nullable(),
+	error: z.string().nullable().describe("Why it couldn't be sent; it's back in Drafts"),
+	to: z.array(z.string()),
+	subject: z.string(),
+});
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/outbox",
+		operationId: "listOutbox",
+		description: "Messages waiting to go out later, and ones that couldn't be sent, newest first.",
+		request: { params: z.object({ accountId: z.string() }) },
+		responses: {
+			200: { description: "The outbox", content: { "application/json": { schema: z.array(Waiting) } } },
+			404: { description: "No such account" },
+		},
+	}),
+	async (c) => {
+		const rows = await db
+			.select()
+			.from(outbox)
+			.where(and(eq(outbox.accountId, c.req.valid("param").accountId), inArray(outbox.state, ["scheduled", "failed"])))
+			.orderBy(desc(outbox.updatedAt));
+		const list = await Promise.all(
+			rows.map(async (r) => {
+				const cmd = JSON.parse(await open(new Uint8Array(r.payload))) as MessageSend;
+				return {
+					draftId: r.draftId,
+					state: r.state as "scheduled" | "failed",
+					runAt: r.runAt?.toISOString() ?? null,
+					error: r.error,
+					to: [...cmd.to, ...cmd.cc, ...cmd.bcc],
+					subject: cmd.subject,
+				};
+			}),
+		);
+		return c.json(list, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/accounts/{accountId}/outbox/{draftId}",
+		operationId: "cancelSend",
+		description:
+			"Takes a scheduled message out of the outbox and back into Drafts, or forgets that one couldn't be sent.",
+		request: { params: z.object({ accountId: z.string(), draftId: z.string() }) },
+		responses: {
+			202: { description: "Back in Drafts, or forgotten" },
+			404: { description: "Not in the outbox" },
+			409: { description: "It's going out right now" },
+		},
+	}),
+	async (c) => {
+		const { accountId, draftId } = c.req.valid("param");
+		const [gone] = await db
+			.delete(outbox)
+			.where(
+				and(
+					eq(outbox.accountId, accountId),
+					eq(outbox.draftId, draftId),
+					inArray(outbox.state, ["scheduled", "failed"]),
+				),
+			)
+			.returning();
+		if (!gone) {
+			const [busy] = await db.select({ state: outbox.state }).from(outbox).where(eq(outbox.draftId, draftId));
+			return c.body(null, busy?.state === "sending" ? 409 : 404);
+		}
+		// A failed one is back in Drafts already.
+		if (gone.state === "failed") return c.body(null, 202);
+		const cmd = JSON.parse(await open(new Uint8Array(gone.payload))) as MessageSend;
+		// Its files wait under outbox/ while it's scheduled; a draft keeps them where uploads are.
+		for (const a of cmd.attachments ?? []) {
+			const kept = s3.file(`outbox/${draftId}/${a.id}`);
+			await s3.file(`upload/${accountId}/${a.id}`).write(kept);
+			await kept.delete();
+		}
+		const { draftId: _, sendAt: __, references: ___, ...rest } = cmd;
+		await draft({ ...rest, draftId, rev: Date.now() });
 		return c.body(null, 202);
 	},
 );

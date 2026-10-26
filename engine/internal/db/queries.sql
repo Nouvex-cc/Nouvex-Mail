@@ -167,3 +167,38 @@ WITH gone AS (
 )
 INSERT INTO change_log (account_id, version, entity, entity_id, op)
 SELECT sqlc.arg(account_id), v.version, 'message', sqlc.arg(id), 'delete' FROM v;
+
+-- name: StartSend :one
+-- Claims a draft's send. No row: it went out already.
+INSERT INTO outbox (draft_id, account_id, state, payload) VALUES ($1, $2, 'sending', $3)
+ON CONFLICT (draft_id) DO UPDATE SET state = 'sending', payload = EXCLUDED.payload, error = NULL, updated_at = now()
+WHERE outbox.state <> 'sent' AND outbox.account_id = EXCLUDED.account_id
+RETURNING state;
+
+-- name: ScheduleSend :execrows
+INSERT INTO outbox (draft_id, account_id, state, run_at, payload) VALUES ($1, $2, 'scheduled', $3, $4)
+ON CONFLICT (draft_id) DO UPDATE SET state = 'scheduled', run_at = EXCLUDED.run_at, payload = EXCLUDED.payload, error = NULL, updated_at = now()
+WHERE outbox.state <> 'sent' AND outbox.account_id = EXCLUDED.account_id;
+
+-- name: EndSend :exec
+-- A sent one keeps only its key, to turn the same command away; what it said goes.
+UPDATE outbox SET state = @state, error = @error, updated_at = now(),
+	payload = CASE WHEN @state = 'sent' THEN ''::bytea ELSE payload END
+WHERE draft_id = @draft_id;
+
+-- name: SendState :one
+SELECT state FROM outbox WHERE draft_id = $1;
+
+-- name: TakeDueSends :many
+-- Due ones, and ones taken before that never got anywhere, e.g. the engine stopped in between: sending one twice is
+-- harmless, StartSend lets it out once.
+UPDATE outbox SET state = 'sending', updated_at = now()
+WHERE draft_id IN (
+	SELECT draft_id FROM outbox
+	WHERE (state = 'scheduled' AND run_at <= now()) OR (state = 'sending' AND run_at IS NOT NULL AND updated_at < now() - interval '30 minutes')
+	ORDER BY run_at LIMIT 20 FOR UPDATE SKIP LOCKED
+)
+RETURNING draft_id, account_id, payload;
+
+-- name: ForgetSent :exec
+DELETE FROM outbox WHERE state = 'sent' AND updated_at < now() - interval '7 days';

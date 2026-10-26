@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,8 +170,13 @@ func DialSMTP(host string, port int, user, pass string) (*smtp.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok, _ := c.Extension("AUTH"); ok {
-		if err := c.Auth(sasl.NewPlainClient("", user, pass)); err != nil {
+	if ok, mechs := c.Extension("AUTH"); ok {
+		// PLAIN where the server offers it, else LOGIN, which is all Office 365 has.
+		auth := sasl.NewPlainClient("", user, pass)
+		if offered := strings.Fields(strings.ToUpper(mechs)); !slices.Contains(offered, "PLAIN") && slices.Contains(offered, "LOGIN") {
+			auth = sasl.NewLoginClient(user, pass)
+		}
+		if err := c.Auth(auth); err != nil {
 			_ = c.Close()
 			return nil, err
 		}

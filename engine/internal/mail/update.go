@@ -190,6 +190,12 @@ func specialFolder(c *imapclient.Client, want, create string) (string, error) {
 	if create == "" {
 		return "", nil
 	}
+	// Servers that keep every folder under INBOX (INBOX.Sent) say so in NAMESPACE.
+	if c.Caps().Has(imap.CapNamespace) {
+		if ns, err := c.Namespace().Wait(); err == nil && len(ns.Personal) > 0 {
+			create = ns.Personal[0].Prefix + create
+		}
+	}
 	return create, c.Create(create, nil).Wait()
 }
 

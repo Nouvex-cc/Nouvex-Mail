@@ -25,7 +25,7 @@ The code is in `engine/internal/seal`, `packages/sdk/src/crypto.ts` and `apps/ap
 - **Remote images and fonts.** When a mail loads pictures or a rich mail its fonts, the server fetches them for you, so it sees their addresses. Set Pictures in mail to Ask first to decide each time.
 - **Answers to rich mail forms.** When you confirm sending a form in a rich mail (docs/rich-mail.md), the server passes your answer on to the sender and keeps nothing. The designed version of a rich mail is stored sealed, like the body.
 - **Pushes to the iPhone app.** A push for new mail carries the message's sealed sender and subject and its sealed key, which only your iPhone opens; Apple and the server see the account's name, the conversation's id and when it came. The server keeps each iPhone's push token and time zone, the latter for focus times.
-- **Messages scheduled to send later** wait encrypted with `SECRETS_KEY`, because the server has to send them on its own.
+- **Messages on their way out** wait encrypted with `SECRETS_KEY` until they're sent, scheduled ones until it's time, because the server has to send them on its own; one that couldn't be sent stays so until you remove it from the outbox. Once a message is sent, only its draft's id stays for a week, so the same message isn't sent twice.
 - **Announcements** from whoever runs the server (docs/deploy.md) wait in the bucket for a day as they were written, before the engine seals a copy for each user. They're the same for everyone, not anyone's mail.
 
 ## On your devices

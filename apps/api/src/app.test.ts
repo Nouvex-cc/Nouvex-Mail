@@ -427,3 +427,100 @@ test.skipIf(!process.env.DATABASE_URL)("sender rules are saved, changed and forg
 		await db.delete(user).where(eq(user.id, me.id));
 	}
 });
+
+test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sent, and the outbox", async () => {
+	const { db } = await import("./db");
+	const { mailAccount, outbox, user } = await import("./db/schema");
+	const { seal } = await import("./secret");
+	const { eq } = await import("drizzle-orm");
+	const { s3 } = await import("bun");
+	const me = await signedIn("Lena");
+	const id = crypto.randomUUID();
+	const json = (method: string, path: string, body?: object) =>
+		app.request(path, {
+			method,
+			headers: { cookie: me.cookie, "content-type": "application/json" },
+			body: body && JSON.stringify(body),
+		});
+	const send = (body: object) => json("POST", `/accounts/${id}/send`, { subject: "Plan", text: "Hi", ...body });
+	try {
+		await db.insert(mailAccount).values({
+			id,
+			userId: me.id,
+			email: "lena@example.com",
+			imapHost: "x",
+			imapPort: 993,
+			smtpHost: "x",
+			smtpPort: 465,
+			username: "x",
+			secret: new Uint8Array(1),
+		});
+		// Names with addresses and Bcc alone are fine; the send gets a key when the client has none.
+		const ok = await send({ to: ["Max Weber <max@x.example>"], cc: [], bcc: [] });
+		expect(ok.status).toBe(202);
+		expect((await ok.json()).draftId).toMatch(/^[0-9a-f-]{36}$/);
+		expect((await send({ bcc: ["boss@x.example"] })).status).toBe(202);
+		// Nobody, a line break in a header, a made-up Message-ID or a file that isn't there.
+		expect((await send({ to: [] })).status).toBe(400);
+		expect((await send({ to: ["max@x.example"], subject: "Hi\r\nBcc: evil@x.example" })).status).toBe(400);
+		expect((await send({ to: ["max@x.example\r\nX: 1"] })).status).toBe(400);
+		expect((await send({ to: ["max@x.example"], inReplyTo: "<a b@x>" })).status).toBe(400);
+		const missing = { id: crypto.randomUUID(), name: "a.pdf", type: "application/pdf" };
+		expect((await send({ to: ["max@x.example"], attachments: [missing] })).status).toBe(422);
+		expect((await send({ to: ["max@x.example"], text: "x".repeat(200_001) })).status).toBe(400);
+
+		// The outbox lists what waits and what failed, and gives a scheduled one back as a draft with its file.
+		const later = crypto.randomUUID();
+		const file = crypto.randomUUID();
+		await s3.file(`outbox/${later}/${file}`).write("%PDF-1");
+		const cmd = (draftId: string) => ({
+			accountId: id,
+			draftId,
+			to: ["max@x.example"],
+			cc: [],
+			bcc: [],
+			subject: "Later",
+			text: "Hi",
+			attachments: [{ id: file, name: "Plan.pdf", type: "application/pdf" }],
+		});
+		const failed = crypto.randomUUID();
+		await db.insert(outbox).values([
+			{
+				draftId: later,
+				accountId: id,
+				state: "scheduled",
+				runAt: new Date(Date.now() + 86_400_000),
+				payload: await seal(JSON.stringify(cmd(later))),
+			},
+			{
+				draftId: failed,
+				accountId: id,
+				state: "failed",
+				error: "No such user",
+				payload: await seal(JSON.stringify(cmd(failed))),
+			},
+		]);
+		const list = await (await json("GET", `/accounts/${id}/outbox`)).json();
+		expect(list.map((w: { draftId: string; state: string }) => [w.draftId, w.state]).sort()).toEqual(
+			[
+				[later, "scheduled"],
+				[failed, "failed"],
+			].sort(),
+		);
+		expect(list.find((w: { draftId: string }) => w.draftId === failed)).toMatchObject({
+			error: "No such user",
+			subject: "Later",
+		});
+		expect((await json("DELETE", `/accounts/${id}/outbox/${later}`)).status).toBe(202);
+		expect(await s3.file(`upload/${id}/${file}`).text()).toBe("%PDF-1");
+		expect(await s3.file(`outbox/${later}/${file}`).exists()).toBe(false);
+		expect((await json("DELETE", `/accounts/${id}/outbox/${failed}`)).status).toBe(202);
+		expect(await (await json("GET", `/accounts/${id}/outbox`)).json()).toEqual([]);
+		expect((await json("DELETE", `/accounts/${id}/outbox/${later}`)).status).toBe(404);
+		await db.insert(outbox).values({ draftId: later, accountId: id, state: "sending", payload: await seal("{}") });
+		expect((await json("DELETE", `/accounts/${id}/outbox/${later}`)).status).toBe(409);
+		await s3.file(`upload/${id}/${file}`).delete();
+	} finally {
+		await db.delete(user).where(eq(user.id, me.id));
+	}
+});

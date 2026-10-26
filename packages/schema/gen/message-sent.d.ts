@@ -10,5 +10,16 @@
  */
 export interface MessageSent {
   accountId: string;
+  /**
+   * Why it couldn't be sent, in words for the user. The message is back in Drafts.
+   */
   error?: string;
+  /**
+   * Which message this is about.
+   */
+  draftId: string;
+  /**
+   * Set when the message was put in the outbox to go out later, not sent yet.
+   */
+  scheduled?: boolean;
 }

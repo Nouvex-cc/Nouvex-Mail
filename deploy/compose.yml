@@ -66,6 +66,8 @@ services:
     build: ../engine
     depends_on:
       api: { condition: service_healthy }
+    # A message on its way out finishes before the engine stops (up to 30 seconds), so it isn't sent again.
+    stop_grace_period: 40s
 
   web:
     build: { context: .., dockerfile: apps/web/Dockerfile }

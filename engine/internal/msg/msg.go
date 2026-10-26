@@ -75,6 +75,9 @@ type DraftSave struct {
 	// AccountId corresponds to the JSON schema field "accountId".
 	AccountId string `json:"accountId"`
 
+	// Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.
+	Attachments []DraftSaveAttachmentsElem `json:"attachments,omitempty,omitzero"`
+
 	// Bcc corresponds to the JSON schema field "bcc".
 	Bcc []string `json:"bcc"`
 
@@ -87,8 +90,15 @@ type DraftSave struct {
 	// DraftId corresponds to the JSON schema field "draftId".
 	DraftId string `json:"draftId"`
 
+	// An HTML version next to the text, like a forwarded message with its formatting.
+	Html *string `json:"html,omitempty,omitzero"`
+
 	// Message-ID header of the message this answers, for the thread headers.
 	InReplyTo *string `json:"inReplyTo,omitempty,omitzero"`
+
+	// When the client wrote this version, in milliseconds; an older one arriving late
+	// is dropped.
+	Rev *int `json:"rev,omitempty,omitzero"`
 
 	// Subject corresponds to the JSON schema field "subject".
 	Subject string `json:"subject"`
@@ -98,6 +108,41 @@ type DraftSave struct {
 
 	// To corresponds to the JSON schema field "to".
 	To []string `json:"to"`
+}
+
+type DraftSaveAttachmentsElem struct {
+	// Id corresponds to the JSON schema field "id".
+	Id string `json:"id"`
+
+	// Name corresponds to the JSON schema field "name".
+	Name string `json:"name"`
+
+	// Type corresponds to the JSON schema field "type".
+	Type string `json:"type"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *DraftSaveAttachmentsElem) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["id"]; raw != nil && !ok {
+		return fmt.Errorf("field id in DraftSaveAttachmentsElem: required")
+	}
+	if _, ok := raw["name"]; raw != nil && !ok {
+		return fmt.Errorf("field name in DraftSaveAttachmentsElem: required")
+	}
+	if _, ok := raw["type"]; raw != nil && !ok {
+		return fmt.Errorf("field type in DraftSaveAttachmentsElem: required")
+	}
+	type Plain DraftSaveAttachmentsElem
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = DraftSaveAttachmentsElem(plain)
+	return nil
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -297,11 +342,19 @@ type MessageSend struct {
 	// Cc corresponds to the JSON schema field "cc".
 	Cc []string `json:"cc"`
 
-	// The draft this was written in; it is deleted once sent.
-	DraftId *string `json:"draftId,omitempty,omitzero"`
+	// The draft this was written in, the key of the send: one draft goes out once.
+	// Its draft is deleted once sent, and a message that can't be sent comes back as
+	// it.
+	DraftId string `json:"draftId"`
+
+	// An HTML version next to the text, e.g. a forwarded message with its formatting.
+	Html *string `json:"html,omitempty,omitzero"`
 
 	// Message-ID header of the message this answers, for the thread headers.
 	InReplyTo *string `json:"inReplyTo,omitempty,omitzero"`
+
+	// Message-IDs of the conversation, oldest first, for the References header.
+	References []string `json:"references,omitempty,omitzero"`
 
 	// Send then instead of now.
 	SendAt *time.Time `json:"sendAt,omitempty,omitzero"`
@@ -366,6 +419,9 @@ func (j *MessageSend) UnmarshalJSON(value []byte) error {
 	if _, ok := raw["cc"]; raw != nil && !ok {
 		return fmt.Errorf("field cc in MessageSend: required")
 	}
+	if _, ok := raw["draftId"]; raw != nil && !ok {
+		return fmt.Errorf("field draftId in MessageSend: required")
+	}
 	if _, ok := raw["subject"]; raw != nil && !ok {
 		return fmt.Errorf("field subject in MessageSend: required")
 	}
@@ -389,8 +445,14 @@ type MessageSent struct {
 	// AccountId corresponds to the JSON schema field "accountId".
 	AccountId string `json:"accountId"`
 
-	// Error corresponds to the JSON schema field "error".
+	// Which message this is about.
+	DraftId string `json:"draftId"`
+
+	// Why it couldn't be sent, in words for the user. The message is back in Drafts.
 	Error *string `json:"error,omitempty,omitzero"`
+
+	// Set when the message was put in the outbox to go out later, not sent yet.
+	Scheduled *bool `json:"scheduled,omitempty,omitzero"`
 }
 
 // UnmarshalJSON implements json.Unmarshaler.
@@ -401,6 +463,9 @@ func (j *MessageSent) UnmarshalJSON(value []byte) error {
 	}
 	if _, ok := raw["accountId"]; raw != nil && !ok {
 		return fmt.Errorf("field accountId in MessageSent: required")
+	}
+	if _, ok := raw["draftId"]; raw != nil && !ok {
+		return fmt.Errorf("field draftId in MessageSent: required")
 	}
 	type Plain MessageSent
 	var plain Plain

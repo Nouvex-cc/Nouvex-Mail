@@ -24,4 +24,20 @@ export interface DraftSave {
    * Delete the draft instead of storing it.
    */
   discard?: boolean;
+  /**
+   * When the client wrote this version, in milliseconds; an older one arriving late is dropped.
+   */
+  rev?: number;
+  /**
+   * Files uploaded through the API, stored in S3 as upload/<accountId>/<id>.
+   */
+  attachments?: {
+    id: string;
+    name: string;
+    type: string;
+  }[];
+  /**
+   * An HTML version next to the text, like a forwarded message with its formatting.
+   */
+  html?: string;
 }

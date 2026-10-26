@@ -16,9 +16,9 @@ export interface MessageSend {
   subject: string;
   text: string;
   /**
-   * The draft this was written in; it is deleted once sent.
+   * The draft this was written in, the key of the send: one draft goes out once. Its draft is deleted once sent, and a message that can't be sent comes back as it.
    */
-  draftId?: string;
+  draftId: string;
   /**
    * Send then instead of now.
    */
@@ -35,4 +35,12 @@ export interface MessageSend {
     name: string;
     type: string;
   }[];
+  /**
+   * An HTML version next to the text, e.g. a forwarded message with its formatting.
+   */
+  html?: string;
+  /**
+   * Message-IDs of the conversation, oldest first, for the References header.
+   */
+  references?: string[];
 }
