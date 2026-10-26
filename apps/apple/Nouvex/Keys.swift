@@ -58,7 +58,15 @@ enum Keys {
     private static func load() -> Data? { try? Data(contentsOf: file) }
     static func forget() { try? FileManager.default.removeItem(at: file) }
     #else
-    private static var item: [String: Any] { Sealed.item(service: Bundle.main.bundleIdentifier ?? "Nouvex") }
+    private static var service: String { Bundle.main.bundleIdentifier ?? "Nouvex" }
+    private static var item: [String: Any] { Sealed.item(service: service) }
+    // The same without the shared group: where keys were kept before, and where a build without the group's
+    // entitlement keeps them.
+    private static var own: [String: Any] {
+        var own = item
+        own.removeValue(forKey: kSecAttrAccessGroup as String)
+        return own
+    }
 
     private static func save(_ raw: Data) throws {
         forget()
@@ -66,26 +74,33 @@ enum Keys {
         add[kSecValueData as String] = raw
         // Not in backups and not on other devices: each one unlocks with the password itself.
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(add as CFDictionary, nil)
+        var status = SecItemAdd(add as CFDictionary, nil)
+        if status == errSecMissingEntitlement {
+            add.removeValue(forKey: kSecAttrAccessGroup as String)
+            status = SecItemAdd(add as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw AuthError(errorDescription: "Couldn't keep the key on this device (\(status)).") }
     }
 
-    private static func load() -> Data? { Sealed.load(service: Bundle.main.bundleIdentifier ?? "Nouvex") }
+    private static func load() -> Data? {
+        if let shared = Sealed.load(service: service) { return shared }
+        var query = own
+        query[kSecReturnData as String] = true
+        var found: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess ? found as? Data : nil
+    }
 
-    static func forget() { SecItemDelete(item as CFDictionary) }
+    static func forget() {
+        SecItemDelete(item as CFDictionary)
+        SecItemDelete(own as CFDictionary)
+    }
 
     #if os(iOS)
     /// A key kept before the notification extension came sits in the app's own keychain group. It moves to the shared
     /// one once, so nobody has to unlock again.
     static func share() {
-        guard load() == nil else { return }
-        var old = item
-        old[kSecAttrAccessGroup as String] = "SQR8LP4972.\(Bundle.main.bundleIdentifier ?? "")"
-        var query = old
-        query[kSecReturnData as String] = true
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let raw = found as? Data else { return }
-        if (try? save(raw)) != nil { SecItemDelete(old as CFDictionary) }
+        guard Sealed.load(service: service) == nil, let raw = load() else { return }
+        try? save(raw)
     }
     #endif
     #endif

@@ -12,6 +12,14 @@ struct Shell: View {
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var size
     #endif
+    /// Writing comes up as a sheet on a phone, and on an iPad in a window too narrow to dock it.
+    private var narrow: Bool {
+        #if os(iOS)
+        Device.phone || size == .compact
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         @Bindable var mail = mail
@@ -25,11 +33,11 @@ struct Shell: View {
                     }
             }
             .overlay(alignment: .bottomTrailing) {
-                if !Device.phone, mail.compose != nil { Composer(placement: .dock).padding(.trailing, 20) }
+                if !narrow, let d = mail.compose { Composer(placement: .dock).id(d.draftId).padding(.trailing, 20) }
             }
         }
         .sheet(isPresented: Binding(
-            get: { Device.phone && (mail.compose != nil || mail.reply != nil) },
+            get: { narrow && (mail.compose != nil || mail.reply != nil) },
             set: { if !$0 { mail.compose = nil; mail.reply = nil } }
         )) {
             Composer(placement: .sheet)
@@ -62,6 +70,7 @@ extension Folder {
         case .category(let id): tabs.first { $0.0 == id }?.1 ?? ""
         case .role(let role): Sidebar.folders.first { $0.0 == role }?.1 ?? ""
         case .mailbox(_, let name): name
+        case .outbox: "Outbox"
         }
     }
 }
@@ -111,6 +120,10 @@ struct Sidebar: View {
             ForEach(Self.folders, id: \.0) { role, name, icon in
                 row(name, icon: icon, folder: .role(role))
             }
+            // Only while something waits there; a dot when one couldn't be sent.
+            if !mail.outbox.isEmpty || mail.folder == .outbox {
+                row("Outbox", icon: "tray.and.arrow.up", folder: .outbox, dot: mail.outbox.contains { $0.error != nil })
+            }
             row("Starred", icon: "star", folder: .starred)
             // An account's own folders, only while one account is in view, like the web.
             if mail.account != nil, !own.isEmpty {
@@ -139,7 +152,7 @@ struct Sidebar: View {
                 AccountPicker()
                 // A phone writes from the list's bottom bar.
                 if !Device.phone {
-                    Button { mail.compose = mail.compose ?? Draft(accountId: mail.sender) } label: {
+                    Button { mail.write(mail.compose ?? Draft(accountId: mail.sender)) } label: {
                         Label("Write", systemImage: "square.and.pencil").frame(maxWidth: .infinity)
                     }
                     .glassButton()

@@ -42,6 +42,12 @@ type Outcome struct {
 // one. An error means nothing happened and the command should come again.
 func Deliver(ctx context.Context, q *db.Queries, files Files, master []byte, cmd msg.MessageSend, tries int) (Outcome, error) {
 	out := Outcome{Event: msg.MessageSent{AccountId: cmd.AccountId, DraftId: cmd.DraftId}}
+	// The account was removed meanwhile: nothing to send from, nothing to try again.
+	if _, err := q.GetAccount(ctx, cmd.AccountId); errors.Is(err, pgx.ErrNoRows) {
+		gone := "The account it was to go out from is gone."
+		out.Event.Error = &gone
+		return out, nil
+	}
 	// Out of upload/, which is swept after a day, to where the files wait as long as the message does.
 	kept := "outbox/" + cmd.DraftId + "/"
 	if err := hold(ctx, files, cmd, kept); err != nil {

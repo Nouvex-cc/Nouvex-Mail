@@ -60,6 +60,61 @@ struct Toast: Identifiable {
     var compose: Draft?
     /// A reply being written in the open conversation, in the reply bar's place.
     var reply: Draft?
+    /// A composer has the keyboard: letters are text then, not shortcuts.
+    var typing = false
+    /// Changed to bring the docked composer up again, unfolded.
+    var raise = 0
+    /// Messages handed to the server, by draft, to open again if the engine can't send one.
+    var outgoing: [String: Draft] = [:]
+    /// What waits on the server to go out later, and what couldn't be sent, of every account.
+    private(set) var outbox: [Waiting] = []
+
+    struct Waiting: Identifiable, Hashable {
+        var id: String
+        var accountId: String
+        var to: [String]
+        var subject: String
+        var runAt: Date?
+        var error: String?
+    }
+
+    func loadOutbox() async {
+        var all: [Waiting] = []
+        for a in accountList {
+            guard let list = try? await API.client.listOutbox(path: .init(accountId: a.id)).ok.body.json else { continue }
+            all += list.map { Waiting(id: $0.draftId, accountId: a.id, to: $0.to, subject: $0.subject, runAt: $0.runAt, error: $0.error) }
+        }
+        // A load cut short, e.g. by the list appearing again, isn't an empty outbox.
+        guard !Task.isCancelled else { return }
+        outbox = all
+    }
+
+    /// A scheduled message goes back into Drafts; one that couldn't be sent is forgotten here, it's in Drafts already.
+    func takeBack(_ w: Waiting) async {
+        switch try? await API.client.cancelSend(path: .init(accountId: w.accountId, draftId: w.id)) {
+        case .accepted:
+            if w.error == nil { toast("Back in Drafts", "“\(w.subject)” won't go out until you send it.") }
+        case .conflict: toast("It's going out right now")
+        default: toast("Couldn't take it back")
+        }
+        await loadOutbox()
+    }
+
+    /// Opens a composer: a reply in its conversation, anything else docked. The one open before keeps its draft as it
+    /// closes, so there's only ever one.
+    func write(_ draft: Draft) {
+        withAnimation(.quick) {
+            if draft.kind != nil, draft.thread != nil {
+                compose = nil
+                reply = draft
+                thread = draft.thread
+            } else {
+                reply = nil
+                compose = draft
+                raise += 1
+            }
+        }
+    }
     /// Who's signed in, for the profile at the bottom of the sidebar.
     var me = (name: "", email: "")
     /// The page Settings shows, and on iOS whether its sheet is up.
@@ -196,6 +251,7 @@ struct Toast: Identifiable {
             )
         }
         if let user = await API.me() { me = user }
+        Task { await loadOutbox() }
         let first = state != .signedIn
         state = .signedIn
         // Asked once there's mail to tell about, not on the sign-in screen. Nothing waits for the answer: with Focus on,
@@ -285,6 +341,8 @@ struct Toast: Identifiable {
             let version: Int?
             let subject: String?
             let error: String?
+            let draftId: String?
+            let scheduled: Bool?
         }
         let subject: String
         let data: About
@@ -303,7 +361,18 @@ struct Toast: Identifiable {
             // A sync that failed or worked again changes the account's error.
             Task { try? await loadAccounts() }
         case "evt.message.sent":
-            if let error = e.data.error { toast("Couldn't send", error) } else { toast("Sent") }
+            Task { await loadOutbox() }
+            // Scheduled: the composer said so already.
+            guard e.data.scheduled != true else { break }
+            let sent = e.data.draftId.flatMap { outgoing.removeValue(forKey: $0) }
+            guard let error = e.data.error else { return toast("Sent") }
+            // The engine put it back into Drafts; this device may still have it as it was written.
+            let open: (label: String, run: @MainActor () -> Void) = if let sent {
+                ("Open", { [weak self] in self?.write(sent) })
+            } else {
+                ("Drafts", { [weak self] in self?.folder = .role("drafts") })
+            }
+            toast("Couldn't send" + (sent.map { " “\($0.subject)”" } ?? ""), "\(error)\(error.hasSuffix(".") ? "" : ".") It's back in Drafts.", action: open)
         default: break
         }
     }
@@ -316,6 +385,7 @@ struct Toast: Identifiable {
         let actions: [Action]
         let rich, seeded: Bool?
         let unsubscribe: Unsubscribe?
+        let replyTo: String?
     }
 
     nonisolated private static let metaDecoder = {
@@ -354,7 +424,7 @@ struct Toast: Identifiable {
                     subject: meta.subject, snippet: meta.snippet, fromName: meta.fromName, fromAddr: meta.fromAddr, to: meta.to,
                     cc: meta.cc, sentAt: m.sentAt, flags: m.flags, category: m.category.rawValue, attachments: meta.attachments.count,
                     files: meta.attachments, actions: meta.actions, key: key, rich: meta.rich ?? false, seeded: meta.seeded ?? false,
-                    spam: m.spam, unsubscribe: meta.unsubscribe
+                    spam: m.spam, unsubscribe: meta.unsubscribe, replyTo: meta.replyTo
                 )
                 message.set()
                 return message

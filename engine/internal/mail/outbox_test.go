@@ -360,3 +360,13 @@ func TestDeliverConverges(t *testing.T) {
 	}
 	t.Log(sent, "sent", failed, "back in Drafts")
 }
+
+// A command for an account removed meanwhile is done with, not tried again.
+func TestDeliverGoneAccount(t *testing.T) {
+	s := newSender(t)
+	cmd := s.cmd("Orphan")
+	cmd.AccountId = "gone"
+	if out := s.deliver(t, cmd, 1); out.Retry != 0 || out.Event.Error == nil {
+		t.Fatalf("%+v", out)
+	}
+}

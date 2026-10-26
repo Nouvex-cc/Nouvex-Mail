@@ -10,6 +10,8 @@ struct ThreadView: View {
     let threadId: String
     @Environment(Mail.self) private var mail
     @Environment(\.compact) private var compact
+    /// The reply is written in a sheet then (Shell), not in the reply bar's place.
+    private var narrow: Bool { Device.phone || compact }
     @State private var messages: [Message] = []
     @State private var drafts: Set<String> = []
     @State private var open: Set<String> = []
@@ -38,8 +40,8 @@ struct ThreadView: View {
         }
         .overlay(alignment: .bottom) {
             // A phone writes the reply in a sheet over all of this.
-            if mail.reply != nil, !Device.phone {
-                Composer(placement: .reply).padding(.horizontal, 24).padding(.bottom, 16)
+            if let reply = mail.reply, reply.thread == threadId, !narrow {
+                Composer(placement: .reply).id(reply.draftId).padding(.horizontal, 24).padding(.bottom, 16)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
             } else if let newest {
                 ReplyBar(to: replyTo(newest), others: newest.others(mail.accountList), everyone: everyone, resuming: saved != nil, write: answer)
@@ -85,7 +87,7 @@ struct ThreadView: View {
                 }
             }
             // Room for the reply bar over the end of the mail.
-            .padding(.bottom, mail.reply == nil || Device.phone ? 96 : 360)
+            .padding(.bottom, mail.reply?.thread != threadId || narrow ? 96 : 380)
         }
         #if os(macOS)
         .scrollIndicators(.hidden)
@@ -137,7 +139,7 @@ struct ThreadView: View {
                 Menu("More", systemImage: "ellipsis") {
                     let starred = messages.contains(where: \.starred)
                     if let draft {
-                        Button("Edit draft", systemImage: "pencil") { Task { mail.compose = await Draft.resume(draft) } }
+                        Button("Edit draft", systemImage: "pencil") { Task { mail.write(await Draft.resume(draft)) } }
                     }
                     Button(starred ? "Unstar" : "Star", systemImage: starred ? "star.slash" : "star") { mail.update(messages, starred: !starred) }
                     Button("Mark as unread", systemImage: "envelope.badge") {
@@ -161,7 +163,7 @@ struct ThreadView: View {
     @ToolbarContentBuilder private var wideToolbar: some ToolbarContent {
         if let draft {
             ToolbarItem {
-                Button("Edit draft") { Task { mail.compose = await Draft.resume(draft) } }
+                Button("Edit draft") { Task { mail.write(await Draft.resume(draft)) } }
             }
         }
         if messages.count == 1, messages[0].rich {
@@ -262,7 +264,7 @@ struct ThreadView: View {
 
     private func key(_ press: KeyPress) -> KeyPress.Result {
         // Letters typed into a reply are text, not shortcuts.
-        guard mail.reply == nil, mail.compose == nil else { return .ignored }
+        guard !mail.typing else { return .ignored }
         switch press.characters {
         case "e": leave { mail.update(inFolder, archive: true) }
         case "#": leave { mail.update(inFolder, trash: true) }
@@ -286,11 +288,8 @@ struct ThreadView: View {
     /// A reply already saved in this conversation, to carry on with.
     private var saved: Message? { messages.last { drafts.contains($0.mailboxId) } }
 
-    private func answer(_ kind: Draft.Answer) {
-        Task {
-            let draft = if let saved, kind != .forward { await Draft.resume(saved) } else { await Draft.answer(kind, thread: threadId) }
-            withAnimation(.quick) { mail.reply = draft }
-        }
+    private func answer(_ kind: Answering.Kind) {
+        Task { if let d = await Draft.start(kind, thread: threadId) { mail.write(d) } }
     }
 
     private func back() {
@@ -349,7 +348,7 @@ struct ReplyBar: View {
     var everyone = false
     /// A reply is saved already and R carries on with it.
     var resuming = false
-    let write: (Draft.Answer) -> Void
+    let write: (Answering.Kind) -> Void
 
     var body: some View {
         GlassGroup(spacing: 8) {
