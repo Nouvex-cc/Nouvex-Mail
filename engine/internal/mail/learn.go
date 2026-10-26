@@ -130,6 +130,13 @@ func readAccount(ctx context.Context, q *db.Queries, master []byte, accountID st
 		return nil, err
 	}
 	defer func() { _ = c.Close() }()
+	// On Gmail, the tab Gmail chose is known too.
+	var tabs map[imap.UID]int
+	if c.Caps().Has("X-GM-EXT-1") {
+		if tabs, err = gmailTabs(acc.ImapHost, int(acc.ImapPort), acc.Username, pass); err != nil {
+			slog.Warn("learn: gmail tabs", "account", acc.ID, "err", err)
+		}
+	}
 	s := &syncer{ctx: ctx, q: q, acc: acc}
 	if err := s.loadSorting(); err != nil {
 		return nil, err
@@ -153,9 +160,14 @@ func readAccount(ctx context.Context, q *db.Queries, master []byte, accountID st
 			return nil, err
 		}
 		uids := found.AllUIDs()
-		uids = uids[max(0, len(uids)-limit):]
+		if len(uids) == 0 {
+			continue
+		}
+		// As a range: a list of 2000 UIDs is a line some servers close the connection over.
+		var newest imap.UIDSet
+		newest.AddRange(uids[max(0, len(uids)-limit)], uids[len(uids)-1])
 		start := &imap.FetchItemBodySection{Peek: true, Partial: &imap.SectionPartial{Size: learnBytes}}
-		msgs, err := c.Fetch(imap.UIDSetNum(uids...), &imap.FetchOptions{
+		msgs, err := c.Fetch(newest, &imap.FetchOptions{
 			UID: true, Envelope: true, Flags: true, BodySection: []*imap.FetchItemBodySection{start},
 		}).Collect()
 		if err != nil {
@@ -168,6 +180,7 @@ func readAccount(ctx context.Context, q *db.Queries, master []byte, accountID st
 			}
 			r := read{boxID: b.ID, inbox: b.Role == "inbox", uid: int64(m.UID), sample: p.Sample, label: -1}
 			r.category, r.spam, r.pinned = s.sort(b.ID, m.Envelope.From[0].Addr(), p)
+			tab, tabbed := tabs[m.UID]
 			switch {
 			case b.Role == "junk":
 				r.label = spamLabel
@@ -175,6 +188,12 @@ func readAccount(ctx context.Context, q *db.Queries, master []byte, accountID st
 				r.label = spamLabel
 			case r.pinned:
 				r.label = slices.Index(Labels, r.category)
+			case b.Role == "inbox" && tabbed:
+				r.label = tab
+				// Gmail has no tab for newsletters; it shows them with promotions.
+				if r.label == tabLabels["promotions"] && r.category == "newsletters" {
+					r.label = slices.Index(Labels, "newsletters")
+				}
 			case slices.Contains(m.Flags, imap.FlagAnswered):
 				r.label = 0
 			}
@@ -184,8 +203,9 @@ func readAccount(ctx context.Context, q *db.Queries, master []byte, accountID st
 	return out, nil
 }
 
-// resort sorts an account's inbox again, with the rules as they are now and the model. It doesn't call mail spam
-// that wasn't before: the user has seen it in their inbox already.
+// resort sorts an account's inbox again: what the rules are sure of as they say now, what's known (Gmail's tab, an
+// answered mail) as it is, the rest with the model. It doesn't call mail spam that wasn't before: the user has seen
+// it in their inbox already.
 func resort(ctx context.Context, q *db.Queries, h *Head, accountID string, mail []read) error {
 	mail = slices.DeleteFunc(mail, func(m read) bool { return !m.inbox })
 	var open []Sample
@@ -203,6 +223,9 @@ func resort(ctx context.Context, q *db.Queries, h *Head, accountID string, mail 
 		if !m.pinned {
 			m.category, m.spam = decide(h.Probs(vectors[0]), m.category, m.spam, m.sample)
 			vectors = vectors[1:]
+			if m.label >= 0 {
+				m.category = Labels[m.label]
+			}
 		}
 		byBox[m.boxID] = append(byBox[m.boxID], m)
 	}
