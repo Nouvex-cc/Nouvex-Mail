@@ -101,6 +101,8 @@ struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, Pers
     /// The engine or the user took it for spam: it shows under Junk, wherever it is on the server.
     var spam = false
     var unsubscribe: Unsubscribe?
+    /// Where answers go when it isn't the sender, like a mailing list.
+    var replyTo: String?
 
     /// Opens the message's key with this device's private key.
     func open() throws -> SymmetricKey {
@@ -198,7 +200,8 @@ struct Conversation: Identifiable, Hashable, Sendable {
 nonisolated let tabs = [("primary", "People"), ("updates", "Updates"), ("newsletters", "Newsletters"), ("promotions", "Promotions"), ("social", "Social")]
 
 enum Folder: Hashable, Sendable {
-    case inbox, category(String), starred, role(String)
+    /// outbox is what waits to be sent later or couldn't be sent, from the server, not this database.
+    case inbox, category(String), starred, role(String), outbox
     /// One of the account's own IMAP folders, by id, with its name.
     case mailbox(String, String)
 
@@ -206,6 +209,7 @@ enum Folder: Hashable, Sendable {
     static let within = "accountId IN (SELECT value FROM json_each(?))"
 
     func conversations(_ db: GRDB.Database, categories: Bool, accounts: [String]) throws -> [Conversation] {
+        if self == .outbox { return [] }
         let inbox = "mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox')"
         let (sql, args): (String, StatementArguments) = switch self {
         case .inbox: (categories ? "\(inbox) AND category = 'primary'" : inbox, [])
@@ -215,6 +219,7 @@ enum Folder: Hashable, Sendable {
         case .role("junk"): ("mailboxId IN (SELECT id FROM mailbox WHERE role = 'junk') OR spam = 1", [])
         case .role(let role): ("mailboxId IN (SELECT id FROM mailbox WHERE role = ?)", [role])
         case .mailbox(let id, _): ("mailboxId = ?", [id])
+        case .outbox: ("0", [])
         }
         let clean = self == .role("junk") ? "" : " AND spam = 0"
         return try Conversation.fetch(db, "(\(sql))\(clean) AND \(Self.within)", args + [accounts.json])
@@ -433,6 +438,10 @@ enum Store {
                 t.add(column: "unsubscribe", .text)
             }
             try db.execute(sql: "DELETE FROM rich; DELETE FROM body; DELETE FROM message; DELETE FROM cursor")
+        }
+        // Reply-To came later; mail from before answers its sender, as before.
+        migrator.registerMigration("v8") { db in
+            try db.alter(table: "message") { t in t.add(column: "replyTo", .text) }
         }
         try! migrator.migrate(db)
         return db

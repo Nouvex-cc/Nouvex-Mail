@@ -106,7 +106,7 @@ struct NewMessage: View {
 
     var body: some View {
         Button("New Message", systemImage: "square.and.pencil") {
-            mail.compose = mail.compose ?? Draft(accountId: mail.sender)
+            mail.write(mail.compose ?? Draft(accountId: mail.sender))
             openWindow(id: "mail")
         }
         .keyboardShortcut("n")

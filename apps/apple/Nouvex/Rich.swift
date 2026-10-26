@@ -68,9 +68,7 @@ struct RichMail: View {
     }
 
     private func write(_ url: URL) {
-        let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        let subject = parts?.queryItems?.first { $0.name.lowercased() == "subject" }?.value ?? ""
-        mail.compose = Draft(accountId: message.accountId, to: [parts?.path ?? ""].filter { !$0.isEmpty }, subject: subject)
+        mail.write(Draft.mailto(url, accountId: message.accountId))
     }
 
     private func ask(_ a: Asking) { asking = a }

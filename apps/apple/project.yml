@@ -102,7 +102,7 @@ targets:
   NouvexTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [NouvexTests, Nouvex/Crypto.swift, Nouvex/Focus.swift, Nouvex/Sealed.swift]
+    sources: [NouvexTests, Nouvex/Crypto.swift, Nouvex/Focus.swift, Nouvex/Sealed.swift, Nouvex/Answering.swift]
     settings:
       base:
         SWIFT_VERSION: "6.0"

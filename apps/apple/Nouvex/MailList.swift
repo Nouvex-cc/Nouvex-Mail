@@ -34,13 +34,13 @@ struct MailList: View {
 
     var body: some View {
         ScrollViewReader { scroll in
-            rows
+            Group { if mail.folder == .outbox && query.isEmpty { OutboxList() } else { rows } }
                 .environment(\.compact, compact || narrow)
                 .onGeometryChange(for: Bool.self) { $0.size.width < 600 } action: { narrow = $0 }
                 // A chip filters the inbox; the title stays Inbox.
                 .navigationTitle(query.isEmpty && tokens.isEmpty ? (!mail.prefs.categories && mail.folder.isCategory ? "Inbox" : mail.folder.name) : "Search")
                 .overlay {
-                    if conversations.isEmpty {
+                    if conversations.isEmpty, mail.folder != .outbox || !query.isEmpty {
                         Text(query.isEmpty ? "Nothing here" : "No mail matches").font(.md).foregroundStyle(.muted)
                     }
                 }
@@ -171,7 +171,7 @@ struct MailList: View {
                 ToolbarItem(placement: .bottomBar) { Spacer() }
             }
             ToolbarItem(placement: .bottomBar) {
-                Button("New message", systemImage: "square.and.pencil") { mail.compose = mail.compose ?? Draft(accountId: mail.sender) }
+                Button("New message", systemImage: "square.and.pencil") { mail.write(mail.compose ?? Draft(accountId: mail.sender)) }
             }
         }
     }
@@ -257,7 +257,7 @@ struct MailList: View {
     private func key(_ press: KeyPress, _ scroll: ScrollViewProxy) -> KeyPress.Result {
         let char = press.characters
         // While writing, letters are text: only moving through the list still works from the keyboard.
-        if mail.compose != nil, press.key != .downArrow, press.key != .upArrow { return .ignored }
+        if mail.typing, press.key != .downArrow, press.key != .upArrow { return .ignored }
         if char == "/" {
             searching.wrappedValue = true
             return .handled
@@ -297,14 +297,22 @@ struct MailList: View {
         case (_, "h"): snoozing = c.id
         case (_, "r"), (_, "a"), (_, "f"):
             open(c)
-            Task { mail.reply = await Draft.answer(char == "r" ? .reply : char == "a" ? .replyAll : .forward, thread: c.id) }
+            let everyone = mail.prefs.replyDefault == "all" && (c.messages.first?.others(mail.accountList).count ?? 0) > 1
+            let kind: Answering.Kind = char == "f" ? .forward : char == "a" || everyone ? .replyAll : .reply
+            Task { if let d = await Draft.start(kind, thread: c.id) { mail.write(d) } }
         default: return .ignored
         }
         return .handled
     }
 
+    // A draft opens to be written on; a reply's draft in its conversation.
     private func open(_ c: Conversation) {
         cursor = c.id
+        if mail.folder == .role("drafts"), let d = c.messages.first {
+            // A reply's draft opens its conversation with it (Mail.write).
+            Task { mail.write(await Draft.resume(d)) }
+            return
+        }
         mail.thread = c.id
     }
 
@@ -674,5 +682,40 @@ struct InboxChips: View {
                 unread = Set(rows.filter { !$0.1 }.map(\.0))
             }
         } catch {}
+    }
+}
+
+/// What waits to go out later, and what couldn't be sent, which is back in Drafts. A scheduled one can be taken back
+/// into Drafts to change or send now.
+struct OutboxList: View {
+    @Environment(Mail.self) private var mail
+
+    var body: some View {
+        List {
+            ForEach(mail.outbox) { w in
+                HStack(spacing: 12) {
+                    Image(systemName: w.error == nil ? "clock" : "exclamationmark.circle").foregroundStyle(w.error == nil ? Color.muted : .danger)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(w.subject.isEmpty ? "(no subject)" : w.subject).font(.md.weight(.medium)).lineLimit(1)
+                        Text("To \(w.to.joined(separator: ", "))").font(.sm).foregroundStyle(.muted).lineLimit(1)
+                        Text(w.error.map { "Couldn't send: \($0) It's in Drafts." } ?? "Goes out \(w.runAt?.when ?? "later")")
+                            .font(.sm).foregroundStyle(w.error == nil ? Color.muted : .danger).lineLimit(2)
+                    }
+                    Spacer()
+                    if w.error == nil {
+                        Button("Back to Drafts") { Task { await mail.takeBack(w) } }.buttonStyle(QuietButtonStyle())
+                    } else {
+                        Button("Open Drafts") { mail.folder = .role("drafts") }.buttonStyle(QuietButtonStyle())
+                        Button("Remove", systemImage: "xmark") { Task { await mail.takeBack(w) } }
+                            .labelStyle(.iconOnly).buttonStyle(QuietButtonStyle())
+                    }
+                }
+                .padding(.vertical, 6)
+            }
+        }
+        .listStyle(.plain)
+        .overlay { if mail.outbox.isEmpty { Text("Nothing waits to go out").font(.md).foregroundStyle(.muted) } }
+        .task { await mail.loadOutbox() }
+        .refreshable { await mail.loadOutbox() }
     }
 }

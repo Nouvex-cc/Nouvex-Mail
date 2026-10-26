@@ -33,9 +33,7 @@ struct MailBody: View {
                     dark: dark, rules: rules, height: $height
                 ) { url in
                     // A mailto link is written here, not handed to another mail app.
-                    let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                    let subject = parts?.queryItems?.first { $0.name.lowercased() == "subject" }?.value ?? ""
-                    mail.compose = Draft(accountId: message.accountId, to: [parts?.path ?? ""].filter { !$0.isEmpty }, subject: subject)
+                    mail.write(Draft.mailto(url, accountId: message.accountId))
                 }
                 .frame(height: height)
                 .background(original ? Color.white : .clear, in: .rect(cornerRadius: Radius.md))
