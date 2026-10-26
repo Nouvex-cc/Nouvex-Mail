@@ -23,6 +23,7 @@
         "@nats-io/jetstream": "^3.4.0",
         "@nats-io/transport-node": "^3.4.0",
         "@nouvex/schema": "workspace:*",
+        "@nouvex/sdk": "workspace:*",
         "@opentelemetry/api": "^1.9.1",
         "@opentelemetry/exporter-trace-otlp-http": "^0.223.0",
         "@opentelemetry/sdk-node": "^0.223.0",

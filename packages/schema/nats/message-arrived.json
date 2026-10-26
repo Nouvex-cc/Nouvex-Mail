@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MessageArrived",
+	"description": "Event: new mail came into an inbox, unread and not spam. The first sync of a folder brings none.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"messageIds": { "type": "array", "items": { "type": "string" } }
+	},
+	"required": ["accountId", "messageIds"],
+	"additionalProperties": false
+}

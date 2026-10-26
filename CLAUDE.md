@@ -9,6 +9,7 @@ Nouvex Mail is an open-source email client (successor of "Mail Sync") that keeps
 - API and engine only talk over NATS: commands (API → engine, JetStream stream `COMMANDS`, subjects `cmd.>`) and events (engine → API, pub-sub `evt.>`). No direct calls.
 - Data: PostgreSQL for metadata and the change log, S3-compatible object storage for message bodies and attachments.
 - Clients are local-first and only fetch changes through a JMAP-inspired delta sync (`change_log`, monotonic version per account).
+- New inbox mail goes to iPhones as an APNs push from the API (`apps/api/src/push.ts`, on `evt.message.arrived`); it carries the sealed meta, which the notification extension `apps/apple/NouvexNotify` opens.
 
 ## Repo
 

@@ -53,7 +53,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, store Store, userID string, r
 		return "", 0, err
 	}
 
-	s := &syncer{ctx: ctx, pool: pool, store: store, progress: func(int64) {}, acc: acc, pub: pub}
+	s := &syncer{ctx: ctx, pool: pool, store: store, progress: func(int64, []string) {}, acc: acc, pub: pub}
 	if err := s.begin(); err != nil {
 		return "", 0, err
 	}
@@ -103,7 +103,7 @@ func Seed(ctx context.Context, pool *pgxpool.Pool, store Store, userID string, r
 	if err := s.keep(&row, meta, parsed); err != nil {
 		return "", 0, err
 	}
-	if err := s.insert(&row); err != nil {
+	if _, err := s.insert(&row); err != nil {
 		return "", 0, err
 	}
 	if err := s.flush(); err != nil {

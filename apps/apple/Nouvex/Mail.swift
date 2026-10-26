@@ -132,6 +132,12 @@ struct Toast: Identifiable {
 
     func signOut() async {
         stop()
+        #if os(iOS)
+        if let token = UserDefaults.standard.string(forKey: Pushes.tokenKey) {
+            _ = try? await API.client.removeDevice(path: .init(token: token))
+            UserDefaults.standard.removeObject(forKey: Pushes.tokenKey)
+        }
+        #endif
         Keys.forget()
         unlocked = false
         await API.signOut()
@@ -194,7 +200,17 @@ struct Toast: Identifiable {
         state = .signedIn
         // Asked once there's mail to tell about, not on the sign-in screen. Nothing waits for the answer: with Focus on,
         // the question may not even show.
-        if first { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) } }
+        if first {
+            Task {
+                _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+                #if os(iOS)
+                // Every launch, as Apple asks: the token can change.
+                if await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .authorized {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+                #endif
+            }
+        }
     }
 
     /// The accounts with their sync errors; one removed elsewhere takes its mail with it.

@@ -45,11 +45,13 @@ const sealed = "AeVCfofwDm5ahJCtI82tdCIIVvFGf4BwyDIroAsv8BzQ4CPCXPqq675SlWplhAG7
 
 // fixture is an IMAP server with one user and a mail_account row pointing at it, and the user's key pair.
 type fixture struct {
-	pool   *pgxpool.Pool
-	id     string
-	add    func(subject string)
-	addRaw func(raw string)
-	key    *ecdh.PrivateKey
+	pool *pgxpool.Pool
+	id   string
+	add  func(subject string)
+	// addSeen adds a message that was read elsewhere already.
+	addSeen func(subject string)
+	addRaw  func(raw string)
+	key     *ecdh.PrivateKey
 	// cut closes every open connection, like a server ending an idle one.
 	cut func()
 	// appendTo puts a message into a folder, made if it isn't there.
@@ -170,12 +172,14 @@ func setup(t *testing.T) fixture {
 			t.Error(err)
 		}
 	}
-	add := func(subject string) {
+	addWith := func(subject string, flags ...imap.Flag) {
 		raw := fmt.Sprintf("From: Lena Hartmann <lena@example.com>\r\nSubject: %s\r\nDate: Thu, 8 Oct 2026 09:12:00 +0200\r\nMessage-ID: <%s@example.com>\r\n\r\nHi", subject, rand.Text())
-		if _, err := u.Append("INBOX", bytes.NewReader([]byte(raw)), &imap.AppendOptions{}); err != nil {
+		if _, err := u.Append("INBOX", bytes.NewReader([]byte(raw)), &imap.AppendOptions{Flags: flags}); err != nil {
 			t.Error(err)
 		}
 	}
+	add := func(subject string) { addWith(subject) }
+	addSeen := func(subject string) { addWith(subject, imap.FlagSeen) }
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -226,7 +230,7 @@ func setup(t *testing.T) fixture {
 	if _, err := pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, id, key.PublicKey().Bytes()); err != nil {
 		t.Fatal(err)
 	}
-	return fixture{pool, id, add, addRaw, key, cut, appendTo, silent}
+	return fixture{pool, id, add, addSeen, addRaw, key, cut, appendTo, silent}
 }
 
 func TestSync(t *testing.T) {
@@ -246,12 +250,12 @@ func TestSync(t *testing.T) {
 	}
 	// INBOX and Trash, then the two messages.
 	for _, want := range []int64{4, 4} {
-		if v, err := Sync(ctx, pool, Store{Put: put, Drop: noDrop}, master, id, func(int64) {}); err != nil || v != want {
+		if v, err := Sync(ctx, pool, Store{Put: put, Drop: noDrop}, master, id, func(int64, []string) {}); err != nil || v != want {
 			t.Fatalf("version %d, %v; want %d", v, err, want)
 		}
 	}
 	add("Invoice")
-	if v, err := Sync(ctx, pool, Store{Put: put, Drop: noDrop}, master, id, func(int64) {}); err != nil || v != 5 {
+	if v, err := Sync(ctx, pool, Store{Put: put, Drop: noDrop}, master, id, func(int64, []string) {}); err != nil || v != 5 {
 		t.Fatalf("version %d, %v; want 5", v, err)
 	}
 	var roles []string
@@ -286,11 +290,11 @@ func TestKeyChange(t *testing.T) {
 	store := Store{Put: put, Drop: func(_ context.Context, id string) error { dropped = append(dropped, id); return nil }}
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("Before the reset")
-	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	_, _ = f.pool.Exec(ctx, `DELETE FROM user_key WHERE user_id = $1`, f.id)
-	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.messages(t)) != 0 || len(dropped) != 1 {
@@ -298,12 +302,55 @@ func TestKeyChange(t *testing.T) {
 	}
 	f.key, _ = ecdh.X25519().GenerateKey(rand.Reader)
 	_, _ = f.pool.Exec(ctx, `INSERT INTO user_key (user_id, public_key, wrapped_private) VALUES ($1, $2, '')`, f.id, f.key.PublicKey().Bytes())
-	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	if m := f.messages(t); len(m) != 1 || m[0].Subject != "Before the reset" {
 		t.Fatalf("got %+v", m)
 	}
+}
+
+// New mail in an inbox is announced once, if unread and not part of a folder's first sync.
+func TestArrived(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
+	master := bytes.Repeat([]byte{7}, 32)
+	sync := func(what string, want ...string) {
+		t.Helper()
+		var got []string
+		if _, err := Sync(ctx, f.pool, store, master, f.id, func(_ int64, ids []string) { got = append(got, ids...) }); err != nil {
+			t.Fatal(what, err)
+		}
+		var subjects []string
+		for _, id := range got {
+			for _, m := range f.messages(t) {
+				if m.ID == id {
+					subjects = append(subjects, m.Subject)
+				}
+			}
+		}
+		if !slices.Equal(subjects, want) {
+			t.Fatalf("%s: announced %v, want %v", what, subjects, want)
+		}
+	}
+	mail := func(subject string) string {
+		return fmt.Sprintf("From: Lena <lena@example.com>\r\nSubject: %s\r\nMessage-ID: <%s@example.com>\r\n\r\nHi", subject, rand.Text())
+	}
+	f.add("Old")
+	f.appendTo("Archive", mail("Old archived"))
+	sync("first sync")
+	f.add("New")
+	f.addSeen("Read elsewhere")
+	f.appendTo("Archive", mail("Archived"))
+	sync("new mail", "New")
+	sync("nothing new")
+	_, _ = f.pool.Exec(ctx, `UPDATE user_key SET public_key = $2 WHERE user_id = $1`, f.id, func() []byte {
+		f.key, _ = ecdh.X25519().GenerateKey(rand.Reader)
+		return f.key.PublicKey().Bytes()
+	}())
+	f.add("After a reset")
+	sync("everything again after a reset")
 }
 
 func selfSigned(t *testing.T) *tls.Config {
@@ -323,7 +370,7 @@ func TestUIDValidityChange(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("One")
 	f.add("Two")
-	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.pool.Exec(ctx, `UPDATE mailbox SET uid_validity = uid_validity + 1 WHERE account_id = $1`, f.id); err != nil {
@@ -331,7 +378,7 @@ func TestUIDValidityChange(t *testing.T) {
 	}
 	// Both folders were renumbered: both old rows are deleted, both messages come back as new rows, and both
 	// folders are logged as changed.
-	if v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil || v != 10 {
+	if v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil || v != 10 {
 		t.Fatalf("version %d, %v; want 10", v, err)
 	}
 	var deletes, rows int
@@ -350,7 +397,7 @@ func TestUpdate(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	f.add("Read me")
 	f.add("Throw me away")
-	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
@@ -365,11 +412,11 @@ func TestUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One flag change, one message gone from the INBOX and the same one new in Trash.
-	if v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil || v != 7 {
+	if v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil || v != 7 {
 		t.Fatalf("version %d, %v; want 7", v, err)
 	}
 	f.add("Keep me")
-	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	keep := f.find(t, "Keep me").ID
@@ -377,7 +424,7 @@ func TestUpdate(t *testing.T) {
 	if err := Update(ctx, q, master, msg.MessageUpdate{AccountId: f.id, MessageId: keep, Archive: &yes}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	if f.find(t, "Keep me").Role != "archive" {
@@ -443,13 +490,13 @@ func TestSyncStall(t *testing.T) {
 	master := bytes.Repeat([]byte{7}, 32)
 	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
 	f.add("Invoice")
-	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	// The kept connection is taken again, then nothing comes back on it; go-imap alone would wait forever.
 	f.silent.Store(true)
 	start := time.Now()
-	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64) {}); err == nil {
+	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64, []string) {}); err == nil {
 		t.Fatal("a sync on a silent server succeeded")
 	}
 	if d := time.Since(start); d > 10*time.Second {
@@ -457,7 +504,7 @@ func TestSyncStall(t *testing.T) {
 	}
 	f.silent.Store(false)
 	f.add("Receipt")
-	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(context.Background(), f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal("after the server answers again:", err)
 	}
 	if f.find(t, "Receipt").ID == "" {
@@ -509,7 +556,7 @@ func TestSyncInBatches(t *testing.T) {
 	}
 	var saves []int64
 	put := func(context.Context, string, []byte, string) error { return nil }
-	v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(v int64) { saves = append(saves, v) })
+	v, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(v int64, _ []string) { saves = append(saves, v) })
 	// INBOX: one save per batch of 50, then the folder; Trash: the folder.
 	if err != nil || v != 62 || !slices.Contains(saves, 51) || !slices.Contains(saves, 61) {
 		t.Fatalf("version %d, %v, saves %v", v, err, saves)
@@ -525,7 +572,7 @@ func TestThreads(t *testing.T) {
 		return "From: Lena <lena@example.com>\r\nSubject: " + subject + "\r\nMessage-ID: <" + id + ">\r\n" + headers + "\r\nHi"
 	}
 	sync := func() {
-		if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
+		if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -561,7 +608,7 @@ func TestSnooze(t *testing.T) {
 	put := func(context.Context, string, []byte, string) error { return nil }
 	master := bytes.Repeat([]byte{7}, 32)
 	sync := func() {
-		if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64) {}); err != nil {
+		if _, err := Sync(ctx, f.pool, Store{Put: put, Drop: noDrop}, master, f.id, func(int64, []string) {}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -661,7 +708,7 @@ func (e *benchmark) syncWithin(t *testing.T, id, what string) int64 {
 	}
 	done := make(chan result, 1)
 	go func() {
-		v, err := Sync(e.ctx, e.pool, Store{Put: e.put, Drop: noDrop}, e.master, id, func(int64) {})
+		v, err := Sync(e.ctx, e.pool, Store{Put: e.put, Drop: noDrop}, e.master, id, func(int64, []string) {})
 		done <- result{v, err}
 	}()
 	select {
@@ -945,7 +992,7 @@ func TestSeed(t *testing.T) {
 			t.Fatalf("%q %v, want %q", acc, err, want)
 		}
 	}
-	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	m := f.find(t, "Groups")
@@ -987,7 +1034,7 @@ func TestSort(t *testing.T) {
 	if _, err := f.pool.Exec(ctx, `INSERT INTO sender_rule (user_id, sender, category) VALUES ($1, $2, 'promotions')`, f.id, Sender("@store.example")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Sync(ctx, f.pool, Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	for subject, want := range map[string]string{
@@ -1003,7 +1050,7 @@ func TestSort(t *testing.T) {
 	// Contacts kept before this existed fill in once from the Sent folder.
 	var n int
 	_, _ = f.pool.Exec(ctx, `DELETE FROM contact WHERE user_id = $1`, f.id)
-	if _, err := Sync(ctx, f.pool, Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(int64) {}); err != nil {
+	if _, err := Sync(ctx, f.pool, Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}, bytes.Repeat([]byte{7}, 32), f.id, func(int64, []string) {}); err != nil {
 		t.Fatal(err)
 	}
 	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM contact WHERE user_id = $1 AND hash = $2`, f.id, Sender("max@friend.org")).Scan(&n)
@@ -1024,7 +1071,7 @@ func TestSortByHand(t *testing.T) {
 	f.appendTo("Junk", "From: x@spam.example\r\nSubject: Old spam\r\nMessage-ID: <o@spam.example>\r\n\r\nx")
 	f.add("Hello")
 	sync := func() {
-		if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64) {}); err != nil {
+		if _, err := Sync(ctx, f.pool, store, master, f.id, func(int64, []string) {}); err != nil {
 			t.Fatal(err)
 		}
 	}

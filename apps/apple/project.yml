@@ -47,6 +47,8 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Nouvex Mail connects to a mail server on your network when you sign in to one.
+        # Pushes, and the keychain group the notification extension reads the key from.
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": Nouvex/Nouvex-iOS.entitlements
       # A development build keeps its own data and sign-in, apart from the installed app.
       configs:
         Debug:
@@ -61,16 +63,46 @@ targets:
       - package: GRDB
       - package: OpenAPIRuntime
       - package: OpenAPIURLSession
+      - target: NouvexNotify
+        destinationFilters: [iOS]
     buildToolPlugins:
       - plugin: OpenAPIGenerator
         package: OpenAPIGenerator
     scheme:
       testTargets: [NouvexTests]
+  # Opens the sealed sender and subject a push for new mail carries (apps/api/src/push.ts).
+  NouvexNotify:
+    type: app-extension
+    platform: iOS
+    sources: [NouvexNotify, Nouvex/Crypto.swift, Nouvex/Sealed.swift]
+    info:
+      path: NouvexNotify/Info.plist
+      properties:
+        CFBundleDisplayName: Nouvex Mail
+        # The App Store wants an extension's version to be its app's.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: cc.nouvex.Nouvex.notify
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        DEVELOPMENT_TEAM: SQR8LP4972
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: NouvexNotify/NouvexNotify.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: cc.nouvex.Nouvex.dev.notify
   # Checks against what the engine sealed, without starting the app.
   NouvexTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [NouvexTests, Nouvex/Crypto.swift, Nouvex/Focus.swift]
+    sources: [NouvexTests, Nouvex/Crypto.swift, Nouvex/Focus.swift, Nouvex/Sealed.swift]
     settings:
       base:
         SWIFT_VERSION: "6.0"

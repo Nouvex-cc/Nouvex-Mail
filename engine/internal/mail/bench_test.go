@@ -49,7 +49,7 @@ func BenchmarkSync(b *testing.B) {
 	small := env.mailbox(b, smallFolders)
 	// Synced once without delay, so the timed runs only see what changed.
 	bigAcc := env.account(b, big, env.imap)
-	if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
+	if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64, []string) {}); err != nil {
 		b.Fatal(err)
 	}
 	for _, rtt := range rtts() {
@@ -59,7 +59,7 @@ func BenchmarkSync(b *testing.B) {
 		}
 		env.point(b, bigAcc, addr)
 		// Connects through the proxy; the runs below find the connection kept, as a sync shortly after another does.
-		if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
+		if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64, []string) {}); err != nil {
 			b.Fatal(err)
 		}
 		name := fmt.Sprintf("rtt=%s", rtt)
@@ -68,14 +68,14 @@ func BenchmarkSync(b *testing.B) {
 				b.StopTimer()
 				id := env.account(b, small, addr)
 				b.StartTimer()
-				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, id, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, id, func(int64, []string) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
 		})
 		b.Run("unchanged/9000/"+name, func(b *testing.B) {
 			for b.Loop() {
-				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64, []string) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -85,7 +85,7 @@ func BenchmarkSync(b *testing.B) {
 				b.StopTimer()
 				big.append(b, "INBOX", newsletter(rand.Text()))
 				b.StartTimer()
-				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64, []string) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -103,7 +103,7 @@ func BenchmarkSync(b *testing.B) {
 				}
 				kept.Unlock()
 				b.StartTimer()
-				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64, []string) {}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -127,7 +127,7 @@ func BenchmarkSync(b *testing.B) {
 				if Saved(cmd) {
 					continue
 				}
-				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64) {}); err != nil {
+				if _, err := Sync(env.ctx, env.pool, Store{Put: env.put, Drop: noDrop}, env.master, bigAcc, func(int64, []string) {}); err != nil {
 					b.Fatal(err)
 				}
 			}

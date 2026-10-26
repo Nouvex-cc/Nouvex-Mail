@@ -45,6 +45,10 @@ docker compose -f deploy/compose.yml exec -T api bun dist/announce.js - --all < 
 
 Try it on yourself first. Announcing the same message again (same Message-ID) adds nothing. Its "Try it" buttons (`nx-action`) open places in Nouvex, which only mail put there this way may do.
 
+## Pushes to the iPhone app
+
+New mail reaches the iPhone app as a push while it isn't running. Set `APNS_KEY`, `APNS_KEY_ID` and `APNS_TEAM_ID` in `deploy/.env` (see `.env.example`), with a key from the team the app is signed with; `cc.nouvex.Nouvex` is the topic. A push carries the message's sender and subject only sealed, and the app opens them (docs/security.md). Without the key the app notifies while it's open, as before.
+
 ## Passkeys in the Apple apps
 
 Passkeys work in the web app on any domain. The Apple apps are tied to `mail.nouvex.cc` (`apps/apple/Nouvex/Nouvex.entitlements`), so on another domain they sign in with a password; for passkeys there, build the apps with your own team and domain in the entitlements, `deploy/` is unchanged apart from the team id in `apps/web/public/.well-known/apple-app-site-association`.

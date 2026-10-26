@@ -58,12 +58,7 @@ enum Keys {
     private static func load() -> Data? { try? Data(contentsOf: file) }
     static func forget() { try? FileManager.default.removeItem(at: file) }
     #else
-    private static var item: [String: Any] { [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: Bundle.main.bundleIdentifier ?? "Nouvex",
-        kSecAttrAccount as String: "private key",
-        kSecUseDataProtectionKeychain as String: true,
-    ] }
+    private static var item: [String: Any] { Sealed.item(service: Bundle.main.bundleIdentifier ?? "Nouvex") }
 
     private static func save(_ raw: Data) throws {
         forget()
@@ -75,13 +70,23 @@ enum Keys {
         guard status == errSecSuccess else { throw AuthError(errorDescription: "Couldn't keep the key on this device (\(status)).") }
     }
 
-    private static func load() -> Data? {
-        var query = item
-        query[kSecReturnData as String] = true
-        var found: CFTypeRef?
-        return SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess ? found as? Data : nil
-    }
+    private static func load() -> Data? { Sealed.load(service: Bundle.main.bundleIdentifier ?? "Nouvex") }
 
     static func forget() { SecItemDelete(item as CFDictionary) }
+
+    #if os(iOS)
+    /// A key kept before the notification extension came sits in the app's own keychain group. It moves to the shared
+    /// one once, so nobody has to unlock again.
+    static func share() {
+        guard load() == nil else { return }
+        var old = item
+        old[kSecAttrAccessGroup as String] = "SQR8LP4972.\(Bundle.main.bundleIdentifier ?? "")"
+        var query = old
+        query[kSecReturnData as String] = true
+        var found: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess, let raw = found as? Data else { return }
+        if (try? save(raw)) != nil { SecItemDelete(old as CFDictionary) }
+    }
+    #endif
     #endif
 }
