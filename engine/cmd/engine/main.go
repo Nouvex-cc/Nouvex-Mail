@@ -170,10 +170,14 @@ func run() error {
 	syncAccount := func(id string) error {
 		start, _ := json.Marshal(msg.MailboxSyncing{AccountId: id})
 		_ = nc.Publish("evt.mailbox.syncing", start)
-		v, err := mail.Sync(ctx, pool, store, master, id, func(v int64) {
+		v, err := mail.Sync(ctx, pool, store, master, id, func(v int64, arrived []string) {
 			n := int(v)
 			ev, _ := json.Marshal(msg.MailboxSyncing{AccountId: id, Version: &n})
 			_ = nc.Publish("evt.mailbox.syncing", ev)
+			if len(arrived) > 0 {
+				ev, _ := json.Marshal(msg.MessageArrived{AccountId: id, MessageIds: arrived})
+				_ = nc.Publish("evt.message.arrived", ev)
+			}
 		})
 		if err != nil {
 			slog.Error("sync failed", "account", id, "err", err)

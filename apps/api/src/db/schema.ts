@@ -220,3 +220,19 @@ export const scheduled = pgTable(
 	},
 	(t) => [index().on(t.runAt)],
 );
+
+// iPhones that get a push for new mail (apps/api/src/push.ts). Focus times are judged in the device's time zone.
+export const device = pgTable(
+	"device",
+	{
+		token: text("token").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Debug builds get their pushes from APNs' sandbox.
+		sandbox: boolean("sandbox").notNull().default(false),
+		timeZone: text("time_zone").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index().on(t.userId)],
+);

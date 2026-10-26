@@ -14,6 +14,7 @@ import {
 	accountGroup,
 	accountGroupMember,
 	changeLog,
+	device,
 	labelColors,
 	mailAccount,
 	mailbox,
@@ -49,6 +50,8 @@ const signedIn: MiddlewareHandler<Env> = async (c, next) => {
 	await next();
 };
 app.use("/prefs", signedIn);
+app.use("/devices", signedIn);
+app.use("/devices/*", signedIn);
 app.use("/keys", signedIn);
 app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
@@ -314,6 +317,59 @@ app.openapi(
 		// The engine waits for a key before it fetches anything.
 		const accounts = await db.select({ id: mailAccount.id }).from(mailAccount).where(eq(mailAccount.userId, userId));
 		for (const a of accounts) await sync(a.id);
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/devices",
+		operationId: "registerDevice",
+		description: "An iPhone that gets a push for new mail. Registering a token again updates it.",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							/** The APNs device token, hex. */
+							token: z.string().regex(/^[0-9a-f]{64,200}$/),
+							/** From a debug build: pushed through APNs' sandbox. */
+							sandbox: z.boolean(),
+							/** Where the device is, for focus times, like Europe/Berlin. */
+							timeZone: z.string().refine((tz) => Intl.supportedValuesOf("timeZone").includes(tz)),
+						}),
+					},
+				},
+			},
+		},
+		responses: { 204: { description: "Saved" } },
+	}),
+	async (c) => {
+		const { token, sandbox, timeZone } = c.req.valid("json");
+		const userId = c.get("userId");
+		// A token belongs to whoever signed in on the device last.
+		await db
+			.insert(device)
+			.values({ token, userId, sandbox, timeZone })
+			.onConflictDoUpdate({ target: device.token, set: { userId, sandbox, timeZone } });
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/devices/{token}",
+		operationId: "removeDevice",
+		description: "No more pushes for this device, on signing out.",
+		request: { params: z.object({ token: z.string() }) },
+		responses: { 204: { description: "Removed, or wasn't there" } },
+	}),
+	async (c) => {
+		await db
+			.delete(device)
+			.where(and(eq(device.token, c.req.valid("param").token), eq(device.userId, c.get("userId"))));
 		return c.body(null, 204);
 	},
 );

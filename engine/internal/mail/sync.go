@@ -87,7 +87,7 @@ func newMailItems() *imap.FetchOptions {
 // message is sealed to the user's public key: its Meta in the row, the part to show as body/<id>.html, attachments
 // as att/<id>/<index>. Work is saved folder by folder and in batches of new messages; progress is called with the
 // version after each save. Without a key nothing is fetched: the user hasn't set a password yet.
-func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, accountID string, progress func(version int64)) (_ int64, err error) {
+func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, accountID string, progress func(version int64, arrived []string)) (_ int64, err error) {
 	acc, err := db.New(pool).GetAccount(ctx, accountID)
 	if err != nil {
 		return 0, err
@@ -232,10 +232,12 @@ type syncer struct {
 	q        *db.Queries
 	c        *imapclient.Client
 	store    Store
-	progress func(version int64)
-	acc      db.MailAccount
-	pub      []byte
-	changes  db.LogChangesParams
+	progress func(version int64, arrived []string)
+	// New inbox mail saved since the last commit, see MessageArrived.
+	arrived []string
+	acc     db.MailAccount
+	pub     []byte
+	changes db.LogChangesParams
 	// What sorts new mail: the user's own rules by sender hash, the people they wrote to, and each folder's role.
 	rules    map[string]db.ListSenderRulesRow
 	contacts map[string]bool
@@ -261,7 +263,8 @@ func (s *syncer) commit() error {
 	if err := s.tx.Commit(s.ctx); err != nil {
 		return err
 	}
-	s.progress(s.acc.Version)
+	s.progress(s.acc.Version, s.arrived)
+	s.arrived = nil
 	s.watchdog.Reset(stall)
 	return s.begin()
 }
@@ -539,30 +542,38 @@ func (s *syncer) save(boxID string, last int64, msgs []*imapclient.FetchMessageB
 			return err
 		}
 	}
+	// A folder's first sync brings old mail, none of it new.
+	// ponytail: the first mail into an empty inbox isn't announced either.
+	loud := last > 0 && s.roles[boxID] == "inbox"
 	for _, row := range ready {
 		if row == nil {
 			continue
 		}
-		if err := s.insert(row); err != nil {
+		added, err := s.insert(row)
+		if err != nil {
 			return err
+		}
+		if added && loud && !row.Spam && !slices.Contains(row.Flags, string(imap.FlagSeen)) {
+			s.arrived = append(s.arrived, row.ID)
 		}
 	}
 	return s.commit()
 }
 
-// insert puts a prepared message into its conversation and stores its row.
-func (s *syncer) insert(row *db.InsertMessageParams) (err error) {
+// insert puts a prepared message into its conversation and stores its row; false if it was there already.
+func (s *syncer) insert(row *db.InsertMessageParams) (bool, error) {
+	var err error
 	if row.ThreadID, err = thread(s.ctx, s.q, s.acc.ID, row.MessageID, row.Refs, func(id string) error {
 		s.log("message", id, "upsert")
 		return nil
 	}); err != nil {
-		return err
+		return false, err
 	}
 	if n, err := s.q.InsertMessage(s.ctx, *row); err != nil || n == 0 {
-		return err
+		return false, err
 	}
 	s.log("message", row.ID, "upsert")
-	return nil
+	return true, nil
 }
 
 // prepare reads a new message and puts its parts in the bucket, ready for its row.

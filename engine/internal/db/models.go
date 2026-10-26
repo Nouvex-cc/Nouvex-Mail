@@ -52,6 +52,14 @@ type Contact struct {
 	Hash   string
 }
 
+type Device struct {
+	Token     string
+	UserID    string
+	Sandbox   bool
+	TimeZone  string
+	CreatedAt pgtype.Timestamptz
+}
+
 type MailAccount struct {
 	ID          string
 	UserID      string

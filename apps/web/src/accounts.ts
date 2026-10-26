@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { type Focus, within } from "@nouvex/sdk/focus";
 import type { LabelColor } from "@nouvex/ui";
 import { useQuery } from "@tanstack/react-query";
 
@@ -14,8 +15,7 @@ export type Account = {
 	muted: boolean;
 };
 
-// Days are 0 (Sunday) to 6, times are this device's; outside them the group rests.
-export type Focus = { days: number[]; from: string; to: string };
+export type { Focus };
 
 export type Group = { id: string; name: string; accountIds: string[]; muted: boolean; focus: Focus | null };
 
@@ -34,19 +34,9 @@ export function wake(id: string) {
 
 export const asleep = (a: Account) => !!a.archivedAt;
 
-const minutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-
-function within(f: Focus, at: Date) {
-	const now = at.getHours() * 60 + at.getMinutes();
-	const [from, to] = [minutes(f.from), minutes(f.to)];
-	const day = at.getDay();
-	if (from < to) return f.days.includes(day) && now >= from && now < to;
-	// Over midnight it belongs to the day it started.
-	return (f.days.includes(day) && now >= from) || (f.days.includes((day + 6) % 7) && now < to);
-}
-
 /** Outside its focus times a group rests: its mail waits out of All inboxes and makes no noise. */
-export const resting = (g: Group, at = new Date()) => !!g.focus && !within(g.focus, at);
+export const resting = (g: Group, at = new Date()) =>
+	!!g.focus && !within(g.focus, at.getDay(), at.getHours() * 60 + at.getMinutes());
 
 /** When a resting group's focus time starts again. */
 export function wakes(f: Focus, at = new Date()) {

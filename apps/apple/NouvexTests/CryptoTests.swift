@@ -24,4 +24,16 @@ struct CryptoTests {
         #expect(String(decoding: meta, as: UTF8.self) == fixture.plain)
         #expect(throws: (any Error).self) { try Crypto.decrypt(messageKey, "body", Data(base64Encoded: fixture.meta)!) }
     }
+
+    /// A push as apps/api/src/push.ts sends it: the notification extension finds the subject in it.
+    @Test func opensAPush() throws {
+        let (_, encKey) = Crypto.derive(password: fixture.password, email: fixture.email)
+        let key = try Crypto.openPrivate(encKey, Data(base64Encoded: fixture.wrappedPrivate)!)
+        let push: [AnyHashable: Any] = ["aps": ["mutable-content": 1], "m": ["key": fixture.messageKey, "sealed": fixture.meta]]
+        let notice = try #require(Sealed.notice(push, key: key))
+        #expect(notice.subject == "Grüße aus Köln")
+        #expect(notice.sender == "")
+        #expect(Sealed.notice(["aps": [:]], key: key) == nil)
+        #expect(Sealed.notice(push, key: Curve25519.KeyAgreement.PrivateKey()) == nil)
+    }
 }

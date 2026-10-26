@@ -221,6 +221,37 @@ func (j *MailboxSyncing) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Event: new mail came into an inbox, unread and not spam. The first sync of a
+// folder brings none.
+type MessageArrived struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// MessageIds corresponds to the JSON schema field "messageIds".
+	MessageIds []string `json:"messageIds"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageArrived) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MessageArrived: required")
+	}
+	if _, ok := raw["messageIds"]; raw != nil && !ok {
+		return fmt.Errorf("field messageIds in MessageArrived: required")
+	}
+	type Plain MessageArrived
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageArrived(plain)
+	return nil
+}
+
 // Command: API asks the engine to put a message into a user's inbox in Nouvex
 // only, sealed for them (apps/api/src/announce.ts).
 type MessageSeed struct {

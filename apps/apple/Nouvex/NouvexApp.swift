@@ -10,8 +10,14 @@ struct NouvexApp: App {
     @State private var mail: Mail
     @Environment(\.scenePhase) private var phase
     private let notifications: Notifications
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(Pushes.self) private var pushes
+    #endif
 
     init() {
+        #if os(iOS)
+        Keys.share()
+        #endif
         let mail = Mail()
         _mail = State(initialValue: mail)
         notifications = Notifications(mail: mail)
@@ -70,6 +76,28 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 }
+
+#if os(iOS)
+/// Hands this iPhone's push token to the server, which pushes new mail while the app isn't running (NouvexNotify).
+final class Pushes: NSObject, UIApplicationDelegate {
+    static let tokenKey = "push token"
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        let hex = token.map { String(format: "%02x", $0) }.joined()
+        #if DEBUG
+        let sandbox = true
+        #else
+        let sandbox = false
+        #endif
+        Task {
+            let body = Operations.registerDevice.Input.Body.jsonPayload(token: hex, sandbox: sandbox, timeZone: TimeZone.current.identifier)
+            if case .noContent = try await API.client.registerDevice(body: .json(body)) {
+                UserDefaults.standard.set(hex, forKey: Self.tokenKey)
+            }
+        }
+    }
+}
+#endif
 
 /// A new message docks in the main window, which opens for it if it's closed.
 struct NewMessage: View {
