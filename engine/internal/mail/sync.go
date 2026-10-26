@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -122,13 +123,24 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 		return 0, err
 	}
 	defer func() { release(acc, c, err) }()
+	// Whatever hangs, the sync ends: closing the connection fails every command waiting on it. Each commit resets it.
+	watch := func(c *imapclient.Client) *time.Timer { return time.AfterFunc(stall, func() { _ = c.Close() }) }
+	s.watchdog = watch(c)
+	defer func() { s.watchdog.Stop() }()
 	boxes, err := folders(c)
 	if err != nil {
 		// Maybe the server dropped a kept connection; a sync after new mail shouldn't wait a minute for its retry.
-		_ = c.Close()
-		if c, err = DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, nil); err != nil {
+		// Not if it went silent: then the watchdog closed it, and the retry waits.
+		if !s.watchdog.Stop() {
 			return 0, err
 		}
+		_ = c.Close()
+		again, err := DialIMAP(acc.ImapHost, int(acc.ImapPort), acc.Username, pass, nil)
+		if err != nil {
+			return 0, err
+		}
+		c = again
+		s.watchdog = watch(c)
 		if boxes, err = folders(c); err != nil {
 			return 0, err
 		}
@@ -228,7 +240,12 @@ type syncer struct {
 	rules    map[string]db.ListSenderRulesRow
 	contacts map[string]bool
 	roles    map[string]string
+	watchdog *time.Timer
 }
+
+// stall is how long a sync may go without saving anything before its connection is closed. A batch of big
+// messages over a slow line takes a few minutes at most.
+var stall = 10 * time.Minute
 
 func (s *syncer) begin() (err error) {
 	s.tx, err = s.pool.Begin(s.ctx)
@@ -245,6 +262,7 @@ func (s *syncer) commit() error {
 		return err
 	}
 	s.progress(s.acc.Version)
+	s.watchdog.Reset(stall)
 	return s.begin()
 }
 
@@ -339,7 +357,11 @@ func (s *syncer) folder(name, role string, st *imap.StatusData, box *db.Mailbox)
 	same := box != nil && st != nil && st.NumMessages != nil && *st.NumMessages > 0 && box.UidValidity == int64(st.UIDValidity)
 	var newCmd, flagCmd *imapclient.FetchCommand
 	if same && int64(st.UIDNext) > last+1 && int64(st.UIDNext)-last-1 <= batch {
-		newCmd = s.c.Fetch(after(last), newMailItems())
+		// Up to UIDNEXT, not *: * is the newest message there is, one we have if the new ones are gone again, and
+		// go-imap would hand it to the flags FETCH below, which nobody reads yet, and wait forever.
+		var uids imap.UIDSet
+		uids.AddRange(imap.UID(last+1), st.UIDNext-1)
+		newCmd = s.c.Fetch(uids, newMailItems())
 	}
 	if same && box.HighestModSeq > 0 && last > 0 && st.HighestModSeq > uint64(box.HighestModSeq) {
 		flagCmd = s.c.Fetch(upTo(last), &imap.FetchOptions{UID: true, Flags: true, ChangedSince: uint64(box.HighestModSeq)})
