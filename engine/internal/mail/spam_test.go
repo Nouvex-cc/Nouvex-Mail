@@ -28,6 +28,14 @@ func TestSpam(t *testing.T) {
 		// Proven to come from its domain: the provider's filter decides, not ours, even with a link to elsewhere.
 		{"signed bank notice", "Authentication-Results: mx.gmx.net; dkim=pass header.d=spk-sicherheit-update.com\r\n" + bank, false},
 		{"signed newsletter", "Authentication-Results: mx.google.com; dkim=pass header.i=@account-verify-center.top; dmarc=pass\r\n" + phish, false},
+		// iCloud puts each check into a header of its own, BIMI first. A GitHub notification is signed all the same.
+		{"signed, as iCloud says it", "Authentication-Results: bimi.icloud.com; bimi=declined header.d=account-verify-center.top\r\n" +
+			"Authentication-Results: dmarc.icloud.com; dmarc=pass header.from=account-verify-center.top\r\n" +
+			"Authentication-Results: dkim-verifier.icloud.com; dkim=pass header.d=account-verify-center.top\r\n" +
+			"Authentication-Results: spf.icloud.com; spf=pass smtp.mailfrom=account-verify-center.top\r\n" + phish, false},
+		// A pass the sender wrote into the mail itself, under another name than the provider's, doesn't count.
+		{"forged pass", "Authentication-Results: mx.gmx.net; dkim=none; spf=softfail\r\n" +
+			"Authentication-Results: mx.google.com; dkim=pass header.d=spk-sicherheit-update.com; dmarc=pass\r\n" + bank, true},
 	} {
 		p, err := Content([]byte(c.raw))
 		if err != nil {
