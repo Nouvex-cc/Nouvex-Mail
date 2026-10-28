@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/emersion/go-message/mail"
+	"golang.org/x/net/publicsuffix"
 )
 
 // The spam model: naive Bayes over the words of a message, the domains it links to and a few traits of how it's built,
@@ -123,10 +124,38 @@ func SpamScore(tokens []string) (logit, threshold float64) {
 	return logit, threshold
 }
 
-// signed is true when the receiving server found the mail really comes from its From domain: DMARC passed, or DKIM
-// passed for that domain. Only the topmost Authentication-Results counts; that's the one the user's provider added.
+// checked is what the user's provider found about where a mail comes from: every Authentication-Results it added.
+// The topmost is the provider's; iCloud spreads its findings over several (dkim-verifier.icloud.com,
+// spf.icloud.com, …), so all under the same domain count. One a sender wrote into the mail, under another name, doesn't.
+func checked(h mail.Header) string {
+	all := h.Values("Authentication-Results")
+	if len(all) == 0 {
+		return ""
+	}
+	site := func(r string) string {
+		id, _, _ := strings.Cut(r, ";")
+		if f := strings.Fields(id); len(f) > 0 {
+			id = strings.ToLower(f[0])
+		}
+		if d, err := publicsuffix.EffectiveTLDPlusOne(id); err == nil {
+			return d
+		}
+		return id
+	}
+	own := site(all[0])
+	var out []string
+	for _, r := range all {
+		if site(r) == own {
+			out = append(out, r)
+		}
+	}
+	return strings.ToLower(strings.Join(out, ";"))
+}
+
+// signed is true when the user's provider found the mail really comes from its From domain: DMARC passed, or DKIM
+// passed for that domain.
 func signed(h mail.Header) bool {
-	results := strings.ToLower(h.Get("Authentication-Results"))
+	results := checked(h)
 	if strings.Contains(results, "dmarc=pass") {
 		return true
 	}
@@ -163,6 +192,6 @@ func spam(h mail.Header, tokens []string) bool {
 	if slices.Contains(tokens, "t:link-mismatch") || slices.Contains(tokens, "t:name-elsewhere") {
 		return true
 	}
-	results := strings.ToLower(h.Get("Authentication-Results"))
+	results := checked(h)
 	return results != "" && !strings.Contains(results, "spf=pass")
 }
