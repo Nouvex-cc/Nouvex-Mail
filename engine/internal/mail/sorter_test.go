@@ -71,27 +71,18 @@ func TestEmbedder(t *testing.T) {
 }
 
 func TestDecide(t *testing.T) {
-	unsigned := Sample{Signals: make([]float32, 11)}
-	signed := Sample{Signals: append(make([]float32, 10), 1)}
 	for _, c := range []struct {
-		name     string
-		probs    []float64
-		rules    string
-		rSpam    bool
-		m        Sample
-		category string
-		spam     bool
+		name  string
+		probs []float64
+		rules string
+		want  string
 	}{
-		{"sure", []float64{0.05, 0.05, 0.05, 0.8, 0.03, 0.02}, "newsletters", false, unsigned, "updates", false},
-		{"unsure keeps the rules", []float64{0.3, 0.1, 0.1, 0.4, 0.05, 0.05}, "newsletters", false, unsigned, "newsletters", false},
-		{"rules' spam the model doubts", []float64{0.1, 0.1, 0.1, 0.5, 0.1, 0.1}, "updates", true, unsigned, "updates", false},
-		{"rules' spam the model backs", []float64{0.1, 0.1, 0.1, 0.1, 0.1, 0.5}, "primary", true, unsigned, "primary", true},
-		{"sure spam", []float64{0.02, 0.1, 0.02, 0.02, 0.02, 0.72}, "promotions", false, unsigned, "promotions", true},
-		{"signed is never the model's spam", []float64{0.02, 0.1, 0.02, 0.02, 0.02, 0.82}, "promotions", true, signed, "promotions", false},
+		{"sure", []float64{0.05, 0.05, 0.05, 0.8, 0.03, 0.02}, "newsletters", "updates"},
+		{"unsure keeps the rules", []float64{0.3, 0.1, 0.1, 0.4, 0.05, 0.05}, "newsletters", "newsletters"},
+		{"sure spam keeps the rules", []float64{0.02, 0.1, 0.02, 0.02, 0.02, 0.82}, "promotions", "promotions"},
 	} {
-		category, spam := decide(c.probs, c.rules, c.rSpam, c.m)
-		if category != c.category || spam != c.spam {
-			t.Errorf("%s: %s %v, want %s %v", c.name, category, spam, c.category, c.spam)
+		if got := decide(c.probs, c.rules); got != c.want {
+			t.Errorf("%s: %s, want %s", c.name, got, c.want)
 		}
 	}
 }
@@ -115,21 +106,13 @@ func TestSortingModel(t *testing.T) {
 		p := Fit(rest).Probs(e.X)
 		_, raw, _ := strings.Cut(strings.Split(seedMail, "\n=== ")[i+1], "\n")
 		parsed, _ := Content([]byte(raw))
-		category, spam := decide(p, parsed.Category, parsed.Spam, samples[i])
-		got := category
-		if spam {
-			got = "spam"
-		}
+		got := decide(p, parsed.Category)
 		if got == Labels[labels[i]] {
 			model++
 		} else {
 			t.Logf("model: %s as %s: %.60s", Labels[labels[i]], got, samples[i].Text)
 		}
-		ruled := parsed.Category
-		if parsed.Spam {
-			ruled = "spam"
-		}
-		if ruled == Labels[labels[i]] {
+		if parsed.Category == Labels[labels[i]] {
 			rules++
 		}
 	}

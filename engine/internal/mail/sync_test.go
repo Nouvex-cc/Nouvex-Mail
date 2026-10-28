@@ -1068,7 +1068,8 @@ func TestSort(t *testing.T) {
 	}
 	for subject, want := range map[string]string{
 		"Club news": "primary false", "New in": "newsletters false", "Weekly": "promotions false",
-		"Your account has been limited": "primary true",
+		// Phishing too: only the user and the provider call mail spam.
+		"Your account has been limited": "primary false",
 	} {
 		var got string
 		_ = f.pool.QueryRow(ctx, `SELECT category || ' ' || spam FROM message WHERE id = $1`, f.find(t, subject).ID).Scan(&got)

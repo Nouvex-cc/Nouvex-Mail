@@ -68,9 +68,6 @@ type Sample struct {
 	Signals []float32
 }
 
-// signed says the provider checked the sender, the last of the signals.
-func (m Sample) signed() bool { return m.Signals[len(m.Signals)-1] == 1 }
-
 // sampled builds a message's Sample. The text is who it's from, the subject and how it begins, prefixed the way e5
 // models expect.
 func sampled(h mail.Header, subject, text string, acts []Action) Sample {
