@@ -40,11 +40,12 @@ func Sender(addr string) string {
 }
 
 // sort decides a new message's tab and whether it's spam. What the user said about the sender wins, the address over
-// its domain; mail from someone they wrote to is from a person; then what the message itself shows. Mail the user
-// sent or drafted is never spam. pinned says the rules were sure: the user said so, a contact wrote, or the mail is
-// a sign-in code or from a social network; the sorting model only decides the rest (model in sync.go).
+// its domain; mail from someone they wrote to is from a person; then what the message itself shows. Spam is only what
+// the user reported: the engine's own guess put too much real mail there, and the provider's junk folder is the rest.
+// Mail the user sent or drafted is never spam. pinned says the rules were sure: the user said so, a contact wrote, or
+// the mail is a sign-in code or from a social network; the sorting model only decides the rest (model in sync.go).
 func (s *syncer) sort(boxID, from string, p Parsed) (category string, spam, pinned bool) {
-	category, spam = p.Category, p.Spam
+	category = p.Category
 	// A message that couldn't be read has no tab of its own; clients only know the five.
 	if category == "" {
 		category = "primary"

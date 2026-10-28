@@ -839,6 +839,6 @@ func (s *syncer) model(ready []*prepared) {
 		return
 	}
 	for i, p := range open {
-		p.row.Category, p.row.Spam = decide(probs[i], p.row.Category, p.row.Spam, p.sample)
+		p.row.Category = decide(probs[i], p.row.Category)
 	}
 }

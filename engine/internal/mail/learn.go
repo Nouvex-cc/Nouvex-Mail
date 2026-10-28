@@ -82,21 +82,17 @@ func Learn(ctx context.Context, pool *pgxpool.Pool, master []byte, userID string
 			train = append(train, e)
 		}
 	}
-	// What a model trained without a fifth of the known mail gets right of that fifth.
-	metrics := map[string]int{"known": len(known), "held": len(held)}
+	// What a model trained without a fifth of the known mail gets right of that fifth's tabs.
+	metrics := map[string]int{"known": len(known)}
 	check := Fit(slices.Concat(seed, train))
 	for i, e := range held {
+		if e.Label == spamLabel {
+			continue
+		}
+		metrics["held"]++
 		m := known[i*5+4]
-		category, spam := decide(check.Probs(e.X), m.category, m.spam, m.sample)
-		got := slices.Index(Labels, category)
-		if spam {
-			got = spamLabel
-		}
-		if got == e.Label {
+		if Labels[e.Label] == decide(check.Probs(e.X), m.category) {
 			metrics["right"]++
-		}
-		if spam && e.Label != spamLabel {
-			metrics["falseSpam"]++
 		}
 	}
 	h := Fit(slices.Concat(seed, train, held))
@@ -204,8 +200,7 @@ func readAccount(ctx context.Context, q *db.Queries, master []byte, accountID st
 }
 
 // resort sorts an account's inbox again: what the rules are sure of as they say now, what's known (Gmail's tab, an
-// answered mail) as it is, the rest with the model. It doesn't call mail spam that wasn't before: the user has seen
-// it in their inbox already.
+// answered mail) as it is, the rest with the model. Only spam the user reported stays spam.
 func resort(ctx context.Context, q *db.Queries, h *Head, accountID string, mail []read) error {
 	mail = slices.DeleteFunc(mail, func(m read) bool { return !m.inbox })
 	var open []Sample
@@ -221,7 +216,7 @@ func resort(ctx context.Context, q *db.Queries, h *Head, accountID string, mail 
 	byBox := map[string][]read{}
 	for _, m := range mail {
 		if !m.pinned {
-			m.category, m.spam = decide(h.Probs(vectors[0]), m.category, m.spam, m.sample)
+			m.category = decide(h.Probs(vectors[0]), m.category)
 			vectors = vectors[1:]
 			if m.label >= 0 {
 				m.category = Labels[m.label]

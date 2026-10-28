@@ -13,11 +13,11 @@ The code is in `engine/internal/seal`, `packages/sdk/src/crypto.ts` and `apps/ap
 
 ## What the server still sees
 
-- **Mail while it passes through.** The engine reads each message once, in memory, to encrypt it, find codes and meetings, sort it into a tab and judge whether it's spam. Mail you send passes through in plain text on its way to your provider. Someone who changes the engine's code could keep a copy. Running your own server (docs/deploy.md) is the answer to that.
+- **Mail while it passes through.** The engine reads each message once, in memory, to encrypt it, find codes and meetings, and sort it into a tab. Mail you send passes through in plain text on its way to your provider. Someone who changes the engine's code could keep a copy. Running your own server (docs/deploy.md) is the answer to that.
 - **The passwords of your mail accounts.** The engine needs them to sync while none of your devices is on. They are encrypted with the server's `SECRETS_KEY`, so they're safe in a stolen backup, not from whoever runs the server.
 - **Metadata:**
   - when a message was sent, its size and flags (read, starred)
-  - which tab it's sorted into, and whether the engine took it for spam
+  - which tab it's sorted into, and whether you reported it as spam
   - the addresses you wrote to and the senders you sorted by hand, kept only as SHA-256; like Message-IDs, a guessed address can be checked against them
   - your folder names, your account addresses and mail servers
   - the names of your groups and their focus times, your accounts' short names, colors and order
@@ -26,7 +26,7 @@ The code is in `engine/internal/seal`, `packages/sdk/src/crypto.ts` and `apps/ap
 - **Answers to rich mail forms.** When you confirm sending a form in a rich mail (docs/rich-mail.md), the server passes your answer on to the sender and keeps nothing. The designed version of a rich mail is stored sealed, like the body.
 - **Pushes to the iPhone app.** A push for new mail carries the message's sealed sender and subject and its sealed key, which only your iPhone opens; Apple and the server see the account's name, the conversation's id and when it came. The server keeps each iPhone's push token and time zone, the latter for focus times.
 - **Messages on their way out** wait encrypted with `SECRETS_KEY` until they're sent, scheduled ones until it's time, because the server has to send them on its own; one that couldn't be sent stays so until you remove it from the outbox. Once a message is sent, only its draft's id stays for a week, so the same message isn't sent twice.
-- **Your sorting model.** Tabs and spam are decided by a small model per user that learns from your mail: once a day the engine reads the start of your newest inbox and junk mail again from your provider (what it stored, it can't open), learns from what's known about it, and sorts your inbox again. The text goes to an embedding model in the `embed` container on the same machine, never to anyone else; the vectors live only in memory. What's kept is the model's weights, encrypted with `SECRETS_KEY`, and how many messages it learned from and got right.
+- **Your sorting model.** Tabs are decided by a small model per user that learns from your mail: once a day the engine reads the start of your newest inbox and junk mail again from your provider (what it stored, it can't open), learns from what's known about it, and sorts your inbox again. The text goes to an embedding model in the `embed` container on the same machine, never to anyone else; the vectors live only in memory. What's kept is the model's weights, encrypted with `SECRETS_KEY`, and how many messages it learned from and got right.
 - **Announcements** from whoever runs the server (docs/deploy.md) wait in the bucket for a day as they were written, before the engine seals a copy for each user. They're the same for everyone, not anyone's mail.
 
 ## On your devices

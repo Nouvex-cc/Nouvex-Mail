@@ -51,7 +51,7 @@ New mail reaches the iPhone app as a push while it isn't running. Set `APNS_KEY`
 
 ## Sorting
 
-The `embed` container turns mail into vectors (Text Embeddings Inference with multilingual-e5-small), which the engine sorts tabs and spam with, and a model per user learns from (docs/security.md). It needs about 1 GB of memory and downloads the model, about 500 MB, on its first start. While it isn't up, the engine sorts by rules alone. Without `EMBED_URL` the engine doesn't use it at all.
+The `embed` container turns mail into vectors (Text Embeddings Inference with multilingual-e5-small), which the engine sorts tabs with, and a model per user learns from (docs/security.md). It needs about 1 GB of memory and downloads the model, about 500 MB, on its first start. While it isn't up, the engine sorts by rules alone. Without `EMBED_URL` the engine doesn't use it at all.
 
 ## Passkeys in the Apple apps
 

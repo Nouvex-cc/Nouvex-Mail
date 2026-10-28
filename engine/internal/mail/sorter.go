@@ -147,10 +147,9 @@ func (s *Sorter) Classify(ctx context.Context, q *db.Queries, master []byte, use
 	return out, nil
 }
 
-// decide turns the model's shares into a tab and a spam verdict, next to what the rules said. The model only moves a
-// message when it's sure, and calls mail spam only when the sender couldn't be checked: real mail in spam is worse
-// than spam in the inbox.
-func decide(probs []float64, category string, spam bool, m Sample) (string, bool) {
+// decide turns the model's shares into a tab, next to what the rules said. The model only moves a message when it's
+// sure, and never calls it spam: it learns junk mail only so that it stays out of the tabs.
+func decide(probs []float64, category string) string {
 	top := 0
 	for k, p := range probs {
 		if p > probs[top] {
@@ -161,7 +160,5 @@ func decide(probs []float64, category string, spam bool, m Sample) (string, bool
 	if top != spamLabel && probs[top] >= sure {
 		category = Labels[top]
 	}
-	p := probs[spamLabel]
-	spam = !m.signed() && (p >= 0.7 || spam && p >= 0.3)
-	return category, spam
+	return category
 }

@@ -48,9 +48,6 @@ type Parsed struct {
 	Files    []File
 	Actions  []Action
 	Category string
-	// What the spam model weighs (Features), and its verdict.
-	Tokens []string
-	Spam   bool
 	// The sender's way to unsubscribe, from List-Unsubscribe.
 	Unsubscribe *Unsubscribe
 	// What the sorting model looks at (embed.go).
@@ -126,8 +123,6 @@ func Content(raw []byte) (Parsed, error) {
 	subject, _ := mr.Header.Subject()
 	out.Actions = actions(subject, text, calendar)
 	out.Category = category(mr.Header, subject, out.Actions)
-	out.Tokens = Features(mr.Header, subject, text, htmlPart)
-	out.Spam = spam(mr.Header, out.Tokens)
 	out.Unsubscribe = unsubscribe(mr.Header)
 	out.Sample = sampled(mr.Header, subject, text, out.Actions)
 	return out, nil
