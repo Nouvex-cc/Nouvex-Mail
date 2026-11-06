@@ -290,7 +290,7 @@ struct MailList: View {
         case (.return, _), (_, "o"): open(c)
         case (_, "e"): act(c) { mail.update(c.messages, archive: true) }
         case (_, "#"), (.delete, _): act(c) { mail.update(c.messages, trash: true) }
-        case (_, "s"): mail.update(c.messages, starred: !c.starred)
+        case (_, "s"): mail.update(c.messages, toggleStar: true)
         case (_, "x"): pick(c.id)
         case (_, "X"): extend(to: c.id)
         case (_, "U"): mail.update(c.messages, seen: false)
@@ -328,7 +328,7 @@ struct MailList: View {
     @ViewBuilder private func menu(_ c: Conversation) -> some View {
         Button("Archive") { act(c) { mail.update(c.messages, archive: true) } }
         Button(c.unread ? "Mark as Read" : "Mark as Unread") { mail.update(c.messages, seen: c.unread) }
-        Button(c.starred ? "Unstar" : "Star") { mail.update(c.messages, starred: !c.starred) }
+        Button(c.starred ? "Unstar" : "Star") { mail.update(c.messages, toggleStar: true) }
         Button("Snooze…") { snoozing = c.id }
         Divider()
         SortMenu(message: c.latest)
@@ -479,9 +479,14 @@ struct ConversationRow: View {
             Text("\(subject)\(Text(m.snippet.isEmpty ? "" : " · \(m.snippet)").foregroundStyle(.muted))")
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            if conversation.starred { Image(systemName: "star.fill").font(.xs).foregroundStyle(.muted) }
             if m.attachments > 0 { Image(systemName: "paperclip").font(.xs).foregroundStyle(.muted) }
             ZStack(alignment: .trailing) {
+                // A set star sits where the Star action does, so hovering turns it yellow in place instead of
+                // showing a second one.
+                if conversation.starred, !(hovered || cursor || snoozing) {
+                    Image(systemName: "star.fill").font(.system(size: 15)).foregroundStyle(.ink)
+                        .frame(width: tapSize).frame(width: tapSize * 4, alignment: .leading)
+                }
                 Text(m.sentAt.mailDate)
                     .font(.sm.weight(unread ? .medium : .regular))
                     .foregroundStyle(unread ? .ink : .muted)
@@ -489,8 +494,11 @@ struct ConversationRow: View {
                 // Only built while hovered: every row carrying four buttons costs more than it shows.
                 if hovered || cursor || snoozing {
                     HStack(spacing: 0) {
-                        IconButton(label: conversation.starred ? "Unstar" : "Star", symbol: conversation.starred ? "star.fill" : "star", key: "S") {
-                            mail.update(conversation.messages, starred: !conversation.starred)
+                        IconButton(
+                            label: conversation.starred ? "Unstar" : "Star", symbol: conversation.starred ? "star.fill" : "star", key: "S",
+                            tint: conversation.starred ? .star : nil
+                        ) {
+                            mail.update(conversation.messages, toggleStar: true)
                         }
                         IconButton(label: "Archive", symbol: "archivebox", key: "E") { mail.update(conversation.messages, archive: true) }
                         IconButton(label: "Snooze", symbol: "clock", key: "H") { snoozing = true }

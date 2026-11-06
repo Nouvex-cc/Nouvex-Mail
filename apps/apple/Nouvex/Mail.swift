@@ -491,14 +491,20 @@ struct Toast: Identifiable {
         try? await loadAccounts()
     }
 
-    /// Changes the local copy right away; a message the server refuses to change is put back as it was.
+    /// Changes the local copy right away; a message the server refuses to change is put back as it was. toggleStar
+    /// stars them unless one already is, and unstars them then.
     func update(
-        _ messages: [Message], seen: Bool? = nil, starred: Bool? = nil, archive: Bool = false, trash: Bool = false, snoozeUntil: Date? = nil
+        _ messages: [Message], seen: Bool? = nil, starred: Bool? = nil, toggleStar: Bool = false, archive: Bool = false,
+        trash: Bool = false, snoozeUntil: Date? = nil
     ) {
         if let snoozeUntil, !messages.isEmpty { toast("Snoozed until \(snoozeUntil.when)") }
         Task { await Background.keepAlive {
-            try? await Store.db.write { db in
-                for var m in messages {
+            // Decided on what's stored, not on the caller's copy: pressed twice quickly, the second undoes the first
+            // even before the list has caught up.
+            guard let (before, starred) = try? await Store.db.write({ db in
+                let before = try messages.map { try Message.fetchOne(db, key: $0.id) ?? $0 }
+                let starred = toggleStar ? !before.contains(where: \.starred) : starred
+                for var m in before {
                     if archive || trash || snoozeUntil != nil {
                         _ = try m.delete(db)
                     } else {
@@ -506,9 +512,10 @@ struct Toast: Identifiable {
                         try m.save(db)
                     }
                 }
-            }
+                return (before, starred)
+            }) else { return }
             let client = API.client
-            for m in messages {
+            for m in before {
                 let change = Operations.updateMessage.Input.Body.jsonPayload(
                     seen: seen, flagged: starred, trash: trash ? true : nil, archive: archive ? true : nil, snoozeUntil: snoozeUntil
                 )

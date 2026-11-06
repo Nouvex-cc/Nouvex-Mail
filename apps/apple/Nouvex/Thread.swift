@@ -141,7 +141,7 @@ struct ThreadView: View {
                     if let draft {
                         Button("Edit draft", systemImage: "pencil") { Task { mail.write(await Draft.resume(draft)) } }
                     }
-                    Button(starred ? "Unstar" : "Star", systemImage: starred ? "star.slash" : "star") { mail.update(messages, starred: !starred) }
+                    Button(starred ? "Unstar" : "Star", systemImage: starred ? "star.slash" : "star") { mail.update(messages, toggleStar: true) }
                     Button("Mark as unread", systemImage: "envelope.badge") {
                         mail.update(messages, seen: false)
                         back()
@@ -177,7 +177,7 @@ struct ThreadView: View {
         ToolbarItemGroup {
             let starred = messages.contains(where: \.starred)
             Button(starred ? "Unstar" : "Star", systemImage: starred ? "star.fill" : "star") {
-                mail.update(messages, starred: !starred)
+                mail.update(messages, toggleStar: true)
             }
             .help("\(starred ? "Unstar" : "Star") (S)")
             Button("Mark as unread", systemImage: "envelope.badge") {
@@ -268,7 +268,7 @@ struct ThreadView: View {
         switch press.characters {
         case "e": leave { mail.update(inFolder, archive: true) }
         case "#": leave { mail.update(inFolder, trash: true) }
-        case "s": mail.update(messages, starred: !messages.contains(where: \.starred))
+        case "s": mail.update(messages, toggleStar: true)
         case "U":
             mail.update(messages, seen: false)
             back()
