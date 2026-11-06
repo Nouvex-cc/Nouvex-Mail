@@ -2,6 +2,7 @@
 import CryptoKit
 import Foundation
 import GRDB
+import Synchronization
 
 struct Account: Codable, Hashable, Identifiable, FetchableRecord, PersistableRecord {
     var id: String
@@ -229,7 +230,11 @@ enum Folder: Hashable, Sendable {
 extension Conversation {
     // ponytail: newest 2000 matching messages, page through older ones once someone scrolls that far.
     static func fetch(_ db: GRDB.Database, _ sql: String, _ args: StatementArguments) throws -> [Conversation] {
-        let rows = try Message.filter(sql: sql, arguments: args).order(Column("sentAt").desc).limit(2000).fetchAll(db)
+        try group(Message.filter(sql: sql, arguments: args).order(Column("sentAt").desc).limit(2000).fetchAll(db))
+    }
+
+    /// Messages as conversations, in the order their first message comes.
+    static func group(_ rows: [Message]) -> [Conversation] {
         var order: [String] = []
         var threads: [String: [Message]] = [:]
         for m in rows {
@@ -240,11 +245,13 @@ extension Conversation {
     }
 
     /// Searches every folder but Trash and Junk of the account in view, like the web: words in the subject, preview or
-    /// sender, plus from:, to:, is:unread, is:starred, has:attachment, after: and before: (YYYY-MM-DD). Archived
-    /// accounts only when the caller passes them, for in:archived.
+    /// sender, also with typos or as part of a longer word, best fit first; plus from:, to:, is:unread, is:starred,
+    /// has:attachment, after: and before: (YYYY-MM-DD). Archived accounts only when the caller passes them, for
+    /// in:archived.
     static func search(_ db: GRDB.Database, _ text: String, accounts: [String]) throws -> [Conversation] {
         var clauses = ["mailboxId NOT IN (SELECT id FROM mailbox WHERE role IN ('trash', 'junk'))", "spam = 0", Folder.within]
         var args: [DatabaseValueConvertible] = [accounts.json]
+        var typed: [String] = []
         for token in text.split(separator: " ") {
             let (key, value) = token.split(separator: ":", maxSplits: 1).count == 2
                 ? (token.prefix { $0 != ":" }.lowercased(), String(token.drop { $0 != ":" }.dropFirst()))
@@ -268,12 +275,36 @@ extension Conversation {
             case ("before", _) where date != nil:
                 clauses.append("sentAt < ?")
                 args.append(date!)
-            default:
-                clauses.append("(subject || ' ' || snippet || ' ' || fromName || ' ' || fromAddr) LIKE ?")
-                args.append("%\(token)%")
+            default: typed += Search.words(String(token))
             }
         }
-        return try fetch(db, clauses.joined(separator: " AND "), StatementArguments(args))
+        guard !typed.isEmpty else { return try fetch(db, clauses.joined(separator: " AND "), StatementArguments(args)) }
+        // The index finds every word that starts with what was typed; the list of all its words adds those it's
+        // inside of or a typo away from, so every typed word has to be in the mail one of these ways.
+        let terms = try vocabulary(db)
+        let match = typed.map { t in
+            let close = terms.lazy.map { ($0, Search.likeness(t, $0)) }.filter { $0.1 == 1 || $0.1 == 2 }
+            let words = ["\"\(t)\"*"] + close.sorted { $0.1 > $1.1 }.prefix(200).map { "\"\($0.0)\"" }
+            return "(\(words.joined(separator: " OR ")))"
+        }
+        clauses.append("rowid IN (SELECT rowid FROM messageSearch WHERE messageSearch MATCH ?)")
+        args.append(match.joined(separator: " AND "))
+        // ponytail: the newest 2000 hits are ranked, older ones only if someone scrolls that far.
+        let rows = try Message.filter(sql: clauses.joined(separator: " AND "), arguments: StatementArguments(args))
+            .order(Column("sentAt").desc).limit(2000).fetchAll(db)
+        // Best fit first, newest first among equals.
+        let scored = rows.map { ($0, Search.score(typed, sender: "\($0.fromName) \($0.fromAddr)", subject: $0.subject, snippet: $0.snippet)) }
+        return group(scored.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.sentAt > $1.0.sentAt }.map(\.0))
+    }
+
+    // Every word in the index, read again at most every half minute: new mail is still found by how its words
+    // start, only typos and word parts in it wait for the next read.
+    private static let terms = Mutex<(read: Date, terms: [String])>((.distantPast, []))
+    private static func vocabulary(_ db: GRDB.Database) throws -> [String] {
+        if let fresh = terms.withLock({ $0.read.timeIntervalSinceNow > -30 ? $0.terms : nil }) { return fresh }
+        let list = try String.fetchAll(db, sql: "SELECT term FROM messageTerm")
+        terms.withLock { $0 = (.now, list) }
+        return list
     }
 }
 
@@ -442,6 +473,17 @@ enum Store {
         // Reply-To came later; mail from before answers its sender, as before.
         migrator.registerMigration("v8") { db in
             try db.alter(table: "message") { t in t.add(column: "replyTo", .text) }
+        }
+        // Search through an index of each message's words that follows the table, and the list of all those words.
+        migrator.registerMigration("v9") { db in
+            try db.create(virtualTable: "messageSearch", using: FTS5()) { t in
+                t.synchronize(withTable: "message")
+                t.column("fromName")
+                t.column("fromAddr")
+                t.column("subject")
+                t.column("snippet")
+            }
+            try db.execute(sql: "CREATE VIRTUAL TABLE messageTerm USING fts5vocab(messageSearch, 'row')")
         }
         try! migrator.migrate(db)
         return db
