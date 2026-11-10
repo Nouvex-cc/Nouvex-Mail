@@ -91,6 +91,7 @@ struct Toasts: View {
         VStack(spacing: 6) {
             ForEach(mail.toasts) { t in
                 HStack(spacing: 12) {
+                    ToastIcon(icon: t.icon)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(t.title).font(.sm.weight(.medium)).foregroundStyle(.ink)
                         if let detail = t.detail { Text(detail).font(.xs).foregroundStyle(.muted).lineLimit(2) }
@@ -108,6 +109,66 @@ struct Toasts: View {
         }
         // Only a toast with something to do takes taps; the rest lets them through to what's under it.
         .allowsHitTesting(mail.toasts.contains { $0.action != nil })
+    }
+}
+
+/// On a phone: the newest toast as one glass pill under the toolbar, coming down from the top. A toast that's
+/// replaced (Sending, then Sent) changes in place; leaving, the pill goes back up.
+struct StatusPill: View {
+    @Environment(Mail.self) private var mail
+
+    var body: some View {
+        ZStack {
+            if let t = mail.toasts.last {
+                HStack(spacing: 8) {
+                    ToastIcon(icon: t.icon).transition(.blurReplace)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(t.title).font(.md.weight(.medium)).foregroundStyle(.ink).lineLimit(1)
+                        if let detail = t.detail { Text(detail).font(.xs).foregroundStyle(.muted).lineLimit(2) }
+                    }
+                    .id(t.title)
+                    .transition(.blurReplace)
+                    if let action = t.action {
+                        Button(action.label) { action.run() }.font(.md.weight(.semibold)).buttonStyle(.plain).foregroundStyle(.ink)
+                            .padding(.leading, 4)
+                    }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .frame(minHeight: 38)
+                .glass(in: RoundedRectangle(cornerRadius: 19))
+                .padding(.horizontal, 24)
+                .transition(.modifier(active: Away(shown: 0), identity: Away(shown: 1)))
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: mail.toasts.last.map { "\($0.id)\($0.title)" })
+        .allowsHitTesting(mail.toasts.last?.action != nil)
+    }
+
+    /// Up and squeezed while `shown` is 0.
+    private struct Away: ViewModifier {
+        let shown: CGFloat
+
+        func body(content: Content) -> some View {
+            content
+                .scaleEffect(x: 0.6 + 0.4 * shown, y: 0.7 + 0.3 * shown, anchor: .top)
+                .offset(y: -24 * (1 - shown))
+                .blur(radius: 6 * (1 - shown))
+                .opacity(shown)
+        }
+    }
+}
+
+/// Working on it, done, or didn't work.
+private struct ToastIcon: View {
+    let icon: Toast.Icon?
+
+    var body: some View {
+        switch icon {
+        case .progress: ProgressView().controlSize(.small)
+        case .done: Image(systemName: "checkmark.circle.fill").font(.lg).symbolRenderingMode(.palette).foregroundStyle(.white, .positive)
+        case .failed: Image(systemName: "exclamationmark.circle.fill").font(.lg).symbolRenderingMode(.palette).foregroundStyle(.white, .danger)
+        case nil: EmptyView()
+        }
     }
 }
 
@@ -236,15 +297,18 @@ struct IconButton: View {
 /// A text field with the input border; the border turns ink while typing in it.
 struct Field: ViewModifier {
     var focused: Bool
+    /// Finger-sized, for signing in.
+    var large = false
 
     func body(content: Content) -> some View {
+        let radius = large ? Radius.lg : Radius.md
         content
             .textFieldStyle(.plain)
-            .font(.md)
-            .padding(.horizontal, 10)
-            .frame(height: 36)
-            .background(.paper, in: .rect(cornerRadius: Radius.md))
-            .overlay(RoundedRectangle(cornerRadius: Radius.md).stroke(focused ? Color.ink : .lineStrong))
+            .font(large ? .lg : .md)
+            .padding(.horizontal, large ? 16 : 10)
+            .frame(height: large ? 50 : 36)
+            .background(.paper, in: .rect(cornerRadius: radius))
+            .overlay(RoundedRectangle(cornerRadius: radius).stroke(focused ? Color.ink : .lineStrong))
     }
 }
 
@@ -281,12 +345,39 @@ extension View {
 
     @ViewBuilder func glassButton(prominent: Bool = false) -> some View {
         if #available(iOS 26, *) {
-            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+            // The fill is ink, light in the dark appearance, so the label takes the ink's own contrast color.
+            if prominent { buttonStyle(.glassProminent).foregroundStyle(.onInk) } else { buttonStyle(.glass) }
         } else {
-            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+            if prominent { buttonStyle(.borderedProminent).foregroundStyle(.onInk) } else { buttonStyle(.bordered) }
         }
     }
 }
+
+extension EnvironmentValues {
+    /// Where the composer grows out of on a phone: Reply, Forward or New message (Shell's sheet).
+    @Entry var composer: Namespace.ID?
+}
+
+extension Draft {
+    /// The button it was started with, for the composer to grow out of.
+    var source: String {
+        switch kind {
+        case .reply: "reply"
+        case .replyAll: "replyAll"
+        case .forward: "forward"
+        case nil: "compose"
+        }
+    }
+}
+
+#if os(iOS)
+extension ToolbarContent {
+    /// A toolbar button the composer grows out of, where the system can do that (iOS 26).
+    @ToolbarContentBuilder func composerSource(_ id: String, in space: Namespace.ID?) -> some ToolbarContent {
+        if #available(iOS 26, *), let space { matchedTransitionSource(id: id, in: space) } else { self }
+    }
+}
+#endif
 
 /// Lets glass shapes next to each other blend, where there's glass.
 struct GlassGroup<Content: View>: View {

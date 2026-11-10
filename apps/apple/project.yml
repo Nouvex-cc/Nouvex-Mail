@@ -47,6 +47,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Nouvex Mail connects to a mail server on your network when you sign in to one.
+        INFOPLIST_KEY_NSCameraUsageDescription: Nouvex Mail takes a photo to attach when you ask it to.
         # Pushes, and the keychain group the notification extension reads the key from.
         "CODE_SIGN_ENTITLEMENTS[sdk=iphone*]": Nouvex/Nouvex-iOS.entitlements
       # A development build keeps its own data and sign-in, apart from the installed app.

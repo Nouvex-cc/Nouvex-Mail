@@ -29,9 +29,14 @@ struct Prefs {
 
 /// A short word after something happened, at the bottom of the window, maybe with a way to take it back.
 struct Toast: Identifiable {
-    let id = UUID()
+    enum Icon { case progress, done, failed }
+    /// A toast with the same id takes the place of the one before, so "Sending" turns into "Sent".
+    var id = UUID().uuidString
+    /// Which call it came from, so an older timer doesn't take away the toast that replaced it.
+    var stamp = UUID()
     let title: String
     var detail: String?
+    var icon: Icon?
     var action: (label: String, run: @MainActor () -> Void)?
 }
 
@@ -100,6 +105,23 @@ struct Toast: Identifiable {
         await loadOutbox()
     }
 
+    /// Takes a scheduled message back and opens it to be changed, once its draft is here; it goes out again from there.
+    func edit(_ w: Waiting) async {
+        guard case .accepted = try? await API.client.cancelSend(path: .init(accountId: w.accountId, draftId: w.id)) else {
+            return toast("Couldn't take it back", "It may be going out right now.")
+        }
+        await loadOutbox()
+        for _ in 0..<20 {
+            if let m = try? await Store.db.read({ try Message.filter(sql: "messageId LIKE ?", arguments: ["%draft-\(w.id)@%"]).fetchOne($0) }) {
+                var draft = await Draft.resume(m)
+                draft.scheduledFor = w.error == nil ? w.runAt : nil
+                return write(draft)
+            }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        toast("Back in Drafts", "“\(w.subject)” opens from there once it's here.")
+    }
+
     /// Opens a composer: a reply in its conversation, anything else docked. The one open before keeps its draft as it
     /// closes, so there's only ever one.
     func write(_ draft: Draft) {
@@ -131,6 +153,8 @@ struct Toast: Identifiable {
     /// Accounts the engine is syncing right now.
     private(set) var syncing: Set<String> = []
     private(set) var toasts: [Toast] = []
+    /// Sends already confirmed when the server took them, so the engine's word that they went out says nothing new.
+    var confirmed = Set<String>()
 
     /// The accounts in All inboxes and the picker.
     var accountList: [Account] { accounts.filter { !$0.archived } }
@@ -326,13 +350,24 @@ struct Toast: Identifiable {
         Binding(get: { self.prefs[keyPath: key] }, set: { v in self.set { $0[keyPath: key] = v } })
     }
 
-    func toast(_ title: String, _ detail: String? = nil, action: (label: String, run: @MainActor () -> Void)? = nil) {
-        let t = Toast(title: title, detail: detail, action: action)
-        withAnimation(.quick) { toasts = Array((toasts + [t]).suffix(3)) }
-        Task {
-            try? await Task.sleep(for: .seconds(4))
-            withAnimation(.quick) { toasts.removeAll { $0.id == t.id } }
+    /// `id` updates a toast in place. Something in progress stays until it's replaced (a minute at most), a confirmation
+    /// leaves after two seconds, anything else after four.
+    func toast(_ title: String, _ detail: String? = nil, id: String? = nil, icon: Toast.Icon? = nil,
+               action: (label: String, run: @MainActor () -> Void)? = nil) {
+        var t = Toast(title: title, detail: detail, icon: icon ?? (title.hasPrefix("Couldn't") ? .failed : nil), action: action)
+        if let id { t.id = id }
+        withAnimation(.smooth(duration: 0.3)) {
+            if let i = toasts.firstIndex(where: { $0.id == t.id }) { toasts[i] = t } else { toasts = Array((toasts + [t]).suffix(3)) }
         }
+        let wait: Duration = t.icon == .progress ? .seconds(60) : t.icon == .done && action == nil ? .seconds(2) : .seconds(4)
+        Task {
+            try? await Task.sleep(for: wait)
+            withAnimation(.smooth(duration: 0.3)) { toasts.removeAll { $0.stamp == t.stamp } }
+        }
+    }
+
+    func dismissToast(_ id: String) {
+        withAnimation(.smooth(duration: 0.3)) { toasts.removeAll { $0.id == id } }
     }
 
     // Engine events (packages/schema), with only the fields used here.
@@ -366,14 +401,16 @@ struct Toast: Identifiable {
             // Scheduled: the composer said so already.
             guard e.data.scheduled != true else { break }
             let sent = e.data.draftId.flatMap { outgoing.removeValue(forKey: $0) }
-            guard let error = e.data.error else { return toast("Sent") }
+            let known = e.data.draftId.map { confirmed.remove($0) != nil } ?? false
+            guard let error = e.data.error else { return known ? () : toast("Sent", id: e.data.draftId, icon: .done) }
             // The engine put it back into Drafts; this device may still have it as it was written.
             let open: (label: String, run: @MainActor () -> Void) = if let sent {
                 ("Open", { [weak self] in self?.write(sent) })
             } else {
                 ("Drafts", { [weak self] in self?.folder = .role("drafts") })
             }
-            toast("Couldn't send" + (sent.map { " “\($0.subject)”" } ?? ""), "\(error)\(error.hasSuffix(".") ? "" : ".") It's back in Drafts.", action: open)
+            toast("Couldn't send" + (sent.map { " “\($0.subject)”" } ?? ""), "\(error)\(error.hasSuffix(".") ? "" : ".") It's back in Drafts.",
+                  id: e.data.draftId, action: open)
         default: break
         }
     }
@@ -498,7 +535,11 @@ struct Toast: Identifiable {
         _ messages: [Message], seen: Bool? = nil, starred: Bool? = nil, toggleStar: Bool = false, archive: Bool = false,
         trash: Bool = false, snoozeUntil: Date? = nil
     ) {
-        if let snoozeUntil, !messages.isEmpty { toast("Snoozed until \(snoozeUntil.when)") }
+        if !messages.isEmpty {
+            if let snoozeUntil { toast("Snoozed until \(snoozeUntil.when)", icon: .done) }
+            if archive { toast("Archived", icon: .done) }
+            if trash { toast("Moved to Trash", icon: .done) }
+        }
         Task { await Background.keepAlive {
             // Decided on what's stored, not on the caller's copy: pressed twice quickly, the second undoes the first
             // even before the list has caught up.

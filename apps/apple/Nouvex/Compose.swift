@@ -17,12 +17,15 @@ struct Composer: View {
     @State private var to = ""
     @State private var cc = ""
     @State private var bcc = ""
-    @State private var showCc = false
-    @State private var showBcc = false
+    /// Cc, Bcc and From open, folded into one line otherwise.
+    @State private var extras = false
     @State private var fields = false
     @State private var picking = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var picksPhotos = false
+    @State private var shooting = false
+    /// The format bar is open, and takes the bottom of the card.
+    @State private var formatting = false
     @State private var scheduling = false
     @State private var folded = false
     @State private var showQuote = false
@@ -35,6 +38,8 @@ struct Composer: View {
     /// Gone from the screen: what's left to say about sending goes into a toast.
     @State private var gone = false
     @State private var selection: TextSelection?
+    /// The formatted editor's selection (an iOS 26 type, so held as Any), shared with its format bar.
+    @State private var richSelection: Any?
     /// A new message goes out from the account last used with its first recipient, until one is picked.
     @State private var autoFrom = false
     /// A save on its way to the server; discarding waits for it, or the save would land after the discard.
@@ -59,6 +64,12 @@ struct Composer: View {
         }
         .photosPicker(isPresented: $picksPhotos, selection: $photos, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, items in attach(items) }
+        #if os(iOS)
+        .fullScreenCover(isPresented: $shooting) {
+            Camera { add($0.jpegData(compressionQuality: 0.85), name: "Photo \(Date.now.formatted(.dateTime.hour().minute().second())).jpg", type: "image/jpeg") }
+                .ignoresSafeArea()
+        }
+        #endif
         .onEscape { close() }
         .task { setUp() }
         .task(id: recipients(to).first) {
@@ -93,9 +104,9 @@ struct Composer: View {
                     addressing
                 }
                 if !draft.files.isEmpty { attachments }
+                if !draft.quote.isEmpty { quote }
                 editor
                 if let f = draft.forwarded { forwarded(f) }
-                if !draft.quote.isEmpty { quote }
                 if let error { failure(error) }
                 Rectangle().fill(.line).frame(height: 1)
                 actions
@@ -119,16 +130,25 @@ struct Composer: View {
                         Label(draft.title, systemImage: symbol).font(.sm.weight(.medium)).foregroundStyle(.muted)
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 8)
                     }
+                    if let at = draft.scheduledFor { scheduled(at) }
                     addressing
                     if !draft.files.isEmpty { attachments }
+                    if !draft.quote.isEmpty { quote }
                     editor.frame(minHeight: 240)
                     if let f = draft.forwarded { forwarded(f) }
-                    if !draft.quote.isEmpty { quote }
                     if let error { failure(error) }
                 }
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(.paper)
+            // Room under the last line for the format button.
+            .contentMargins(.bottom, focus == .body ? 68 : 0, for: .scrollContent)
+            .overlay(alignment: .bottomTrailing) { formatButton }
+            .overlay(alignment: .bottomLeading) { photoButton }
+            .animation(.quick, value: focus == .body)
+            .background(sheetBackground)
+            #if os(iOS)
+            .containerBackground(sheetBackground, for: .navigation)
+            #endif
             .navigationTitle(draft.title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -158,6 +178,47 @@ struct Composer: View {
         .interactiveDismissDisabled(phase != .writing)
     }
 
+    @available(iOS 26, macOS 26, *)
+    private var richSelectionBinding: Binding<AttributedTextSelection> {
+        Binding(get: { richSelection as? AttributedTextSelection ?? AttributedTextSelection() }, set: { richSelection = $0 })
+    }
+
+    /// The format button, in the card's bottom corner while writing, so it sits right over the keyboard.
+    @ViewBuilder private var formatButton: some View {
+        if #available(iOS 26, macOS 26, *), focus == .body {
+            FormatBar(draft: $draft, selection: richSelectionBinding, open: $formatting)
+                .padding(10)
+                .transition(.opacity)
+        }
+    }
+
+    /// Photos while writing, across from the format button: the camera on a phone, or the library.
+    @ViewBuilder private var photoButton: some View {
+        if focus == .body, !formatting {
+            Menu {
+                #if os(iOS)
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button("Take Photo", systemImage: "camera") { shooting = true }
+                }
+                #endif
+                Button("Photo Library", systemImage: "photo.on.rectangle") { picksPhotos = true }
+            } label: {
+                Image(systemName: "photo.on.rectangle").font(.lg).foregroundStyle(.ink)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
+                    .glass(in: Circle())
+            }
+            .accessibilityLabel("Add photo")
+            .padding(10)
+            .transition(.opacity)
+        }
+    }
+
+    /// The card's glass shows through on iOS 26; paper before it.
+    private var sheetBackground: Color {
+        if #available(iOS 26, *) { .clear } else { .paper }
+    }
+
     private var sendable: Bool { phase == .writing && !recipients(to + "," + cc + "," + bcc).isEmpty && Recipients.valid(to, cc, bcc) }
 
     private var sendButton: some View {
@@ -177,39 +238,54 @@ struct Composer: View {
         Menu {
             Button("Files…", systemImage: "folder") { picking = true }
             Button("Photos…", systemImage: "photo") { picksPhotos = true }
+            #if os(iOS)
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take Photo", systemImage: "camera") { shooting = true }
+            }
+            #endif
         } label: {
             Label("Attach", systemImage: "paperclip")
         }
     }
 
+    // To first; Cc, Bcc and From fold into one line, like Mail, open with a tap and fold again once they're left empty.
     @ViewBuilder private var addressing: some View {
-        if mail.accountList.count > 1 || !mail.accountList.contains(where: { $0.id == draft.accountId }) { from }
-        row("To") {
-            Recipients(label: "To", text: $to, focus: $focus, field: .to) { next(.to) }
-            if !showCc { Button("Cc") { open(.cc) }.buttonStyle(QuietButtonStyle()) }
-            if !showBcc { Button("Bcc") { open(.bcc) }.buttonStyle(QuietButtonStyle()) }
-        }
-        // Suggestions open below a field, over the rows that follow.
-        .zIndex(3)
-        if showCc {
+        row("To") { Recipients(label: "To", text: $to, focus: $focus, field: .to) { next(.to) } }
+            // Suggestions open below a field, over the rows that follow.
+            .zIndex(3)
+        if extras {
             row("Cc") { Recipients(label: "Cc", text: $cc, focus: $focus, field: .cc) { next(.cc) } }
                 .zIndex(2)
-        }
-        if showBcc {
             row("Bcc") { Recipients(label: "Bcc", text: $bcc, focus: $focus, field: .bcc) { next(.bcc) } }
                 .zIndex(1)
+            if choosesFrom { from }
+        } else {
+            Button {
+                withAnimation(.quick) { extras = true }
+                Task { focus = .cc }
+            } label: {
+                row(nil) {
+                    Text(choosesFrom ? "Cc/Bcc, From: \(sender)" : "Cc/Bcc").font(.md).foregroundStyle(.muted).lineLimit(1)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
         }
         row(nil) {
-            TextField("Subject", text: $draft.subject, prompt: Text("Subject").foregroundStyle(.faint))
+            TextField("Subject", text: $draft.subject, prompt: Text("Subject").foregroundStyle(.muted))
+                .font(.md.weight(.medium))
                 .focused($focus, equals: .subject).submitLabel(.next)
                 .onKeyPress(.tab) { next(.subject) }.onSubmit { _ = next(.subject) }
         }
+        .onChange(of: focus) { _, now in
+            guard extras, cc.isEmpty, bcc.isEmpty, now == .to || now == .subject || now == .body else { return }
+            withAnimation(.quick) { extras = false }
+        }
     }
 
-    private func open(_ field: Field) {
-        if field == .cc { showCc = true } else { showBcc = true }
-        Task { focus = field }
-    }
+    /// Several accounts to send from, or one that isn't active.
+    private var choosesFrom: Bool { mail.accountList.count > 1 || !mail.accountList.contains(where: { $0.id == draft.accountId }) }
+    private var sender: String { mail.accounts.first { $0.id == draft.accountId }?.email ?? "" }
 
     private func failure(_ error: String) -> some View {
         Label(error, systemImage: "exclamationmark.circle").font(.sm).foregroundStyle(.danger)
@@ -262,15 +338,23 @@ struct Composer: View {
         }
     }
 
-    // All accounts, archived ones too: a reply from one of those still says where it goes out from.
+    // The account it goes out from, as a pill that's plainly a choice.
     private var from: some View {
-        row(nil) {
+        row("From") {
             Menu {
                 ForEach(mail.accountList, id: \.id) { a in
                     Button(a.email) { pick(a.id, auto: false) }
                 }
             } label: {
-                Text("From \(mail.accounts.first { $0.id == draft.accountId }?.email ?? "")").font(.sm).foregroundStyle(.muted)
+                HStack(spacing: 6) {
+                    if let hue = Color.label(hue: mail.accounts.first { $0.id == draft.accountId }?.color) {
+                        Circle().fill(hue).frame(width: 8, height: 8)
+                    }
+                    Text(sender).font(.md).foregroundStyle(.ink).lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(.muted)
+                }
+                .padding(.horizontal, 10).frame(height: 30)
+                .background(.hover, in: .capsule)
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
@@ -278,12 +362,12 @@ struct Composer: View {
 
     private func row<Content: View>(_ label: String?, @ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 8) {
-            if let label { Text(label).font(.sm).foregroundStyle(.muted).frame(minWidth: 28, alignment: .leading) }
+            if let label { Text(label).font(.md).foregroundStyle(.muted).frame(minWidth: 42, alignment: .leading) }
             content()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
-        .frame(height: 40)
+        .frame(height: placement == .sheet ? 46 : 40)
         .overlay(alignment: .bottom) { Rectangle().fill(.line).frame(height: 1) }
     }
 
@@ -309,8 +393,13 @@ struct Composer: View {
     }
 
     private var editor: some View {
-        TextEditor(text: $draft.body, selection: $selection)
-            .focused($focus, equals: .body)
+        Group {
+            if #available(iOS 26, macOS 26, *) {
+                RichEditor(draft: $draft, selection: richSelectionBinding, focus: $focus)
+            } else {
+                TextEditor(text: $draft.body, selection: $selection).focused($focus, equals: .body)
+            }
+        }
             .font(.md)
             .lineSpacing(3)
             .scrollContentBackground(.hidden)
@@ -320,9 +409,25 @@ struct Composer: View {
             .overlay(alignment: .topLeading) {
                 // Empty but for the signature.
                 if draft.body.components(separatedBy: "\n\n-- \n").first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
-                    Text("Write something").foregroundStyle(.faint).padding(.horizontal, 12).padding(.vertical, 10).allowsHitTesting(false)
+                    // Where the first line starts: iOS's text view keeps 8 points above it, the Mac's none.
+                    Text("Write something").font(.md).foregroundStyle(.muted).padding(.horizontal, 12).padding(.vertical, Device.platform == "iOS" ? 18 : 10)
+                        .allowsHitTesting(false)
                 }
             }
+    }
+
+    // It was scheduled: closing keeps it so, Send sends it now, and it can be taken off.
+    private func scheduled(_ at: Date) -> some View {
+        HStack(spacing: 8) {
+            Label("Scheduled · \(at.when)", systemImage: "calendar.badge.clock")
+                .font(.sm.weight(.medium)).foregroundStyle(.ink)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(.hover, in: .capsule)
+            Spacer()
+            Button("Unschedule") { withAnimation(.quick) { draft.scheduledFor = nil } }
+                .font(.sm.weight(.medium)).foregroundStyle(.muted).buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 8)
     }
 
     // What's forwarded, as a card: who wrote it, about what, with how many files; the text opens on a click.
@@ -353,22 +458,54 @@ struct Composer: View {
         .padding(.horizontal, 12).padding(.bottom, 8)
     }
 
-    // The quoted message waits behind "•••".
+    // What's being answered, above where the answer is written: who said what, two lines of it, and with a tap the
+    // whole history, one message at a time. It still goes out quoted below the answer.
     private var quote: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button("•••") { withAnimation(.quick) { showQuote.toggle() } }
-                .buttonStyle(QuietButtonStyle())
-                .help(showQuote ? "Hide quoted text" : "Show quoted text")
+        let history = Answering.history(draft.quote)
+        return VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(.quick) { showQuote.toggle() } } label: {
+                HStack(spacing: 10) {
+                    Avatar(name: history.first?.from ?? draft.person, size: 26)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(history.first?.from ?? draft.person).font(.sm.weight(.medium)).foregroundStyle(.ink).lineLimit(1)
+                        Text(history.first?.date ?? "").font(.xs).foregroundStyle(.muted).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    if history.count > 1, !showQuote {
+                        Text("+\(history.count - 1) earlier").font(.xs).foregroundStyle(.muted)
+                    }
+                    Image(systemName: showQuote ? "chevron.up" : "chevron.down").font(.xs.weight(.semibold)).foregroundStyle(.muted)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(showQuote ? "Hides the conversation" : "Shows the conversation")
             if showQuote {
                 ScrollView {
-                    Text(draft.quote.trimmingCharacters(in: .newlines)).font(.sm).foregroundStyle(.muted).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(history.enumerated()), id: \.offset) { i, q in
+                            VStack(alignment: .leading, spacing: 4) {
+                                // The first one's sender and date are in the header already.
+                                if i > 0 {
+                                    Text("\(q.from) · \(q.date)").font(.xs.weight(.medium)).foregroundStyle(.muted).lineLimit(1)
+                                }
+                                Text(q.text).font(.sm).foregroundStyle(.ink).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            if i < history.count - 1 { Rectangle().fill(.line).frame(height: 1) }
+                        }
+                    }
                 }
-                .frame(maxHeight: 160)
+                .frame(maxHeight: 280)
+                .transition(.opacity)
+            } else if let first = history.first {
+                Text(first.text).font(.sm).foregroundStyle(.muted).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8).padding(.bottom, 8)
+        .padding(12)
+        .background(.hover, in: .rect(cornerRadius: Radius.lg))
+        .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
     private var actions: some View {
@@ -391,7 +528,7 @@ struct Composer: View {
 
     // Tab walks the fields of the composer and never leaves it for the list behind.
     private func next(_ field: Field) -> KeyPress.Result {
-        let order = [Field.to] + (showCc ? [.cc] : []) + (showBcc ? [.bcc] : []) + [.subject, .body]
+        let order = [Field.to] + (extras ? [.cc, .bcc] : []) + [.subject, .body]
         if let i = order.firstIndex(of: field), order.indices.contains(i + 1) { focus = order[i + 1] }
         return .handled
     }
@@ -401,7 +538,7 @@ struct Composer: View {
     }
 
     private var snapshot: [String] {
-        [draft.accountId ?? "", to, cc, bcc, draft.subject, draft.body] + draft.files.map(\.id.uuidString)
+        [draft.accountId ?? "", to, cc, bcc, draft.subject, draft.body, draft.richHTML ?? ""] + draft.files.map(\.id.uuidString)
     }
 
     private func setUp() {
@@ -417,11 +554,12 @@ struct Composer: View {
         if draft.saved { savedUnder = draft.accountId }
         // The signature goes above a quoted message, the way replies are written; the cursor before it.
         if !draft.saved, !draft.body.contains("\n-- \n"), let signature = signature(draft.accountId) { draft.body += "\n\n-- \n\(signature)" }
+        // The editor needs the same text from the first keystroke on, or the first ones get lost.
+        if draft.rich == nil { draft.rich = AttributedString(draft.body) }
         to = draft.to.joined(separator: ", ")
         cc = draft.cc.joined(separator: ", ")
         bcc = draft.bcc.joined(separator: ", ")
-        showCc = !cc.isEmpty
-        showBcc = !bcc.isEmpty
+        extras = !cc.isEmpty || !bcc.isEmpty
         stored = snapshot
         // After the view is in the window, or the list keeps the focus. A forward starts with whom it goes to.
         Task {
@@ -440,11 +578,18 @@ struct Composer: View {
         guard id != draft.accountId else { return }
         if let old = signature(draft.accountId), let i = draft.body.range(of: "\n\n-- \n\(old)", options: .backwards) {
             draft.body.replaceSubrange(i, with: signature(id).map { "\n\n-- \n\($0)" } ?? "")
+            // The formatted text follows, keeping what's formatted before the signature.
+            if var rich = draft.rich, let r = rich.range(of: "\n\n-- \n\(old)", options: .backwards) {
+                rich.replaceSubrange(r, with: AttributedString(signature(id).map { "\n\n-- \n\($0)" } ?? ""))
+                draft.rich = rich
+            }
         }
         draft.accountId = id
     }
 
     private func close() {
+        // A scheduled one being changed goes back on its schedule rather than staying in Drafts.
+        if let at = draft.scheduledFor, at > .now, sendable { return schedule(at) }
         Task { await save() }
         dismiss()
     }
@@ -545,6 +690,9 @@ struct Composer: View {
 
     // Sending waits out the undo window first, then goes; closing the composer meanwhile doesn't stop it.
     private func send() {
+        #if os(iOS)
+        if placement == .sheet { return sendAndClose() }
+        #endif
         guard mail.prefs.undoSend > 0 else {
             Task { await Background.keepAlive { await deliver() } }
             return
@@ -558,10 +706,34 @@ struct Composer: View {
         })
     }
 
+    #if os(iOS)
+    /// On a phone the card goes at once; the status pill says it's going out, with Undo for as long as that's set,
+    /// which brings the card back as it was.
+    private func sendAndClose() {
+        let d = current, mail = mail, seconds = mail.prefs.undoSend
+        let task = Task {
+            await Background.keepAlive {
+                if seconds > 0, (try? await Task.sleep(for: .seconds(seconds))) == nil { return }
+                await deliver()
+            }
+        }
+        phase = .undo(task)
+        if seconds > 0 {
+            mail.toast("Sending…", id: d.draftId, icon: .progress, action: ("Undo", {
+                task.cancel()
+                mail.dismissToast(d.draftId)
+                mail.write(d)
+            }))
+        }
+        dismiss()
+    }
+    #endif
+
     private func deliver(at sendAt: Date? = nil) async {
         guard let accountId = draft.accountId else { return }
         phase = .sending
         var d = current
+        if sendAt == nil { mail.toast("Sending…", id: d.draftId, icon: .progress) }
         let files: [(id: String, name: String, type: String)]
         do {
             files = try await d.uploaded(accountId)
@@ -580,7 +752,13 @@ struct Composer: View {
         switch res {
         case .accepted:
             mail.outgoing[d.draftId] = d
-            if let sendAt { mail.toast("Scheduled for \(sendAt.when)", "It waits in the Outbox.") }
+            // In the server's hands now; if the engine can't get it out, it says so and it's back in Drafts.
+            if let sendAt {
+                mail.toast("Scheduled for \(sendAt.when)", "It waits in the Outbox.", id: d.draftId, icon: .done)
+            } else {
+                mail.confirmed.insert(d.draftId)
+                mail.toast("Sent", id: d.draftId, icon: .done)
+            }
             dismiss()
         case .contentTooLarge:
             fail("The files are over 25 MB together. Remove one and send again.", d)
@@ -601,8 +779,9 @@ struct Composer: View {
         if gone {
             // The composer is gone by the time the toast is tapped: the app's state is held on to here.
             let mail = mail
-            mail.toast("Couldn't send “\(d.subject.isEmpty ? "(no subject)" : d.subject)”", reason, action: ("Open", { mail.write(d) }))
+            mail.toast("Couldn't send “\(d.subject.isEmpty ? "(no subject)" : d.subject)”", reason, id: d.draftId, action: ("Open", { mail.write(d) }))
         } else {
+            mail.dismissToast(d.draftId)
             error = reason
         }
     }
@@ -824,3 +1003,236 @@ struct Recipients: View {
         highlighted = 0
     }
 }
+
+/// The text with its formatting, where SwiftUI can edit that (iOS and macOS 26).
+@available(iOS 26, macOS 26, *)
+private struct RichEditor: View {
+    @Binding var draft: Draft
+    @Binding var selection: AttributedTextSelection
+    var focus: FocusState<Composer.Field?>.Binding
+    @Environment(\.fontResolutionContext) private var fonts
+
+    var body: some View {
+        TextEditor(text: $draft.richText, selection: $selection)
+            .focused(focus, equals: .body)
+            // Changed elsewhere (the signature), the plain text leads; the cursor starts before the signature.
+            .onChange(of: draft.body, initial: true) { _, body in
+                guard draft.rich.map({ String($0.characters) != body }) ?? true else { return }
+                let fresh = draft.rich == nil
+                draft.rich = AttributedString(body)
+                if fresh, let rich = draft.rich { selection = AttributedTextSelection(insertionPoint: rich.startIndex) }
+            }
+            .onChange(of: draft.rich) { _, rich in draft.richHTML = rich.flatMap { Self.html($0, fonts) } }
+    }
+
+    /// The writing as HTML, when anything in it is formatted.
+    static func html(_ text: AttributedString, _ fonts: Font.Context) -> String? {
+        guard text.runs.contains(where: { $0.font != nil || $0.underlineStyle != nil || $0.strikethroughStyle != nil || $0.link != nil }) else {
+            return nil
+        }
+        let base = Font.md.resolve(in: fonts).pointSize
+        let escape = { (s: String) in
+            s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+        }
+        return text.runs.map { run in
+            var s = escape(String(text[run.range].characters)).replacingOccurrences(of: "\n", with: "<br>")
+            guard !s.isEmpty else { return "" }
+            let font = run.font?.resolve(in: fonts)
+            if font?.isBold == true { s = "<b>\(s)</b>" }
+            if font?.isItalic == true { s = "<i>\(s)</i>" }
+            if run.underlineStyle != nil { s = "<u>\(s)</u>" }
+            if run.strikethroughStyle != nil { s = "<s>\(s)</s>" }
+            if let size = font?.pointSize, size > base + 1 { s = "<span style=\"font-size:1.3em\">\(s)</span>" }
+            if let url = run.link { s = "<a href=\"\(escape(url.absoluteString))\">\(s)</a>" }
+            return s
+        }
+        .joined()
+    }
+}
+
+extension Binding where Value == Draft {
+    /// The formatted text, the plain one kept in step.
+    var richText: Binding<AttributedString> {
+        Binding<AttributedString>(
+            get: { wrappedValue.rich ?? AttributedString(wrappedValue.body) },
+            set: { wrappedValue.rich = $0; wrappedValue.body = String($0.characters) }
+        )
+    }
+}
+
+/// A round format button in the card's corner, right over the keyboard, that opens into a bar of tools to its left.
+@available(iOS 26, macOS 26, *)
+private struct FormatBar: View {
+    @Binding var draft: Draft
+    @Binding var selection: AttributedTextSelection
+    @Binding var open: Bool
+    @State private var linking = false
+    @State private var link = ""
+    @Environment(\.fontResolutionContext) private var fonts
+
+    private var text: Binding<AttributedString> { $draft.richText }
+    private var at: AttributeContainer { selection.typingAttributes(in: text.wrappedValue) }
+    private var resolved: Font.Resolved { (at.font ?? .md).resolve(in: fonts) }
+    private var heading: Bool { resolved.pointSize > Font.md.resolve(in: fonts).pointSize + 1 }
+
+    var body: some View {
+        GlassGroup(spacing: 8) {
+            HStack(spacing: 8) {
+                if open {
+                    HStack(spacing: 2) {
+                        tool("Bold", "bold", on: resolved.isBold) { restyle(bold: !resolved.isBold) }
+                        tool("Italic", "italic", on: resolved.isItalic) { restyle(italic: !resolved.isItalic) }
+                        tool("Underline", "underline", on: at.underlineStyle != nil) { change { $0.underlineStyle = at.underlineStyle == nil ? .single : nil } }
+                        tool("Strikethrough", "strikethrough", on: at.strikethroughStyle != nil) {
+                            change { $0.strikethroughStyle = at.strikethroughStyle == nil ? .single : nil }
+                        }
+                        tool("Heading", "textformat.size.larger", on: heading) { restyle(heading: !heading) }
+                        tool("Bulleted list", "list.bullet", on: false) { list(numbered: false) }
+                        tool("Numbered list", "list.number", on: false) { list(numbered: true) }
+                        tool("Link", "link", on: at.link != nil) {
+                            link = at.link?.absoluteString ?? ""
+                            linking = true
+                        }
+                        tool("Clear formatting", "textformat.alt", on: false) {
+                            change {
+                                $0.font = nil
+                                $0.underlineStyle = nil
+                                $0.strikethroughStyle = nil
+                                $0.link = nil
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 4).frame(height: 44)
+                    .glass(in: Capsule())
+                    .transition(AnyTransition.scale(scale: 0.6, anchor: .trailing).combined(with: .opacity))
+                }
+                Button(open ? "Done formatting" : "Format", systemImage: open ? "xmark" : "textformat") {
+                    withAnimation(.smooth(duration: 0.3)) { open.toggle() }
+                }
+                .labelStyle(.iconOnly).font(.lg).foregroundStyle(.ink)
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+                .glass(in: Circle())
+            }
+        }
+        .buttonStyle(.plain)
+        .alert("Link", isPresented: $linking) {
+            TextField("https://", text: $link)
+            Button("Add") { addLink() }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func tool(_ label: String, _ symbol: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(label, systemImage: symbol, action: action)
+            .labelStyle(.iconOnly).font(.md.weight(on ? .bold : .regular))
+            .foregroundStyle(on ? Color.onInk : .ink)
+            .frame(width: 32, height: 32)
+            .background(on ? Color.ink : .clear, in: .circle)
+            .contentShape(.circle)
+            .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func change(_ edit: (inout AttributeContainer) -> Void) {
+        var t = text.wrappedValue
+        // With nothing selected it's for what's typed next: the cursor carries it.
+        if case .insertionPoint(let i) = selection.indices(in: t) {
+            var next = at
+            edit(&next)
+            selection = AttributedTextSelection(insertionPoint: i, typingAttributes: next)
+            return
+        }
+        t.transformAttributes(in: &selection, body: edit)
+        text.wrappedValue = t
+    }
+
+    /// Bold, italic and heading make one font, so each keeps the others as they are.
+    private func restyle(bold: Bool? = nil, italic: Bool? = nil, heading: Bool? = nil) {
+        let base = Font.md.resolve(in: fonts).pointSize
+        change { c in
+            let now = (c.font ?? .md).resolve(in: fonts)
+            var font: Font = heading ?? (now.pointSize > base + 1) ? .xl : .md
+            if bold ?? now.isBold { font = font.bold() }
+            if italic ?? now.isItalic { font = font.italic() }
+            c.font = font == .md ? nil : font
+        }
+    }
+    /// "• " or "1. " in front of each line in the selection, or off again where the first line has it.
+    private func list(numbered: Bool) {
+        var t = text.wrappedValue
+        let (lo, hi): (AttributedString.Index, AttributedString.Index) = switch selection.indices(in: t) {
+        case .insertionPoint(let i): (i, i)
+        case .ranges(let r): (r.ranges.first?.lowerBound ?? t.startIndex, r.ranges.last?.upperBound ?? t.endIndex)
+        }
+        var starts: [AttributedString.Index] = []
+        var i = lo
+        while i > t.startIndex, t.characters[t.characters.index(before: i)] != "\n" { i = t.characters.index(before: i) }
+        starts.append(i)
+        while let next = t.characters[i..<hi].firstIndex(of: "\n") {
+            i = t.characters.index(after: next)
+            starts.append(i)
+        }
+        let firstLine = String(t.characters[starts[0]...].prefix { $0 != "\n" })
+        let off = numbered ? firstLine.wholeMatch(of: /\d+\. .*/) != nil : firstLine.hasPrefix("• ")
+        for (n, start) in starts.enumerated().reversed() {
+            let line = String(t.characters[start...].prefix { $0 != "\n" })
+            if off {
+                let mark = numbered ? line.prefixMatch(of: #/\d+\. /#).map { $0.output.count } ?? 0 : line.hasPrefix("• ") ? 2 : 0
+                let end = t.characters.index(start, offsetBy: mark)
+                t.removeSubrange(start..<end)
+            } else {
+                t.insert(AttributedString(numbered ? "\(n + 1). " : "• "), at: start)
+            }
+        }
+        let end = t.characters[starts.last!...].firstIndex(of: "\n") ?? t.endIndex
+        text.wrappedValue = t
+        selection = AttributedTextSelection(insertionPoint: end)
+    }
+
+    /// On selected words they become the link; with nothing selected the address is written in as one.
+    private func addLink() {
+        guard let url = URL(string: link.contains("://") ? link : "https://\(link)"), !link.isEmpty else { return }
+        if case .insertionPoint(let i) = selection.indices(in: text.wrappedValue) {
+            var t = text.wrappedValue
+            var piece = AttributedString(link)
+            piece.link = url
+            t.insert(piece, at: i)
+            text.wrappedValue = t
+            selection = AttributedTextSelection(insertionPoint: t.characters.index(i, offsetBy: link.count))
+        } else {
+            change { $0.link = url }
+        }
+    }
+}
+
+#if os(iOS)
+/// The camera, for a photo to attach.
+struct Camera: UIViewControllerRepresentable {
+    let take: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    @MainActor final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let camera: Camera
+        init(_ camera: Camera) { self.camera = camera }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { camera.take(image) }
+            camera.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { camera.dismiss() }
+    }
+}
+#endif

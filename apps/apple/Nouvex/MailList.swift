@@ -7,6 +7,7 @@ import SwiftUI
 struct MailList: View {
     @Environment(Mail.self) private var mail
     @Environment(\.compact) private var compact
+    @Environment(\.composer) private var composer
     @Binding var query: String
     var searching: FocusState<Bool>.Binding
     @State private var conversations: [Conversation] = []
@@ -23,6 +24,8 @@ struct MailList: View {
     @State private var tokens: [SearchToken] = []
     /// Where a shift-click range starts.
     @State private var anchor: String?
+    /// Unread, starred or with attachments, from the filter menu on iOS.
+    @State private var filters = Set<SearchToken>()
     /// Conversations a new mail just came into; they light up for a moment.
     @State private var fresh = Set<String>()
     @Environment(\.accessibilityReduceMotion) private var still
@@ -36,7 +39,11 @@ struct MailList: View {
                 .environment(\.compact, compact || narrow)
                 .onGeometryChange(for: Bool.self) { $0.size.width < 600 } action: { narrow = $0 }
                 // A chip filters the inbox; the title stays Inbox.
-                .navigationTitle(query.isEmpty && tokens.isEmpty ? (!mail.prefs.categories && mail.folder.isCategory ? "Inbox" : mail.folder.name) : "Search")
+                .navigationTitle(query.isEmpty && tokens.isEmpty ? title : "Search")
+                #if os(iOS)
+                // Said outright: "automatic" takes the folder page's inline title, and the large one then sat on the rows.
+                .navigationBarTitleDisplayMode(.large)
+                #endif
                 .overlay {
                     if conversations.isEmpty, mail.folder != .outbox || !query.isEmpty {
                         Text(query.isEmpty ? "Nothing here" : "No mail matches").font(.md).foregroundStyle(.muted)
@@ -50,7 +57,9 @@ struct MailList: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
-                if !mail.prefs.categories, query.isEmpty, tokens.isEmpty, mail.folder == .inbox || mail.folder.isCategory { InboxChips() }
+                #if os(macOS)
+                if inbox, query.isEmpty, tokens.isEmpty { InboxChips() }
+                #endif
                 banners
             }
         }
@@ -62,7 +71,7 @@ struct MailList: View {
         #endif
         .environment(\.marks, query.split(separator: " ").filter { !$0.contains(":") }.flatMap { Search.terms(String($0)) })
         .modifier(SearchBox(query: $query, tokens: $tokens, focused: searching))
-        .task(id: [AnyHashable(mail.folder), AnyHashable(mail.inView.map(\.id)), AnyHashable(query), AnyHashable(tokens)]) { await observe() }
+        .task(id: [AnyHashable(mail.folder), AnyHashable(mail.inView.map(\.id)), AnyHashable(query), AnyHashable(tokens), AnyHashable(filters)]) { await observe() }
         #if os(iOS)
         .toolbar { toolbar }
         .sheet(isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } })) {
@@ -76,6 +85,15 @@ struct MailList: View {
     }
 
     private var outgoing: Bool { [.role("sent"), .role("drafts")].contains(mail.folder) }
+    /// The one inbox, which tabs filter.
+    private var inbox: Bool { !mail.prefs.categories && (mail.folder == .inbox || mail.folder.isCategory) }
+    private var title: String {
+        #if os(macOS)
+        // A chip filters the inbox; the title stays Inbox.
+        if inbox { return "Inbox" }
+        #endif
+        return mail.folder.name
+    }
 
     #if os(macOS)
     private var rows: some View {
@@ -121,7 +139,7 @@ struct MailList: View {
                     .swipeActions(edge: .leading) {
                         Button("Snooze", systemImage: "clock") { snoozing = c.id }.tint(.muted)
                     }
-                    .contextMenu { menu(c) }
+                    .contextMenu { menu(c) } preview: { MailPreview(message: c.latest).environment(mail) }
                     .accessibilityAddTraits(.isButton)
                     .accessibilityAction { open(c) }
                     .id(c.id)
@@ -136,6 +154,11 @@ struct MailList: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        if !editMode.isEditing, mail.folder != .outbox {
+            ToolbarItem(placement: .topBarTrailing) { FilterMenu(tabs: inbox && query.isEmpty && tokens.isEmpty, filters: $filters) }
+        }
+        // Scheduled mail is changed by opening it, not picked.
+        if mail.folder != .outbox {
         ToolbarItem(placement: .topBarTrailing) {
             Button(editMode.isEditing ? "Done" : "Select") {
                 withAnimation(.quick) {
@@ -144,6 +167,7 @@ struct MailList: View {
                 }
             }
             .disabled(conversations.isEmpty && !editMode.isEditing)
+        }
         }
         if editMode.isEditing {
             ToolbarItemGroup(placement: .bottomBar) {
@@ -154,7 +178,11 @@ struct MailList: View {
                 Spacer()
                 Button("Delete", systemImage: "trash", role: .destructive) { bulk { mail.update(picked, trash: true) } }
             }
-        } else if compact {
+        } else if !compact {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("New message", systemImage: "square.and.pencil") { mail.write(mail.compose ?? Draft(accountId: mail.sender)) }
+            }
+        } else {
             // On iOS 18 search stays at the top and the button keeps to the right.
             if #available(iOS 26, *) {
                 DefaultToolbarItem(kind: .search, placement: .bottomBar)
@@ -165,6 +193,7 @@ struct MailList: View {
             ToolbarItem(placement: .bottomBar) {
                 Button("New message", systemImage: "square.and.pencil") { mail.write(mail.compose ?? Draft(accountId: mail.sender)) }
             }
+            .composerSource("compose", in: composer)
         }
     }
 
@@ -338,13 +367,17 @@ struct MailList: View {
         let fetch: @Sendable (GRDB.Database) throws -> [Conversation] = { db in
             query.isEmpty ? try folder.conversations(db, categories: categories, accounts: accounts) : try Conversation.search(db, query, accounts: accounts)
         }
+        let filters = filters
         var first = true
         do {
-            for try await value in ValueObservation.tracking(fetch).values(in: Store.db) {
+            // ponytail: filters only see the newest 2000 messages a folder loads, a SQL clause if that falls short.
+            for try await all in ValueObservation.tracking(fetch).values(in: Store.db) {
+                let value = all.filter { c in filters.allSatisfy { $0.keeps(c) } }
                 // New unread mail lights its conversation up: a new one, or one a reply pushed to the top.
                 let before = Dictionary(conversations.map { ($0.id, $0.latest.id) }, uniquingKeysWith: { a, _ in a })
                 let arrived = first ? [] : value.filter { before[$0.id] != $0.latest.id && !$0.latest.seen }.map(\.id)
-                withAnimation(first || still ? nil : .quick) { conversations = value }
+                // Results swapping in while someone types don't animate: 200 rows moving costs the keyboard frames.
+                withAnimation(first || still || !query.isEmpty ? nil : .quick) { conversations = value }
                 first = false
                 if !arrived.isEmpty {
                     fresh.formUnion(arrived)
@@ -566,7 +599,8 @@ private struct SearchBox: ViewModifier {
             .scrollDismissesKeyboard(.immediately)
             .safeAreaInset(edge: .top, spacing: 0) {
                 // Not searchSuggestions: on a phone those cover the results.
-                SearchChips(offered: offered, recent: typed.isEmpty ? recent.split(separator: "\n").map(String.init) : []) { token in
+                // The flags stay while nothing typed fits, so the bar under the field doesn't come and go per letter.
+                SearchChips(offered: offered.isEmpty ? SearchToken.suggestions(for: "", people: [], archived: false).filter { !tokens.contains($0) } : offered, recent: typed.isEmpty ? recent.split(separator: "\n").map(String.init) : []) { token in
                     tokens.append(token)
                     let kept = typed.split(separator: " ").filter { !token.covers(String($0)) }.joined(separator: " ")
                     typed = kept.isEmpty ? "" : "\(kept) "
@@ -589,7 +623,8 @@ private struct SearchBox: ViewModifier {
         let text = typed.trimmingCharacters(in: .whitespaces)
         // A single letter is in nearly every mail.
         guard text.count != 1 else { return query = "" }
-        if !text.isEmpty, (try? await Task.sleep(for: .milliseconds(120))) == nil { return }
+        // Long enough to sit between the letters of a word typed on a phone, so the list changes when typing pauses.
+        if !text.isEmpty, (try? await Task.sleep(for: .milliseconds(250))) == nil { return }
         query = text
         let last = text.split(separator: " ").last.map(String.init) ?? ""
         people = last.count > 1 ? await Store.people(matching: last, limit: 4).map { SearchToken.from($0.address, $0.name) } : []
@@ -673,6 +708,16 @@ enum SearchToken: Identifiable, Hashable {
         }
     }
 
+    /// For the filter menu, which narrows the list without searching.
+    func keeps(_ c: Conversation) -> Bool {
+        switch self {
+        case .unread: c.unread
+        case .starred: c.starred
+        case .attachment: c.messages.contains { $0.attachments > 0 }
+        default: true
+        }
+    }
+
     /// What Conversation.search reads.
     var query: String {
         switch self {
@@ -718,6 +763,13 @@ enum SearchToken: Identifiable, Hashable {
         return matching + (date.map { [$0] } ?? []) + people
     }
 
+    // Made once: a DateFormatter per keystroke is what the keyboard feels.
+    private static let english = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en")
+        return (weekdays: f.weekdaySymbols.map { $0.lowercased() }, months: f.monthSymbols.map { $0.lowercased() })
+    }()
+
     // A day in the past from a word: today, yesterday, a weekday (the last one), or a month (its first day).
     private static func day(_ word: String) -> SearchToken? {
         let cal = Calendar.current
@@ -728,16 +780,14 @@ enum SearchToken: Identifiable, Hashable {
         if ["last week", "letzte woche"].contains(word) { return .since(cal.date(byAdding: .day, value: -7, to: today)!, "a week ago") }
         if ["last month", "letzter monat", "letzten monat"].contains(word) { return .since(cal.date(byAdding: .month, value: -1, to: today)!, "a month ago") }
         // The device's language and English, whichever is typed.
-        let english = DateFormatter()
-        english.locale = Locale(identifier: "en")
         let weekdays = cal.weekdaySymbols.map { $0.lowercased() }
-        let weekdayNames = english.weekdaySymbols.map { $0.lowercased() }
+        let weekdayNames = english.weekdays
         if let i = weekdays.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) ?? weekdayNames.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
             let back = (cal.component(.weekday, from: today) - 1 - i + 7) % 7
             return .since(cal.date(byAdding: .day, value: -(back == 0 ? 7 : back), to: today)!, cal.weekdaySymbols[i])
         }
         let months = cal.monthSymbols.map { $0.lowercased() }
-        let monthNames = english.monthSymbols.map { $0.lowercased() }
+        let monthNames = english.months
         if let i = months.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) ?? monthNames.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
             var year = cal.component(.year, from: today)
             if i + 1 > cal.component(.month, from: today) { year -= 1 }
@@ -811,20 +861,95 @@ struct InboxChips: View {
     }
 
     private func observe() async {
-        let ids = mail.inView.map(\.id)
-        let found = ValueObservation.tracking { db in
-            let sql = "SELECT category, MIN(seen) FROM message WHERE spam = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within) GROUP BY category"
-            // Typed on purpose: Bool(row[1]) would read the number as text first, and GRDB stops the app on that.
-            return try Row.fetchAll(db, sql: sql, arguments: [ids.json]).map { row -> (String, Bool) in (row[0], row[1]) }
-        }
         do {
-            for try await rows in found.values(in: Store.db) {
-                present = Set(rows.map(\.0))
-                unread = Set(rows.filter { !$0.1 }.map(\.0))
-            }
+            for try await tabs in Self.tabState(in: mail.inView.map(\.id)) { (present, unread) = tabs }
         } catch {}
     }
+
+    /// The tabs with inbox mail, and those of them with unread mail.
+    static func tabState(in ids: [String]) -> AsyncValueObservation<(Set<String>, Set<String>)> {
+        ValueObservation.tracking { db in
+            let sql = "SELECT category, MIN(seen) FROM message WHERE spam = 0 AND mailboxId IN (SELECT id FROM mailbox WHERE role = 'inbox') AND \(Folder.within) GROUP BY category"
+            // Typed on purpose: Bool(row[1]) would read the number as text first, and GRDB stops the app on that.
+            let rows = try Row.fetchAll(db, sql: sql, arguments: [ids.json]).map { row -> (String, Bool) in (row[0], row[1]) }
+            return (Set(rows.map(\.0)), Set(rows.filter { !$0.1 }.map(\.0)))
+        }
+        .values(in: Store.db)
+    }
 }
+
+#if os(iOS)
+/// The inbox's tabs and a few filters, in one menu next to Select instead of chips over the list.
+struct FilterMenu: View {
+    @Environment(Mail.self) private var mail
+    /// Whether the inbox's tabs are offered.
+    let tabs: Bool
+    @Binding var filters: Set<SearchToken>
+    @State private var present: Set<String> = []
+    @State private var unread: Set<String> = []
+
+    var body: some View {
+        let on = !filters.isEmpty || mail.folder.isCategory && tabs
+        Menu {
+            if tabs, present.count > 1 {
+                Picker("Show", selection: Binding(get: { mail.folder }, set: { mail.folder = $0; mail.thread = nil })) {
+                    Text("All").tag(Folder.inbox)
+                    ForEach(Nouvex.tabs.filter { present.contains($0.0) }, id: \.0) { id, name in
+                        Text(unread.contains(id) ? "\(name) •" : name).tag(Folder.category(id))
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+            Section {
+                ForEach([SearchToken.unread, .starred, .attachment]) { f in
+                    Toggle(f.title, systemImage: f.icon, isOn: Binding(
+                        get: { filters.contains(f) },
+                        set: { if $0 { filters.insert(f) } else { filters.remove(f) } }
+                    ))
+                }
+            }
+            if on {
+                Button("Clear filters", systemImage: "xmark") {
+                    filters = []
+                    if mail.folder.isCategory { mail.folder = .inbox }
+                }
+            }
+        } label: {
+            Label("Filter", systemImage: on ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+        .menuActionDismissBehavior(.disabled)
+        .task(id: mail.inView.map(\.id)) {
+            do {
+                for try await tabs in InboxChips.tabState(in: mail.inView.map(\.id)) { (present, unread) = tabs }
+            } catch {}
+        }
+    }
+}
+#endif
+
+#if os(iOS)
+/// A long press on a row shows the mail itself above the menu, like Mail; it isn't marked as read by that.
+private struct MailPreview: View {
+    let message: Message
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(message.subject.isEmpty ? "(No subject)" : message.subject).font(.xl).foregroundStyle(.ink).lineLimit(2)
+            HStack(spacing: 10) {
+                Avatar(name: message.sender, size: 28)
+                Text(message.sender).font(.md.weight(.medium)).foregroundStyle(.ink).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(message.sentAt.mailDate).font(.sm).foregroundStyle(.muted)
+            }
+            MailBody(message: message)
+        }
+        .padding(16)
+        .frame(width: 380, height: 540, alignment: .top)
+        .clipped()
+        .background(.paper)
+    }
+}
+#endif
 
 /// What waits to go out later, and what couldn't be sent, which is back in Drafts. A scheduled one can be taken back
 /// into Drafts to change or send now.
@@ -834,28 +959,44 @@ struct OutboxList: View {
     var body: some View {
         List {
             ForEach(mail.outbox) { w in
-                HStack(spacing: 12) {
-                    Image(systemName: w.error == nil ? "clock" : "exclamationmark.circle").foregroundStyle(w.error == nil ? Color.muted : .danger)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(w.subject.isEmpty ? "(no subject)" : w.subject).font(.md.weight(.medium)).lineLimit(1)
-                        Text("To \(w.to.joined(separator: ", "))").font(.sm).foregroundStyle(.muted).lineLimit(1)
-                        Text(w.error.map { "Couldn't send: \($0) It's in Drafts." } ?? "Goes out \(w.runAt?.when ?? "later")")
-                            .font(.sm).foregroundStyle(w.error == nil ? Color.muted : .danger).lineLimit(2)
+                Button { Task { await mail.edit(w) } } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(w.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(No subject)" : w.subject).font(.lg.weight(.medium)).foregroundStyle(.ink).lineLimit(1)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right").font(.xs.weight(.semibold)).foregroundStyle(.faint)
+                        }
+                        Text("To \(w.to.joined(separator: ", "))").font(.md).foregroundStyle(.muted).lineLimit(1)
+                        // What makes it different from a sent mail: when it goes, or that it didn't.
+                        Label(w.error.map { "Couldn't send: \($0)" } ?? "Goes out \(w.runAt?.when ?? "later")",
+                              systemImage: w.error == nil ? "calendar.badge.clock" : "exclamationmark.circle")
+                            .font(.sm.weight(.medium)).lineLimit(2)
+                            .foregroundStyle(w.error == nil ? Color.ink : .danger)
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(w.error == nil ? Color.hover : Color.danger.opacity(0.12), in: .capsule)
+                            .padding(.top, 2)
                     }
-                    Spacer()
-                    if w.error == nil {
-                        Button("Back to Drafts") { Task { await mail.takeBack(w) } }.buttonStyle(QuietButtonStyle())
-                    } else {
-                        Button("Open Drafts") { mail.folder = .role("drafts") }.buttonStyle(QuietButtonStyle())
-                        Button("Remove", systemImage: "xmark") { Task { await mail.takeBack(w) } }
-                            .labelStyle(.iconOnly).buttonStyle(QuietButtonStyle())
-                    }
+                    .padding(.vertical, 8)
+                    .contentShape(.rect)
                 }
-                .padding(.vertical, 6)
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens it to change; it goes out again from there")
+                .listRowBackground(Color.paper)
+                .contextMenu {
+                    Button("Edit", systemImage: "pencil") { Task { await mail.edit(w) } }
+                    Button(w.error == nil ? "Back to Drafts" : "Remove", systemImage: "tray.and.arrow.down") { Task { await mail.takeBack(w) } }
+                }
+                #if os(iOS)
+                .swipeActions {
+                    Button(w.error == nil ? "Back to Drafts" : "Remove", systemImage: "tray.and.arrow.down") { Task { await mail.takeBack(w) } }
+                }
+                #endif
             }
         }
         .listStyle(.plain)
-        .overlay { if mail.outbox.isEmpty { Text("Nothing waits to go out").font(.md).foregroundStyle(.muted) } }
+        .scrollContentBackground(.hidden)
+        .background(.paper)
+        .overlay { if mail.outbox.isEmpty { Text("Nothing scheduled").font(.md).foregroundStyle(.muted) } }
         .task { await mail.loadOutbox() }
         .refreshable { await mail.loadOutbox() }
     }
