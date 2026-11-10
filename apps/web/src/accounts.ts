@@ -16,6 +16,8 @@ export type Account = {
 	// hosted: mail lives only with Nouvex, sealed to the account's own keys (keys.ts).
 	kind: "imap" | "hosted";
 	keys: { version: number; publicKey: string; wrappedKey: string }[];
+	// A hosted account's other addresses.
+	aliases: string[];
 };
 
 export type { Focus };
