@@ -2,7 +2,17 @@
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
-import type { AccountCheck, AccountChecked, DraftSave, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
+import type {
+	AccountCheck,
+	AccountChecked,
+	DomainSetup,
+	DraftSave,
+	MailboxSync,
+	MessageSend,
+	MessageUnsend,
+	MessageUpdate,
+	SendFeedback,
+} from "@nouvex/schema";
 import { s3 } from "bun";
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
@@ -24,6 +34,7 @@ import {
 	mailbox,
 	message,
 	outbox,
+	sendEvent,
 	senderRule,
 	userKey,
 	userPrefs,
@@ -32,6 +43,7 @@ import { applyCloudflare, check, cloudflare, dkimKey, dnsDeps, records } from ".
 import { fetchImage, post } from "./image";
 import { nats } from "./nats";
 import { open, seal } from "./secret";
+import { fromAws, report, type Sns, snsDeps, verify } from "./sns";
 
 type Env = { Variables: { userId: string } };
 export const app = new OpenAPIHono<Env>();
@@ -285,6 +297,40 @@ app.openapi(
 	},
 );
 
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/webhooks/ses",
+		operationId: "sesEvents",
+		description:
+			"Amazon SES's bounces and complaints, through SNS (text/plain JSON, signed by AWS). Only SES_TOPIC_ARN is taken.",
+		responses: { 200: { description: "Taken" }, 403: { description: "Not signed by AWS, or not our topic" } },
+	}),
+	async (c) => {
+		const m = JSON.parse(await c.req.text()) as Sns;
+		if (!process.env.SES_TOPIC_ARN || m.TopicArn !== process.env.SES_TOPIC_ARN || !(await verify(m)))
+			return c.body(null, 403);
+		if (m.Type === "SubscriptionConfirmation") {
+			if (!fromAws(m.SubscribeURL)) return c.body(null, 403);
+			await snsDeps.fetch(m.SubscribeURL as string);
+			return c.body(null, 200);
+		}
+		const said = m.Type === "Notification" ? report(m.Message) : undefined;
+		if (!said) return c.body(null, 200);
+		const [acc] = await db.select({ id: mailAccount.id }).from(mailAccount).where(eq(mailAccount.id, said.accountId));
+		if (!acc) return c.body(null, 200);
+		await db.insert(sendEvent).values({ id: crypto.randomUUID(), accountId: acc.id, kind: said.report.kind });
+		// It names who the mail went to, so it travels sealed until the engine seals it for the sender.
+		const cmd: SendFeedback = {
+			accountId: acc.id,
+			sealed: (await seal(JSON.stringify(said.report))).toString("base64"),
+		};
+		const { js } = await nats();
+		await js.publish("cmd.send.feedback", JSON.stringify(cmd));
+		return c.body(null, 200);
+	},
+);
+
 // Domains: added by anyone, verified by one (a TXT record), then they take hosted mailboxes and aliases.
 const DomainOut = z.object({
 	id: z.string(),
@@ -292,6 +338,8 @@ const DomainOut = z.object({
 	verified: z.boolean(),
 	catchAllAccountId: z.string().nullable(),
 	checkedAt: z.string().nullable(),
+	// Amazon SES's view once verified: "ready", what it waits for, or what went wrong; null before it's asked.
+	sesStatus: z.string().nullable(),
 	// What the domain's DNS needs, with what the last check found (ok is null before the first).
 	records: z.array(
 		z.object({
@@ -311,6 +359,7 @@ const shown = (d: typeof domain.$inferSelect) => ({
 	verified: !!d.verifiedAt,
 	catchAllAccountId: d.catchAllAccountId,
 	checkedAt: d.checkedAt?.toISOString() ?? null,
+	sesStatus: d.sesStatus,
 	records: records(d).map((r) => ({
 		...r,
 		ok: d.dnsCheck?.[r.key]?.ok ?? null,
@@ -344,6 +393,12 @@ async function recheck(d: typeof domain.$inferSelect) {
 		.set({ dnsCheck: result, checkedAt: new Date() })
 		.where(eq(domain.id, d.id))
 		.returning();
+	// A verified domain gets set up with SES, and each check after asks it how far it is.
+	if (verifiedAt) {
+		const cmd: DomainSetup = { domainId: d.id };
+		const { js } = await nats();
+		await js.publish("cmd.domain.setup", JSON.stringify(cmd));
+	}
 	return row ?? { ...d, verifiedAt };
 }
 
@@ -1624,6 +1679,7 @@ const Outgoing = z
 			.describe("The draft it was written in, the key of the send: a draft goes out once, however often it's sent"),
 		sendAt: z.iso.datetime().optional(),
 		attachments: Attachments.optional(),
+		from: z.email().optional().describe("An alias of a hosted account to send from; the engine checks it's theirs"),
 	})
 	.refine((m) => m.to.length + m.cc.length + m.bcc.length > 0, "Nobody to send it to")
 	.refine((m) => m.to.length + m.cc.length + m.bcc.length <= 100, "At most 100 recipients");
@@ -1667,6 +1723,27 @@ app.openapi(
 		const { js } = await nats();
 		await js.publish("cmd.message.send", JSON.stringify(cmd));
 		return c.json({ draftId: cmd.draftId }, 202);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/unsend",
+		operationId: "unsendMessage",
+		description:
+			"Takes a sent message back out of the Nouvex mailboxes it went into directly. Mail that left Nouvex can't come back.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: { content: { "application/json": { schema: z.object({ messageId: z.string().min(1).max(998) }) } } },
+		},
+		responses: { 202: { description: "Queued" } },
+	}),
+	async (c) => {
+		const cmd: MessageUnsend = { accountId: c.req.valid("param").accountId, messageId: c.req.valid("json").messageId };
+		const { js } = await nats();
+		await js.publish("cmd.message.unsend", JSON.stringify(cmd));
+		return c.body(null, 202);
 	},
 );
 
