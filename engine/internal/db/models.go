@@ -208,10 +208,11 @@ type User struct {
 }
 
 type UserKey struct {
-	UserID         string
-	PublicKey      []byte
-	WrappedPrivate []byte
-	CreatedAt      pgtype.Timestamptz
+	UserID          string
+	PublicKey       []byte
+	WrappedPrivate  []byte
+	CreatedAt       pgtype.Timestamptz
+	RecoveryWrapped []byte
 }
 
 type UserPref struct {
