@@ -15,6 +15,7 @@ import (
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
 )
 
 // A hosted account keeps its mail in local folders sealed to its own key: it moves, drafts and sends without a
@@ -126,5 +127,41 @@ func TestHosted(t *testing.T) {
 	}
 	if got := f.find(t, "Sent one"); got.ID == "" {
 		t.Fatal("hosted mail gone after the owner's key changed")
+	}
+}
+
+// What our MX spooled ends up sealed in the hosted inbox: once, however often it's delivered, and as spam when rspamd
+// said so.
+func TestReceive(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	master := bytes.Repeat([]byte{7}, 32)
+	store := Store{Put: func(context.Context, string, []byte, string) error { return nil }, Drop: noDrop}
+	accKey, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	if _, err := f.pool.Exec(ctx, `UPDATE mail_account SET kind = 'hosted', sealed_to = $2 WHERE id = $1`, f.id, accKey.PublicKey().Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	f.key = accKey
+	spool := map[string][]byte{
+		"in/1/a": secret.Seal(master, []byte("From: Max <max@friend.org>\r\nSubject: Dinner\r\nMessage-ID: <dinner@friend.org>\r\n\r\nFriday?")),
+		"in/2/a": secret.Seal(master, []byte("From: Win <win@prize.example>\r\nSubject: You won\r\nMessage-ID: <won@prize.example>\r\n\r\nClick")),
+	}
+	get := func(_ context.Context, key string) ([]byte, error) { return spool[key], nil }
+	for i, key := range []string{"in/1/a", "in/1/a"} {
+		_, arrived, err := Receive(ctx, f.pool, store, get, master, msg.MailDeliver{AccountId: f.id, SpoolKey: key})
+		if err != nil || len(arrived) != 1-i {
+			t.Fatalf("delivery %d: arrived %v, %v", i, arrived, err)
+		}
+	}
+	if m := f.find(t, "Dinner"); m.Role != "inbox" || len(f.messages(t)) != 1 {
+		t.Fatalf("%+v of %d", m, len(f.messages(t)))
+	}
+	if _, arrived, err := Receive(ctx, f.pool, store, get, master, msg.MailDeliver{AccountId: f.id, SpoolKey: "in/2/a", Spam: true}); err != nil || len(arrived) != 0 {
+		t.Fatalf("spam arrived %v, %v", arrived, err)
+	}
+	var spam bool
+	_ = f.pool.QueryRow(ctx, `SELECT spam FROM message WHERE id = $1`, f.find(t, "You won").ID).Scan(&spam)
+	if !spam {
+		t.Fatal("rspamd's spam isn't spam")
 	}
 }

@@ -430,6 +430,18 @@ func (q *Queries) HasMessageIn(ctx context.Context, arg HasMessageInParams) (boo
 	return exists, err
 }
 
+const hostedAccount = `-- name: HostedAccount :one
+SELECT id FROM mail_account WHERE kind = 'hosted' AND lower(email) = $1::text AND archived_at IS NULL LIMIT 1
+`
+
+// The hosted mailbox our MX delivers an address to.
+func (q *Queries) HostedAccount(ctx context.Context, address string) (string, error) {
+	row := q.db.QueryRow(ctx, hostedAccount, address)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertMessage = `-- name: InsertMessage :execrows
 INSERT INTO message (id, account_id, mailbox_id, uid, message_id, sent_at, flags, size, refs, thread_id, category, key, sealed, spam)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)

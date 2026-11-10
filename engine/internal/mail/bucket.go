@@ -68,6 +68,9 @@ func (b *Bucket) Get(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(o)
 }
 
+// Missing tells whether err is the bucket saying there is no such object.
+func Missing(err error) bool { return minio.ToErrorResponse(err).Code == "NoSuchKey" }
+
 func (b *Bucket) Remove(ctx context.Context, key string) error {
 	return b.c.RemoveObject(ctx, b.name, key, minio.RemoveObjectOptions{})
 }

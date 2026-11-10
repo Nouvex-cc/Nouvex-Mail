@@ -99,7 +99,7 @@ func run() error {
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:        "engine",
-		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save", "cmd.message.seed"},
+		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save", "cmd.message.seed", "cmd.mail.deliver"},
 		AckPolicy:      jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
@@ -256,6 +256,35 @@ func run() error {
 				_ = nc.Publish("evt.mailbox.synced", ev)
 			}
 			_ = m.Ack()
+			return owed
+		case "cmd.mail.deliver":
+			// From our MX: it waited for a PubAck before saying 250, so it must not get lost here.
+			var d msg.MailDeliver
+			if err := json.Unmarshal(m.Data(), &d); err != nil {
+				_ = m.Term()
+				return owed
+			}
+			v, arrived, err := mail.Receive(ctx, pool, store, bucket.Get, master, d)
+			// Stored and its spool removed already, only the ack got lost.
+			if mail.Missing(err) {
+				_ = m.Ack()
+				return owed
+			}
+			// ponytail: after MaxDeliver failures the command is gone, but the message still waits in in/ (the sweep
+			// leaves it); a job that queues old spool files again is the fix if that ever happens.
+			if err != nil {
+				slog.Error("receive failed", "account", d.AccountId, "err", err)
+				_ = m.NakWithDelay(30 * time.Second)
+				return owed
+			}
+			_ = m.Ack()
+			_ = bucket.Remove(ctx, d.SpoolKey)
+			ev, _ := json.Marshal(msg.MailboxSynced{AccountId: d.AccountId, Version: int(v)})
+			_ = nc.Publish("evt.mailbox.synced", ev)
+			if len(arrived) > 0 {
+				ev, _ := json.Marshal(msg.MessageArrived{AccountId: d.AccountId, MessageIds: arrived})
+				_ = nc.Publish("evt.message.arrived", ev)
+			}
 			return owed
 		case "cmd.draft.save":
 			var d msg.DraftSave

@@ -36,6 +36,8 @@ deploy           Production compose and Caddyfile, see docs/deploy.md
 ```sh
 docker compose up -d                # Postgres, NATS, SeaweedFS (S3), GreenMail (IMAP/SMTP)
 docker compose --profile obs up -d  # + Grafana/OTel (localhost:3001)
+docker compose --profile mx up -d   # + rspamd and Valkey for our MX
+cd engine && MX_ADDR=127.0.0.1:2525 RSPAMD_URL=http://localhost:11333 go run ./cmd/mx   # receive mail for hosted mailboxes
 bun dev                             # everything via Turbo
 bunx turbo lint typecheck test build
 bun run lint                        # turbo lint and oxlint, the way CI runs them
