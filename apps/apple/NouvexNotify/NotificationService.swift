@@ -10,8 +10,8 @@ final class NotificationService: UNNotificationServiceExtension {
         // The app's bundle id, the service its key is kept under.
         let app = (Bundle.main.bundleIdentifier ?? "").replacingOccurrences(of: ".notify", with: "")
         if let raw = Sealed.load(service: app),
-           let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw),
-           let notice = Sealed.notice(request.content.userInfo, key: key) {
+           let mine = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw),
+           let notice = Sealed.notice(request.content.userInfo, key: mine) {
             if !notice.sender.isEmpty { content.title = notice.sender }
             content.body = notice.subject
         }

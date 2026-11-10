@@ -44,6 +44,40 @@ enum Keys {
         load().flatMap { try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: $0) }
     }
 
+    /// Where hosted accounts' keys are kept, as the server gives them: wrapped to the user, so they open only with the
+    /// user's own key, and mail opens without a connection too.
+    static let grantsKey = "accountKeys"
+
+    /// Keeps each hosted account's key versions, newest first.
+    static func remember(_ grants: [String: [Data]]) {
+        UserDefaults.standard.set(grants.mapValues { $0.map { $0.base64EncodedString() } }, forKey: grantsKey)
+    }
+
+    /// Opens a message's key: with its hosted account's keys, the version it was sealed to among them, or else with the
+    /// user's own key.
+    static func messageKey(accountId: String, key: Data) throws -> SymmetricKey {
+        guard let mine = stored else { throw AuthError(errorDescription: "This device is locked.") }
+        let wrapped = (UserDefaults.standard.dictionary(forKey: grantsKey)?[accountId] as? [String] ?? []).compactMap { Data(base64Encoded: $0) }
+        let own = wrapped.compactMap { try? Crypto.openAccount(mine, $0) }
+        // A wrong version fails cleanly, so the next one is tried.
+        for k in own.dropLast() { if let opened = try? Crypto.openKey(k, key) { return opened } }
+        return try Crypto.openKey(own.last ?? mine, key)
+    }
+
+    /// Makes a mailbox Nouvex hosts: its key pair is made here, its private half wrapped for this user only.
+    static func createMailbox(email: String, displayName: String) async throws -> String {
+        guard let mine = stored else { throw AuthError(errorDescription: "This device is locked.") }
+        let made = try Crypto.newAccountKey(owner: mine.publicKey)
+        let body = Operations.createHostedAccount.Input.Body.jsonPayload(
+            email: email, displayName: displayName, publicKey: made.publicKey.base64EncodedString(), wrappedKey: made.wrapped.base64EncodedString()
+        )
+        switch try await API.client.createHostedAccount(body: .json(body)) {
+        case .created(let created): return try created.body.json.id
+        case .unprocessableContent(let refused): throw AuthError(errorDescription: try refused.body.json.error)
+        case .undocumented: throw AuthError(errorDescription: "Couldn't create the mailbox.")
+        }
+    }
+
     #if DEBUG && os(macOS)
     // Development builds on the Mac are signed ad hoc and get no keychain of their own, so they keep the key with
     // their data.

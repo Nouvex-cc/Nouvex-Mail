@@ -559,7 +559,7 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 			const list = (await (await app.request("/accounts", { headers: { cookie: me.cookie } })).json()) as {
 				email: string;
 				kind: string;
-				keys: { version: number; wrappedKey: string }[];
+				keys: { version: number; publicKey: string; wrappedKey: string }[];
 			}[];
 			const hosted = list.find((a) => a.email === address);
 			expect(hosted?.kind).toBe("hosted");

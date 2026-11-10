@@ -546,6 +546,9 @@ private struct OrderPage: View {
 
 private struct AddAccountPage: View {
     @Environment(Mail.self) private var mail
+    /// A mailbox Nouvex hosts: no server or password, its mail comes to us directly.
+    @State private var hosted = false
+    @State private var name = ""
     @State private var email = ""
     @State private var password = ""
     @State private var username = ""
@@ -559,15 +562,29 @@ private struct AddAccountPage: View {
     var body: some View {
         Form {
             Section {
-                TextField("Email", text: $email, prompt: Text(verbatim: "you@example.com")).textContentType(.emailAddress).modifier(Labeled("Email"))
-                SecureField("Password", text: $password, prompt: Text("Required")).modifier(Labeled("Password"))
-                TextField("Username", text: $username, prompt: Text("Leave empty to use the email address")).modifier(Labeled("Username"))
+                Picker("Where", selection: $hosted) {
+                    Text("Mail server").tag(false)
+                    Text("Nouvex").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
             }
             Section {
-                TextField("IMAP server", text: $imapHost, prompt: Text("e.g. imap.example.com")).modifier(Labeled("IMAP server"))
-                TextField("IMAP port", value: $imapPort, format: .number.grouping(.never)).modifier(Labeled("IMAP port"))
-                TextField("SMTP server", text: $smtpHost, prompt: Text("e.g. smtp.example.com")).modifier(Labeled("SMTP server"))
-                TextField("SMTP port", value: $smtpPort, format: .number.grouping(.never)).modifier(Labeled("SMTP port"))
+                TextField("Email", text: $email, prompt: Text(verbatim: "you@example.com")).textContentType(.emailAddress).modifier(Labeled("Email"))
+                if hosted {
+                    TextField("Name", text: $name, prompt: Text("What recipients see next to the address")).modifier(Labeled("Name"))
+                } else {
+                    SecureField("Password", text: $password, prompt: Text("Required")).modifier(Labeled("Password"))
+                    TextField("Username", text: $username, prompt: Text("Leave empty to use the email address")).modifier(Labeled("Username"))
+                }
+            }
+            if !hosted {
+                Section {
+                    TextField("IMAP server", text: $imapHost, prompt: Text("e.g. imap.example.com")).modifier(Labeled("IMAP server"))
+                    TextField("IMAP port", value: $imapPort, format: .number.grouping(.never)).modifier(Labeled("IMAP port"))
+                    TextField("SMTP server", text: $smtpHost, prompt: Text("e.g. smtp.example.com")).modifier(Labeled("SMTP server"))
+                    TextField("SMTP port", value: $smtpPort, format: .number.grouping(.never)).modifier(Labeled("SMTP port"))
+                }
             }
             Section {
                 if let error { Text(error).foregroundStyle(.danger) }
@@ -576,7 +593,7 @@ private struct AddAccountPage: View {
                     if busy { ProgressView().controlSize(.small) }
                     Button("Add") { Task { await add() } }
                         .glassButton(prominent: true)
-                        .disabled(busy || email.isEmpty || password.isEmpty || imapHost.isEmpty || smtpHost.isEmpty)
+                        .disabled(busy || email.isEmpty || (!hosted && (password.isEmpty || imapHost.isEmpty || smtpHost.isEmpty)))
                 }
             }
         }
@@ -590,6 +607,18 @@ private struct AddAccountPage: View {
     private func add() async {
         busy = true
         defer { busy = false }
+        if hosted {
+            do {
+                let id = try await Keys.createMailbox(email: email, displayName: name)
+                error = nil
+                try? await mail.loadAccounts()
+                mail.settings = .account(id)
+                mail.resume()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            return
+        }
         let fields = Operations.createAccount.Input.Body.jsonPayload(
             email: email, imapHost: imapHost, imapPort: imapPort, smtpHost: smtpHost, smtpPort: smtpPort,
             username: username.isEmpty ? email : username, password: password

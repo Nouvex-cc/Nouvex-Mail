@@ -31,10 +31,13 @@ enum Sealed {
         return SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess ? found as? Data : nil
     }
 
-    /// A push's sender and subject, or nil if they don't open: an old key, or a push without them.
-    static func notice(_ push: [AnyHashable: Any], key: Curve25519.KeyAgreement.PrivateKey) -> (sender: String, subject: String)? {
+    /// A push's sender and subject, or nil if they don't open: an old key, or a push without them. For a hosted account
+    /// the push brings the account's key wrapped for this user (g), which the user's key opens first.
+    static func notice(_ push: [AnyHashable: Any], key mine: Curve25519.KeyAgreement.PrivateKey) -> (sender: String, subject: String)? {
         struct Meta: Decodable { let fromName, fromAddr, subject: String? }
-        guard let m = push["m"] as? [String: Any],
+        guard let m = push["m"] as? [String: Any] else { return nil }
+        let grant = (m["g"] as? String).flatMap { Data(base64Encoded: $0) }
+        guard let key = grant.map({ try? Crypto.openAccount(mine, $0) }) ?? mine,
               let wrapped = (m["key"] as? String).flatMap({ Data(base64Encoded: $0) }),
               let sealed = (m["sealed"] as? String).flatMap({ Data(base64Encoded: $0) }),
               let plain = try? Crypto.decrypt(Crypto.openKey(key, wrapped), "meta", sealed),
