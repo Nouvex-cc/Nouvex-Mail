@@ -242,5 +242,12 @@ SELECT id FROM mail_account WHERE user_id = $1 AND archived_at IS NULL;
 SELECT id, uid, category, spam FROM message WHERE mailbox_id = $1 AND uid = ANY(sqlc.arg(uids)::bigint[]);
 
 -- name: HostedAccount :one
--- The hosted mailbox our MX delivers an address to.
-SELECT id FROM mail_account WHERE kind = 'hosted' AND lower(email) = sqlc.arg(address)::text AND archived_at IS NULL LIMIT 1;
+-- The hosted mailbox our MX delivers an address to: the one it belongs to (its own or an alias), or else its verified
+-- domain's catch-all.
+SELECT x.id::text FROM (
+  -- Archived ones too: an address used rarely still receives.
+  SELECT a.account_id AS id, 0 AS rank FROM address a WHERE a.address = sqlc.arg(address)::text
+  UNION ALL
+  SELECT d.catch_all_account_id, 1 FROM domain d
+    WHERE d.name = split_part(sqlc.arg(address)::text, '@', 2) AND d.verified_at IS NOT NULL AND d.catch_all_account_id IS NOT NULL
+) x ORDER BY x.rank LIMIT 1;

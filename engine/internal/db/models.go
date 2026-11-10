@@ -54,6 +54,14 @@ type AccountMember struct {
 	CreatedAt  pgtype.Timestamptz
 }
 
+type Address struct {
+	Address   string
+	AccountID string
+	DomainID  pgtype.Text
+	Kind      string
+	CreatedAt pgtype.Timestamptz
+}
+
 type ChangeLog struct {
 	AccountID string
 	Version   int64
@@ -74,6 +82,20 @@ type Device struct {
 	Sandbox   bool
 	TimeZone  string
 	CreatedAt pgtype.Timestamptz
+}
+
+type Domain struct {
+	ID                string
+	UserID            string
+	Name              string
+	VerifyToken       string
+	VerifiedAt        pgtype.Timestamptz
+	CatchAllAccountID pgtype.Text
+	DkimPublic        string
+	DkimPrivate       []byte
+	DnsCheck          []byte
+	CheckedAt         pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
 }
 
 type MailAccount struct {

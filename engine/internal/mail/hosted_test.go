@@ -7,11 +7,14 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
@@ -163,5 +166,52 @@ func TestReceive(t *testing.T) {
 	_ = f.pool.QueryRow(ctx, `SELECT spam FROM message WHERE id = $1`, f.find(t, "You won").ID).Scan(&spam)
 	if !spam {
 		t.Fatal("rspamd's spam isn't spam")
+	}
+}
+
+// Our MX finds a mailbox by its own address or an alias, and else by its verified domain's catch-all.
+func TestHostedLookup(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	q := db.New(f.pool)
+	domain := strings.ToLower(rand.Text()) + ".test"
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := f.pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`UPDATE mail_account SET kind = 'hosted' WHERE id = $1`, f.id)
+	exec(`INSERT INTO domain (id, user_id, name, verify_token, dkim_public, dkim_private) VALUES ($1, $2, $3, 't', 'p', '')`, domain, f.id, domain)
+	exec(`INSERT INTO address (address, account_id, domain_id, kind) VALUES ($1, $3, $4, 'primary'), ($2, $3, $4, 'alias')`,
+		"lena@"+domain, "team@"+domain, f.id, domain)
+	find := func(address string) string {
+		t.Helper()
+		id, err := q.HostedAccount(ctx, address)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ""
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	if find("lena@"+domain) != f.id || find("team@"+domain) != f.id || find("other@"+domain) != "" {
+		t.Fatal("addresses")
+	}
+	// A catch-all counts only once the domain is verified.
+	exec(`UPDATE domain SET catch_all_account_id = $2 WHERE id = $1`, domain, f.id)
+	if find("other@"+domain) != "" {
+		t.Fatal("catch-all of an unverified domain")
+	}
+	exec(`UPDATE domain SET verified_at = now() WHERE id = $1`, domain)
+	if find("other@"+domain) != f.id {
+		t.Fatal("catch-all")
+	}
+	// Archived means rarely used: it still receives.
+	exec(`UPDATE domain SET catch_all_account_id = NULL WHERE id = $1`, domain)
+	exec(`UPDATE mail_account SET archived_at = now() WHERE id = $1`, f.id)
+	if find("lena@"+domain) != f.id {
+		t.Fatal("archived mailbox refuses mail")
 	}
 }
