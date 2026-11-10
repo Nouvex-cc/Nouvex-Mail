@@ -25,6 +25,28 @@ func (q *Queries) AddContacts(ctx context.Context, arg AddContactsParams) error 
 	return err
 }
 
+const addInternalDelivery = `-- name: AddInternalDelivery :exec
+INSERT INTO internal_delivery (sender_account_id, message_id, recipient_account_id, recipient_message_id)
+VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+`
+
+type AddInternalDeliveryParams struct {
+	SenderAccountID    string
+	MessageID          string
+	RecipientAccountID string
+	RecipientMessageID string
+}
+
+func (q *Queries) AddInternalDelivery(ctx context.Context, arg AddInternalDeliveryParams) error {
+	_, err := q.db.Exec(ctx, addInternalDelivery,
+		arg.SenderAccountID,
+		arg.MessageID,
+		arg.RecipientAccountID,
+		arg.RecipientMessageID,
+	)
+	return err
+}
+
 const addJob = `-- name: AddJob :exec
 INSERT INTO scheduled (id, account_id, run_at, kind, payload) VALUES ($1, $2, $3, $4, $5)
 `
@@ -46,6 +68,18 @@ func (q *Queries) AddJob(ctx context.Context, arg AddJobParams) error {
 		arg.Payload,
 	)
 	return err
+}
+
+const addressOwner = `-- name: AddressOwner :one
+SELECT account_id FROM address WHERE address = $1
+`
+
+// The hosted mailbox an address is its own or an alias of, for sending from it.
+func (q *Queries) AddressOwner(ctx context.Context, address string) (string, error) {
+	row := q.db.QueryRow(ctx, addressOwner, address)
+	var account_id string
+	err := row.Scan(&account_id)
+	return account_id, err
 }
 
 const clearMailbox = `-- name: ClearMailbox :many
@@ -339,6 +373,30 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 	return i, err
 }
 
+const getDomain = `-- name: GetDomain :one
+SELECT id, user_id, name, verify_token, verified_at, catch_all_account_id, dkim_public, dkim_private, dns_check, checked_at, created_at, ses_status FROM domain WHERE id = $1
+`
+
+func (q *Queries) GetDomain(ctx context.Context, id string) (Domain, error) {
+	row := q.db.QueryRow(ctx, getDomain, id)
+	var i Domain
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Name,
+		&i.VerifyToken,
+		&i.VerifiedAt,
+		&i.CatchAllAccountID,
+		&i.DkimPublic,
+		&i.DkimPrivate,
+		&i.DnsCheck,
+		&i.CheckedAt,
+		&i.CreatedAt,
+		&i.SesStatus,
+	)
+	return i, err
+}
+
 const getMessageID = `-- name: GetMessageID :one
 SELECT message_id FROM message WHERE id = $1 AND account_id = $2
 `
@@ -428,6 +486,25 @@ func (q *Queries) HasMessageIn(ctx context.Context, arg HasMessageInParams) (boo
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const hostedAccount = `-- name: HostedAccount :one
+SELECT x.id::text FROM (
+  -- Archived ones too: an address used rarely still receives.
+  SELECT a.account_id AS id, 0 AS rank FROM address a WHERE a.address = $1::text
+  UNION ALL
+  SELECT d.catch_all_account_id, 1 FROM domain d
+    WHERE d.name = split_part($1::text, '@', 2) AND d.verified_at IS NOT NULL AND d.catch_all_account_id IS NOT NULL
+) x ORDER BY x.rank LIMIT 1
+`
+
+// The hosted mailbox our MX delivers an address to: the one it belongs to (its own or an alias), or else its verified
+// domain's catch-all.
+func (q *Queries) HostedAccount(ctx context.Context, address string) (string, error) {
+	row := q.db.QueryRow(ctx, hostedAccount, address)
+	var x_id string
+	err := row.Scan(&x_id)
+	return x_id, err
 }
 
 const insertMessage = `-- name: InsertMessage :execrows
@@ -1052,6 +1129,20 @@ func (q *Queries) SetSealedTo(ctx context.Context, arg SetSealedToParams) error 
 	return err
 }
 
+const setSesStatus = `-- name: SetSesStatus :exec
+UPDATE domain SET ses_status = $2 WHERE id = $1
+`
+
+type SetSesStatusParams struct {
+	ID        string
+	SesStatus pgtype.Text
+}
+
+func (q *Queries) SetSesStatus(ctx context.Context, arg SetSesStatusParams) error {
+	_, err := q.db.Exec(ctx, setSesStatus, arg.ID, arg.SesStatus)
+	return err
+}
+
 const setSyncError = `-- name: SetSyncError :exec
 UPDATE mail_account SET sync_error = $2 WHERE id = $1
 `
@@ -1179,6 +1270,42 @@ func (q *Queries) TakeDueSends(ctx context.Context) ([]TakeDueSendsRow, error) {
 	for rows.Next() {
 		var i TakeDueSendsRow
 		if err := rows.Scan(&i.DraftID, &i.AccountID, &i.Payload); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const takeInternalDeliveries = `-- name: TakeInternalDeliveries :many
+DELETE FROM internal_delivery WHERE sender_account_id = $1 AND message_id = $2
+RETURNING recipient_account_id, recipient_message_id
+`
+
+type TakeInternalDeliveriesParams struct {
+	SenderAccountID string
+	MessageID       string
+}
+
+type TakeInternalDeliveriesRow struct {
+	RecipientAccountID string
+	RecipientMessageID string
+}
+
+// Where a sent message went directly, forgetting it: unsending removes those copies.
+func (q *Queries) TakeInternalDeliveries(ctx context.Context, arg TakeInternalDeliveriesParams) ([]TakeInternalDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, takeInternalDeliveries, arg.SenderAccountID, arg.MessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TakeInternalDeliveriesRow
+	for rows.Next() {
+		var i TakeInternalDeliveriesRow
+		if err := rows.Scan(&i.RecipientAccountID, &i.RecipientMessageID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

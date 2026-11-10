@@ -68,6 +68,31 @@ type AccountChecked struct {
 	Error *string `json:"error,omitempty,omitzero"`
 }
 
+// Command: API asks the engine to set a verified domain up with Amazon SES (DKIM
+// with its own key, the bounce domain), or to read back how far SES is.
+type DomainSetup struct {
+	// DomainId corresponds to the JSON schema field "domainId".
+	DomainId string `json:"domainId"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *DomainSetup) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["domainId"]; raw != nil && !ok {
+		return fmt.Errorf("field domainId in DomainSetup: required")
+	}
+	type Plain DomainSetup
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = DomainSetup(plain)
+	return nil
+}
+
 // Command: API asks the engine to store a draft in the account's Drafts folder,
 // replacing its previous version. Without text and recipients it only deletes the
 // draft.
@@ -178,6 +203,44 @@ func (j *DraftSave) UnmarshalJSON(value []byte) error {
 		return err
 	}
 	*j = DraftSave(plain)
+	return nil
+}
+
+// Command: our MX took a message for a hosted account; the engine seals and stores
+// it (engine/internal/mx).
+type MailDeliver struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// rspamd would put it in junk.
+	Spam bool `json:"spam"`
+
+	// Where the message waits, sealed with SECRETS_KEY: in/<id>/<accountId> in the
+	// bucket.
+	SpoolKey string `json:"spoolKey"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MailDeliver) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MailDeliver: required")
+	}
+	if _, ok := raw["spam"]; raw != nil && !ok {
+		return fmt.Errorf("field spam in MailDeliver: required")
+	}
+	if _, ok := raw["spoolKey"]; raw != nil && !ok {
+		return fmt.Errorf("field spoolKey in MailDeliver: required")
+	}
+	type Plain MailDeliver
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MailDeliver(plain)
 	return nil
 }
 
@@ -347,6 +410,9 @@ type MessageSend struct {
 	// it.
 	DraftId string `json:"draftId"`
 
+	// An alias of a hosted account to send from instead of its own address.
+	From *string `json:"from,omitempty,omitzero"`
+
 	// An HTML version next to the text, e.g. a forwarded message with its formatting.
 	Html *string `json:"html,omitempty,omitzero"`
 
@@ -476,6 +542,37 @@ func (j *MessageSent) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Command: API asks the engine to take a sent message back out of the Nouvex
+// mailboxes it went to directly.
+type MessageUnsend struct {
+	// The hosted account that sent it.
+	AccountId string `json:"accountId"`
+
+	// Its Message-ID, as the sender's device read it.
+	MessageId string `json:"messageId"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MessageUnsend) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MessageUnsend: required")
+	}
+	if _, ok := raw["messageId"]; raw != nil && !ok {
+		return fmt.Errorf("field messageId in MessageUnsend: required")
+	}
+	type Plain MessageUnsend
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MessageUnsend(plain)
+	return nil
+}
+
 // Command: API asks the engine to change one message on the mail server.
 type MessageUpdate struct {
 	// AccountId corresponds to the JSON schema field "accountId".
@@ -563,5 +660,37 @@ func (j *MessageUpdate) UnmarshalJSON(value []byte) error {
 		return err
 	}
 	*j = MessageUpdate(plain)
+	return nil
+}
+
+// Command: API passes on what Amazon SES reported about a sent message (a bounce
+// or a spam complaint), for the engine to tell the sender in their inbox.
+type SendFeedback struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// Base64 of the report sealed with SECRETS_KEY: {kind, subject, recipients:
+	// [{address, reason}]}, since it names who the mail went to.
+	Sealed string `json:"sealed"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *SendFeedback) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in SendFeedback: required")
+	}
+	if _, ok := raw["sealed"]; raw != nil && !ok {
+		return fmt.Errorf("field sealed in SendFeedback: required")
+	}
+	type Plain SendFeedback
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = SendFeedback(plain)
 	return nil
 }

@@ -77,6 +77,8 @@ type arrival struct {
 	sorted bool
 	// Nouvex put it there itself (Meta.Seeded).
 	seeded bool
+	// Our MX's filter took it for spam, whatever sorting says.
+	spam bool
 }
 
 // ingest stores a whole message in a local folder, sealed to the account's key like synced mail. One already in the
@@ -142,6 +144,7 @@ func (s *syncer) ingest(box db.Mailbox, raw []byte, a arrival) (*db.InsertMessag
 		s.roles[box.ID] = box.Role
 		row.Category, row.Spam, _ = s.sort(box.ID, meta.FromAddr, parsed)
 	}
+	row.Spam = row.Spam || a.spam
 	var whole []byte
 	if s.acc.Kind == "hosted" {
 		whole = raw

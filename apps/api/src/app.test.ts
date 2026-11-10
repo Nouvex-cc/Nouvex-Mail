@@ -536,39 +536,116 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sen
 
 // Needs the database and NATS (docker compose up -d).
 test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
-	"a hosted mailbox: our domains only, one per address",
+	"domains: verified by DNS, then mailboxes, aliases and a catch-all",
 	async () => {
 		const { db } = await import("./db");
-		const { mailAccount } = await import("./db/schema");
-		const { eq } = await import("drizzle-orm");
-		process.env.HOSTED_DOMAINS = "hosted.test";
+		const { domain, mailAccount } = await import("./db/schema");
+		const { eq, inArray } = await import("drizzle-orm");
+		const { dnsDeps } = await import("./domains");
 		const me = await signedIn("Lena");
 		const other = await signedIn("Max");
-		const address = `${crypto.randomUUID()}@hosted.test`;
-		const make = (cookie: string, email: string) =>
-			app.request("/hosted-accounts", {
-				method: "POST",
+		const name = `${crypto.randomUUID().slice(0, 8)}.test`;
+		const call = (cookie: string, path: string, method = "GET", body?: unknown) =>
+			app.request(path, {
+				method,
 				headers: { cookie, "content-type": "application/json" },
-				body: JSON.stringify({ email, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("wrapped") }),
+				body: body === undefined ? undefined : JSON.stringify(body),
 			});
+		type Out = {
+			id: string;
+			verified: boolean;
+			records: { key: string; name: string; value: string; ok: boolean | null }[];
+		};
+		// DNS as the test says it is.
+		const dns = new Map<string, string[]>();
+		const lookup = dnsDeps.lookup;
+		dnsDeps.lookup = () => ({
+			txt: async (n: string) => dns.get(n) ?? [],
+			mx: async (n: string) => dns.get(`mx:${n}`) ?? [],
+		});
 		try {
-			expect((await make(me.cookie, `${crypto.randomUUID()}@gmail.com`)).status).toBe(422);
-			const res = await make(me.cookie, address);
+			expect((await call(me.cookie, "/domains", "POST", { name: "not a domain" })).status).toBe(422);
+			const mine = (await (await call(me.cookie, "/domains", "POST", { name: name.toUpperCase() })).json()) as Out;
+			// Someone else may add it too, until one of them verifies it.
+			const theirs = (await (await call(other.cookie, "/domains", "POST", { name })).json()) as Out;
+			expect(mine.verified).toBe(false);
+			const make = (email: string) =>
+				call(me.cookie, "/hosted-accounts", "POST", { email, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("w") });
+			expect((await make(`lena@${name}`)).status).toBe(422);
+
+			const verify = mine.records.find((r) => r.key === "verify");
+			dns.set(verify?.name ?? "", [verify?.value ?? ""]);
+			const checked = (await (await call(me.cookie, `/domains/${mine.id}/check`, "POST")).json()) as Out;
+			expect(checked.verified).toBe(true);
+			expect(checked.records.find((r) => r.key === "mx")?.ok).toBe(false);
+			// The other claim is gone once one is verified, and nobody can add it again.
+			expect((await call(other.cookie, `/domains/${theirs.id}/check`, "POST")).status).toBe(404);
+			expect((await call(other.cookie, "/domains", "POST", { name })).status).toBe(422);
+
+			const res = await make(`Lena@${name}`);
 			expect(res.status).toBe(201);
-			expect((await make(other.cookie, address.toUpperCase())).status).toBe(422);
-			const list = (await (await app.request("/accounts", { headers: { cookie: me.cookie } })).json()) as {
-				email: string;
+			const { id } = (await res.json()) as { id: string };
+			expect((await make(`lena@${name}`)).status).toBe(422);
+			expect((await call(me.cookie, `/accounts/${id}/aliases`, "POST", { address: `team@${name}` })).status).toBe(204);
+			expect((await call(me.cookie, `/accounts/${id}/aliases`, "POST", { address: `lena@${name}` })).status).toBe(422);
+			expect((await call(me.cookie, `/accounts/${id}/aliases`, "POST", { address: "x@gmail.com" })).status).toBe(422);
+			const list = (await (await call(me.cookie, "/accounts")).json()) as {
+				id: string;
 				kind: string;
-				keys: { version: number; publicKey: string; wrappedKey: string }[];
+				aliases: string[];
 			}[];
-			const hosted = list.find((a) => a.email === address);
-			expect(hosted?.kind).toBe("hosted");
-			expect(hosted?.keys).toEqual([{ version: 1, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("wrapped") }]);
+			expect(list.find((a) => a.id === id)).toMatchObject({ kind: "hosted", aliases: [`team@${name}`] });
+
+			expect((await call(me.cookie, `/domains/${mine.id}`, "PATCH", { catchAllAccountId: id })).status).toBe(200);
+			expect((await call(other.cookie, `/domains/${mine.id}`, "PATCH", { catchAllAccountId: null })).status).toBe(404);
+			expect((await call(me.cookie, `/domains/${mine.id}`, "DELETE")).status).toBe(409);
 		} finally {
-			await db.delete(mailAccount).where(eq(mailAccount.email, address));
+			dnsDeps.lookup = lookup;
+			await db.delete(mailAccount).where(inArray(mailAccount.userId, [me.id, other.id]));
+			await db.delete(domain).where(eq(domain.name, name));
 		}
 	},
 );
+
+// Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
+test.skipIf(!process.env.DATABASE_URL)("domains: Cloudflare sets them up with a token it never keeps", async () => {
+	const { dnsDeps } = await import("./domains");
+	const me = await signedIn("Lena");
+	const name = `${crypto.randomUUID().slice(0, 8)}.test`;
+	const headers = { cookie: me.cookie, "content-type": "application/json" };
+	const added = (await (
+		await app.request("/domains", { method: "POST", headers, body: JSON.stringify({ name }) })
+	).json()) as { id: string };
+	const seen: string[] = [];
+	const fetcher = dnsDeps.fetch;
+	const lookup = dnsDeps.lookup;
+	dnsDeps.lookup = () => ({ txt: async () => [], mx: async () => [] });
+	dnsDeps.fetch = (async (url: string, init?: RequestInit) => {
+		seen.push(`${init?.method ?? "GET"} ${new URL(url).pathname} ${new Headers(init?.headers).get("authorization")}`);
+		const path = new URL(url);
+		if (path.pathname.endsWith("/zones"))
+			return Response.json({ success: true, result: path.searchParams.get("name") === name ? [{ id: "z" }] : [] });
+		return Response.json({ success: true, result: init?.method === "POST" ? {} : [] });
+	}) as typeof fetch;
+	try {
+		const res = await app.request(`/domains/${added.id}/cloudflare`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ token: "cf-test-token", replaceMx: false }),
+		});
+		const out = (await res.json()) as { applied: Record<string, string> };
+		expect(Object.values(out.applied)).toEqual(Array(7).fill("created"));
+		expect(seen.every((s) => s.endsWith("Bearer cf-test-token"))).toBe(true);
+		expect(seen.filter((s) => s.startsWith("POST"))).toHaveLength(7);
+	} finally {
+		dnsDeps.fetch = fetcher;
+		dnsDeps.lookup = lookup;
+		const { db } = await import("./db");
+		const { domain } = await import("./db/schema");
+		const { eq } = await import("drizzle-orm");
+		await db.delete(domain).where(eq(domain.name, name));
+	}
+});
 
 // Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
 test.skipIf(!process.env.DATABASE_URL)("a recovery key survives a reset and keeps the key", async () => {

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { sql } from "drizzle-orm";
 import {
 	bigint,
 	boolean,
@@ -11,6 +12,7 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
 
@@ -109,6 +111,89 @@ export const userKey = pgTable("user_key", {
 	recoveryWrapped: bytea("recovery_wrapped"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// A domain someone hosts mail with us for. It receives once the TXT record at _nouvex.<name> shows verifyToken; the
+// rest of its records (MX, SPF, DKIM, DMARC, the bounce domain for SES) are checked and reported in dnsCheck.
+// Anyone may add a name, so nobody blocks it by adding it first; only one can verify it.
+// ponytail: owned by a user; an organization with billing comes with the plans.
+export const domain = pgTable(
+	"domain",
+	{
+		id: text("id").primaryKey(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		name: text("name").notNull(),
+		verifyToken: text("verify_token").notNull(),
+		verifiedAt: timestamp("verified_at", { withTimezone: true }),
+		// Mail to an address nobody has goes here instead of being refused.
+		catchAllAccountId: text("catch_all_account_id").references(() => mailAccount.id, { onDelete: "set null" }),
+		// The key mail from this domain is signed with: the public half in DNS at nx1._domainkey, the private half sealed
+		// with SECRETS_KEY for SES (and later our own servers) to sign with.
+		dkimPublic: text("dkim_public").notNull(),
+		dkimPrivate: bytea("dkim_private").notNull(),
+		dnsCheck: jsonb("dns_check").$type<Record<string, { ok: boolean; found: string[] }>>(),
+		// Amazon SES's view of it once verified: pending, ready, or what went wrong. Written by the engine.
+		sesStatus: text("ses_status"),
+		checkedAt: timestamp("checked_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [
+		uniqueIndex("domain_verified_name").on(t.name).where(sql`verified_at IS NOT NULL`),
+		unique().on(t.userId, t.name),
+	],
+);
+
+// Mail a hosted mailbox sent to other Nouvex mailboxes went straight into theirs; this is how to take it back.
+// Written by the engine.
+export const internalDelivery = pgTable(
+	"internal_delivery",
+	{
+		senderAccountId: text("sender_account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		// The sent message's Message-ID, SHA-256 like message.message_id.
+		messageId: text("message_id").notNull(),
+		recipientAccountId: text("recipient_account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		recipientMessageId: text("recipient_message_id")
+			.notNull()
+			.references(() => message.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.senderAccountId, t.messageId, t.recipientAccountId] })],
+);
+
+// What Amazon SES reported about mail a hosted mailbox sent out: how often it bounced or was marked as spam, to see
+// abuse early. Who it went to stays out: that's in the sealed notice the sender gets.
+export const sendEvent = pgTable(
+	"send_event",
+	{
+		id: text("id").primaryKey(),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		kind: text("kind").$type<"bounce" | "complaint">().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index().on(t.accountId, t.createdAt)],
+);
+
+// Where our MX delivers each address: a hosted account's own address, or an alias of it. Lowercase.
+export const address = pgTable(
+	"address",
+	{
+		address: text("address").primaryKey(),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		domainId: text("domain_id").references(() => domain.id, { onDelete: "cascade" }),
+		kind: text("kind").$type<"primary" | "alias">().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index().on(t.accountId)],
+);
 
 // A hosted account's public keys: new mail is sealed to the newest (mail_account.sealed_to), older mail stays on the
 // version it was sealed to. A new version follows when someone loses access.

@@ -1,6 +1,8 @@
 export type * from "./account-check";
 export type * from "./account-checked";
+export type * from "./domain-setup";
 export type * from "./draft-save";
+export type * from "./mail-deliver";
 export type * from "./mailbox-sync";
 export type * from "./mailbox-synced";
 export type * from "./mailbox-syncing";
@@ -8,4 +10,6 @@ export type * from "./message-arrived";
 export type * from "./message-seed";
 export type * from "./message-send";
 export type * from "./message-sent";
+export type * from "./message-unsend";
 export type * from "./message-update";
+export type * from "./send-feedback";

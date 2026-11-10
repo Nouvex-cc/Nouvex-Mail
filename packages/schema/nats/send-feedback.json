@@ -1,0 +1,15 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "SendFeedback",
+	"description": "Command: API passes on what Amazon SES reported about a sent message (a bounce or a spam complaint), for the engine to tell the sender in their inbox.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"sealed": {
+			"type": "string",
+			"description": "Base64 of the report sealed with SECRETS_KEY: {kind, subject, recipients: [{address, reason}]}, since it names who the mail went to."
+		}
+	},
+	"required": ["accountId", "sealed"],
+	"additionalProperties": false
+}

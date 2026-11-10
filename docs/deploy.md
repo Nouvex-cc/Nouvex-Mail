@@ -49,6 +49,20 @@ Try it on yourself first. Announcing the same message again (same Message-ID) ad
 
 New mail reaches the iPhone app as a push while it isn't running. Set `APNS_KEY`, `APNS_KEY_ID` and `APNS_TEAM_ID` in `deploy/.env` (see `.env.example`), with a key from the team the app is signed with; `cc.nouvex.Nouvex` is the topic. A push carries the message's sender and subject only sealed, and the app opens them (docs/security.md). Without the key the app notifies while it's open, as before.
 
+## Hosted mail
+
+Nouvex can host mailboxes on domains people add in Settings, Domains: our MX receives their mail (`engine/cmd/mx`, with rspamd), and Amazon SES sends what goes outside Nouvex. Mail between Nouvex mailboxes never leaves the server.
+
+Once, for the server:
+1. **DNS of your own domain.** `MX_HOST` (default `mx.nouvex.cc`) points at the machine running the MX, and `SPF_INCLUDE` (default `spf.nouvex.cc`) has `TXT "v=spf1 include:amazonses.com ~all"`. Customers include that one name, so new senders (our own IPs later) only change it here.
+2. **Amazon SES** in `SES_REGION` (ours: eu-north-1, Stockholm):
+   - Request production access, so SES sends to anyone.
+   - Make a configuration set (`SES_CONFIGURATION_SET`) with an event destination for bounces and complaints to an SNS topic (`SES_TOPIC_ARN`).
+   - Subscribe `https://<your domain>/webhooks/ses` to that topic over HTTPS. The API confirms the subscription by itself.
+3. **An IAM user for the engine** with `ses:SendEmail`, `ses:SendRawEmail`, `ses:CreateEmailIdentity`, `ses:GetEmailIdentity` and `ses:PutEmailIdentityMailFromAttributes` in that region. Its key goes into `deploy/.env` as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+
+Per domain, nothing: once its TXT record verifies it, the engine makes it an SES identity that signs with the domain's own DKIM key and bounces through `bounce.<domain>`. Its page in Settings says when SES is ready. Without `SES_REGION`, hosted mailboxes still send to Nouvex mailboxes; anything else comes back with that reason.
+
 ## Sorting
 
 The `embed` container turns mail into vectors (Text Embeddings Inference with multilingual-e5-small), which the engine sorts tabs with, and a model per user learns from (docs/security.md). It needs about 1 GB of memory and downloads the model, about 500 MB, on its first start. While it isn't up, the engine sorts by rules alone. Without `EMBED_URL` the engine doesn't use it at all.

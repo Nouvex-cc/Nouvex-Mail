@@ -49,6 +49,18 @@ services:
     ports: ["8090:80"]
     volumes: [models:/data]
 
+  # Checks mail for our MX (engine/cmd/mx): spam, SPF, DKIM, DMARC and ARC. Set RSPAMD_URL=http://localhost:11333.
+  rspamd:
+    image: rspamd/rspamd:4.2
+    profiles: [mx]
+    depends_on: [valkey]
+    ports: ["127.0.0.1:11333:11333"]
+    volumes: [./docker/rspamd:/etc/rspamd/local.d:ro]
+
+  valkey:
+    image: valkey/valkey:9.0-alpine
+    profiles: [mx]
+
   lgtm:
     image: grafana/otel-lgtm
     profiles: [obs]

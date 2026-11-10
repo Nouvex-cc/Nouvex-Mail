@@ -2,9 +2,19 @@
 import { httpInstrumentationMiddleware } from "@hono/otel";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Subscription } from "@nats-io/transport-node";
-import type { AccountCheck, AccountChecked, DraftSave, MailboxSync, MessageSend, MessageUpdate } from "@nouvex/schema";
+import type {
+	AccountCheck,
+	AccountChecked,
+	DomainSetup,
+	DraftSave,
+	MailboxSync,
+	MessageSend,
+	MessageUnsend,
+	MessageUpdate,
+	SendFeedback,
+} from "@nouvex/schema";
 import { s3 } from "bun";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
@@ -15,20 +25,25 @@ import {
 	accountGroupMember,
 	accountKey,
 	accountMember,
+	address as addressTable,
 	changeLog,
 	device,
+	domain,
 	labelColors,
 	mailAccount,
 	mailbox,
 	message,
 	outbox,
+	sendEvent,
 	senderRule,
 	userKey,
 	userPrefs,
 } from "./db/schema";
+import { applyCloudflare, check, cloudflare, dkimKey, dnsDeps, records } from "./domains";
 import { fetchImage, post } from "./image";
 import { nats } from "./nats";
 import { open, seal } from "./secret";
+import { fromAws, report, type Sns, snsDeps, verify } from "./sns";
 
 type Env = { Variables: { userId: string } };
 export const app = new OpenAPIHono<Env>();
@@ -60,6 +75,8 @@ app.use("/keys/*", signedIn);
 app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
 app.use("/hosted-accounts", signedIn);
+app.use("/domains", signedIn);
+app.use("/domains/*", signedIn);
 app.use("/groups/*", signedIn);
 app.use("/order", signedIn);
 app.use("/rich/*", signedIn);
@@ -122,6 +139,8 @@ app.openapi(
 								// A hosted account's keys, newest first: its private key wrapped to this user, opened with
 								// their own key (packages/sdk openAccount). Mail opens with the version it was sealed to.
 								keys: z.array(z.object({ version: z.int(), publicKey: z.string(), wrappedKey: z.string() })),
+								// A hosted account's other addresses, which it receives and can send from.
+								aliases: z.array(z.string()),
 							}),
 						),
 					},
@@ -161,6 +180,19 @@ app.openapi(
 			)
 			.where(eq(accountMember.userId, userId))
 			.orderBy(desc(accountMember.keyVersion));
+		const aliases = await db
+			.select({ accountId: addressTable.accountId, address: addressTable.address })
+			.from(addressTable)
+			.where(
+				and(
+					inArray(
+						addressTable.accountId,
+						accounts.map((a) => a.id),
+					),
+					eq(addressTable.kind, "alias"),
+				),
+			)
+			.orderBy(addressTable.address);
 		const b64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
 		return c.json(
 			accounts.map((a) => ({
@@ -172,19 +204,22 @@ app.openapi(
 						publicKey: b64(g.publicKey),
 						wrappedKey: b64(g.wrappedKey as Uint8Array),
 					})),
+				aliases: aliases.filter((x) => x.accountId === a.id).map((x) => x.address),
 			})),
 			200,
 		);
 	},
 );
 
-// Domains we host mail for, until customers add their own (the domain table, next phase).
-// ponytail: an environment list, e.g. HOSTED_DOMAINS=louma.cc,byl8.com.
-const hostedDomains = () =>
-	(process.env.HOSTED_DOMAINS ?? "")
-		.split(",")
-		.map((d) => d.trim().toLowerCase())
-		.filter(Boolean);
+// The user's verified domain an address is on, if any.
+async function verifiedDomain(userId: string, address: string) {
+	const name = address.slice(address.lastIndexOf("@") + 1);
+	const [d] = await db
+		.select({ id: domain.id })
+		.from(domain)
+		.where(and(eq(domain.userId, userId), eq(domain.name, name), isNotNull(domain.verifiedAt)));
+	return d;
+}
 
 app.openapi(
 	createRoute({
@@ -221,18 +256,15 @@ app.openapi(
 	async (c) => {
 		const { email, displayName, publicKey, wrappedKey } = c.req.valid("json");
 		const address = email.toLowerCase();
-		const domain = address.slice(address.lastIndexOf("@") + 1);
-		if (!hostedDomains().includes(domain)) return c.json({ error: `Nouvex doesn't host mail for ${domain}.` }, 422);
+		const on = await verifiedDomain(c.get("userId"), address);
+		if (!on) return c.json({ error: "Add and verify this address's domain first (Settings, Domains)." }, 422);
 		const pub = Buffer.from(publicKey, "base64");
 		if (pub.length !== 32) return c.json({ error: "That's not an account key." }, 422);
 		const id = crypto.randomUUID();
 		const taken = await db.transaction(async (tx) => {
 			// One mailbox per address; locked so two at once can't both take it.
 			await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${address}))`);
-			const [there] = await tx
-				.select({ id: mailAccount.id })
-				.from(mailAccount)
-				.where(and(eq(mailAccount.kind, "hosted"), eq(sql`lower(${mailAccount.email})`, address)));
+			const [there] = await tx.select().from(addressTable).where(eq(addressTable.address, address));
 			if (there) return true;
 			await tx.insert(mailAccount).values({
 				id,
@@ -256,11 +288,367 @@ app.openapi(
 				keyVersion: 1,
 				wrappedKey: Buffer.from(wrappedKey, "base64"),
 			});
+			await tx.insert(addressTable).values({ address, accountId: id, domainId: on.id, kind: "primary" });
 			return false;
 		});
 		if (taken) return c.json({ error: `${address} is taken.` }, 422);
 		await sync(id);
 		return c.json({ id }, 201);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/webhooks/ses",
+		operationId: "sesEvents",
+		description:
+			"Amazon SES's bounces and complaints, through SNS (text/plain JSON, signed by AWS). Only SES_TOPIC_ARN is taken.",
+		responses: { 200: { description: "Taken" }, 403: { description: "Not signed by AWS, or not our topic" } },
+	}),
+	async (c) => {
+		const m = JSON.parse(await c.req.text()) as Sns;
+		if (!process.env.SES_TOPIC_ARN || m.TopicArn !== process.env.SES_TOPIC_ARN || !(await verify(m)))
+			return c.body(null, 403);
+		if (m.Type === "SubscriptionConfirmation") {
+			if (!fromAws(m.SubscribeURL)) return c.body(null, 403);
+			await snsDeps.fetch(m.SubscribeURL as string);
+			return c.body(null, 200);
+		}
+		const said = m.Type === "Notification" ? report(m.Message) : undefined;
+		if (!said) return c.body(null, 200);
+		const [acc] = await db.select({ id: mailAccount.id }).from(mailAccount).where(eq(mailAccount.id, said.accountId));
+		if (!acc) return c.body(null, 200);
+		await db.insert(sendEvent).values({ id: crypto.randomUUID(), accountId: acc.id, kind: said.report.kind });
+		// It names who the mail went to, so it travels sealed until the engine seals it for the sender.
+		const cmd: SendFeedback = {
+			accountId: acc.id,
+			sealed: (await seal(JSON.stringify(said.report))).toString("base64"),
+		};
+		const { js } = await nats();
+		await js.publish("cmd.send.feedback", JSON.stringify(cmd));
+		return c.body(null, 200);
+	},
+);
+
+// Domains: added by anyone, verified by one (a TXT record), then they take hosted mailboxes and aliases.
+const DomainOut = z.object({
+	id: z.string(),
+	name: z.string(),
+	verified: z.boolean(),
+	catchAllAccountId: z.string().nullable(),
+	checkedAt: z.string().nullable(),
+	// Amazon SES's view once verified: "ready", what it waits for, or what went wrong; null before it's asked.
+	sesStatus: z.string().nullable(),
+	// What the domain's DNS needs, with what the last check found (ok is null before the first).
+	records: z.array(
+		z.object({
+			key: z.string(),
+			type: z.enum(["TXT", "MX"]),
+			name: z.string(),
+			value: z.string(),
+			priority: z.int().optional(),
+			ok: z.boolean().nullable(),
+			found: z.array(z.string()),
+		}),
+	),
+});
+const shown = (d: typeof domain.$inferSelect) => ({
+	id: d.id,
+	name: d.name,
+	verified: !!d.verifiedAt,
+	catchAllAccountId: d.catchAllAccountId,
+	checkedAt: d.checkedAt?.toISOString() ?? null,
+	sesStatus: d.sesStatus,
+	records: records(d).map((r) => ({
+		...r,
+		ok: d.dnsCheck?.[r.key]?.ok ?? null,
+		found: d.dnsCheck?.[r.key]?.found ?? [],
+	})),
+});
+const ownDomain = async (userId: string, id: string) =>
+	(
+		await db
+			.select()
+			.from(domain)
+			.where(and(eq(domain.id, id), eq(domain.userId, userId)))
+	)[0];
+const DomainParam = z.object({ domainId: z.string() });
+const Problem = { "application/json": { schema: z.object({ error: z.string() }) } };
+
+// Looks the records up and keeps what was found; the first time the TXT record shows, the domain is the user's.
+async function recheck(d: typeof domain.$inferSelect) {
+	const result = await check(records(d), dnsDeps.lookup());
+	let verifiedAt = d.verifiedAt;
+	if (!verifiedAt && result.verify?.ok) {
+		verifiedAt = new Date();
+		await db.transaction(async (tx) => {
+			// Others who added the name without verifying it lose their claim.
+			await tx.delete(domain).where(and(eq(domain.name, d.name), ne(domain.id, d.id), sql`verified_at IS NULL`));
+			await tx.update(domain).set({ verifiedAt }).where(eq(domain.id, d.id));
+		});
+	}
+	const [row] = await db
+		.update(domain)
+		.set({ dnsCheck: result, checkedAt: new Date() })
+		.where(eq(domain.id, d.id))
+		.returning();
+	// A verified domain gets set up with SES, and each check after asks it how far it is.
+	if (verifiedAt) {
+		const cmd: DomainSetup = { domainId: d.id };
+		const { js } = await nats();
+		await js.publish("cmd.domain.setup", JSON.stringify(cmd));
+	}
+	return row ?? { ...d, verifiedAt };
+}
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/domains",
+		operationId: "listDomains",
+		responses: {
+			200: { description: "The user's domains", content: { "application/json": { schema: z.array(DomainOut) } } },
+		},
+	}),
+	async (c) =>
+		c.json(
+			(
+				await db
+					.select()
+					.from(domain)
+					.where(eq(domain.userId, c.get("userId")))
+					.orderBy(domain.name)
+			).map(shown),
+			200,
+		),
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/domains",
+		operationId: "addDomain",
+		request: { body: { content: { "application/json": { schema: z.object({ name: z.string() }) } } } },
+		responses: {
+			201: { description: "Added; it receives once verified", content: { "application/json": { schema: DomainOut } } },
+			422: { description: "Not a domain, or someone verified it already", content: Problem },
+		},
+	}),
+	async (c) => {
+		const name = c.req.valid("json").name.trim().toLowerCase().replace(/\.$/, "");
+		if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(name))
+			return c.json({ error: "That's not a domain." }, 422);
+		const [taken] = await db
+			.select({ userId: domain.userId })
+			.from(domain)
+			.where(and(eq(domain.name, name), isNotNull(domain.verifiedAt)));
+		if (taken) return c.json({ error: `${name} is already set up with Nouvex.` }, 422);
+		const [mine] = await db
+			.select()
+			.from(domain)
+			.where(and(eq(domain.name, name), eq(domain.userId, c.get("userId"))));
+		if (mine) return c.json(shown(mine), 201);
+		const key = await dkimKey();
+		const [row] = await db
+			.insert(domain)
+			.values({
+				id: crypto.randomUUID(),
+				userId: c.get("userId"),
+				name,
+				verifyToken: crypto.getRandomValues(new Uint8Array(16)).toHex(),
+				dkimPublic: key.publicKey,
+				dkimPrivate: await seal(key.privateKey),
+			})
+			.returning();
+		if (!row) throw new Error("domain not added");
+		return c.json(shown(row), 201);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/domains/{domainId}/check",
+		operationId: "checkDomain",
+		request: { params: DomainParam },
+		responses: {
+			200: {
+				description: "Its DNS as the internet sees it now",
+				content: { "application/json": { schema: DomainOut } },
+			},
+			404: { description: "Not the user's" },
+		},
+	}),
+	async (c) => {
+		const d = await ownDomain(c.get("userId"), c.req.valid("param").domainId);
+		if (!d) return c.body(null, 404);
+		return c.json(shown(await recheck(d)), 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/domains/{domainId}/cloudflare",
+		operationId: "setUpDomainInCloudflare",
+		description:
+			"Adds the records with a Cloudflare API token (Zone DNS edit), used for this request only and never kept.",
+		request: {
+			params: DomainParam,
+			body: {
+				content: {
+					"application/json": {
+						// replaceMx moves where the domain's mail goes: other MX records are removed.
+						schema: z.object({ token: z.string().min(1), replaceMx: z.boolean() }),
+					},
+				},
+			},
+		},
+		responses: {
+			200: {
+				description: "What was done per record, then checked",
+				content: {
+					"application/json": {
+						schema: z.object({
+							applied: z.record(z.string(), z.enum(["created", "updated", "there", "conflict"])),
+							domain: DomainOut,
+						}),
+					},
+				},
+			},
+			404: { description: "Not the user's" },
+			422: { description: "Cloudflare refused", content: Problem },
+		},
+	}),
+	async (c) => {
+		const d = await ownDomain(c.get("userId"), c.req.valid("param").domainId);
+		if (!d) return c.body(null, 404);
+		const { token, replaceMx } = c.req.valid("json");
+		try {
+			const applied = await applyCloudflare(cloudflare(token, dnsDeps.fetch), d.name, records(d), replaceMx);
+			return c.json({ applied, domain: shown(await recheck(d)) }, 200);
+		} catch (e) {
+			return c.json({ error: e instanceof Error ? e.message : "Cloudflare refused." }, 422);
+		}
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "patch",
+		path: "/domains/{domainId}",
+		operationId: "updateDomain",
+		request: {
+			params: DomainParam,
+			body: {
+				content: {
+					"application/json": {
+						// Mail to an address nobody has goes to this mailbox instead of being refused; null refuses it.
+						schema: z.object({ catchAllAccountId: z.string().nullable() }),
+					},
+				},
+			},
+		},
+		responses: {
+			200: { description: "Changed", content: { "application/json": { schema: DomainOut } } },
+			404: { description: "Not the user's" },
+			422: { description: "Not a hosted mailbox of the user", content: Problem },
+		},
+	}),
+	async (c) => {
+		const d = await ownDomain(c.get("userId"), c.req.valid("param").domainId);
+		if (!d) return c.body(null, 404);
+		const { catchAllAccountId } = c.req.valid("json");
+		if (catchAllAccountId) {
+			const [mine] = await db
+				.select({ id: mailAccount.id })
+				.from(mailAccount)
+				.where(
+					and(
+						eq(mailAccount.id, catchAllAccountId),
+						eq(mailAccount.userId, c.get("userId")),
+						eq(mailAccount.kind, "hosted"),
+					),
+				);
+			if (!mine) return c.json({ error: "Pick one of your mailboxes Nouvex hosts." }, 422);
+		}
+		const [row] = await db.update(domain).set({ catchAllAccountId }).where(eq(domain.id, d.id)).returning();
+		return c.json(shown(row ?? d), 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/domains/{domainId}",
+		operationId: "removeDomain",
+		request: { params: DomainParam },
+		responses: {
+			204: { description: "Removed" },
+			404: { description: "Not the user's" },
+			409: { description: "Mailboxes or aliases still use it", content: Problem },
+		},
+	}),
+	async (c) => {
+		const d = await ownDomain(c.get("userId"), c.req.valid("param").domainId);
+		if (!d) return c.body(null, 404);
+		const [used] = await db.select().from(addressTable).where(eq(addressTable.domainId, d.id)).limit(1);
+		if (used) return c.json({ error: "Remove its mailboxes and aliases first." }, 409);
+		await db.delete(domain).where(eq(domain.id, d.id));
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/aliases",
+		operationId: "addAlias",
+		description: "Another address of a hosted mailbox, on one of the user's verified domains.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: { content: { "application/json": { schema: z.object({ address: z.email() }) } } },
+		},
+		responses: { 204: { description: "Added" }, 422: { description: "Not possible", content: Problem } },
+	}),
+	async (c) => {
+		const { accountId } = c.req.valid("param");
+		const address = c.req.valid("json").address.toLowerCase();
+		const [acc] = await db.select({ kind: mailAccount.kind }).from(mailAccount).where(eq(mailAccount.id, accountId));
+		if (acc?.kind !== "hosted") return c.json({ error: "Only mailboxes Nouvex hosts have aliases." }, 422);
+		const on = await verifiedDomain(c.get("userId"), address);
+		if (!on) return c.json({ error: "Add and verify this address's domain first (Settings, Domains)." }, 422);
+		const added = await db
+			.insert(addressTable)
+			.values({ address, accountId, domainId: on.id, kind: "alias" })
+			.onConflictDoNothing()
+			.returning();
+		if (!added.length) return c.json({ error: `${address} is taken.` }, 422);
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/accounts/{accountId}/aliases/{address}",
+		operationId: "removeAlias",
+		request: { params: z.object({ accountId: z.string(), address: z.string() }) },
+		responses: { 204: { description: "Removed; mail to it is refused from now on" } },
+	}),
+	async (c) => {
+		const { accountId, address } = c.req.valid("param");
+		await db
+			.delete(addressTable)
+			.where(
+				and(
+					eq(addressTable.accountId, accountId),
+					eq(addressTable.address, address.toLowerCase()),
+					eq(addressTable.kind, "alias"),
+				),
+			);
+		return c.body(null, 204);
 	},
 );
 
@@ -1291,6 +1679,7 @@ const Outgoing = z
 			.describe("The draft it was written in, the key of the send: a draft goes out once, however often it's sent"),
 		sendAt: z.iso.datetime().optional(),
 		attachments: Attachments.optional(),
+		from: z.email().optional().describe("An alias of a hosted account to send from; the engine checks it's theirs"),
 	})
 	.refine((m) => m.to.length + m.cc.length + m.bcc.length > 0, "Nobody to send it to")
 	.refine((m) => m.to.length + m.cc.length + m.bcc.length <= 100, "At most 100 recipients");
@@ -1334,6 +1723,27 @@ app.openapi(
 		const { js } = await nats();
 		await js.publish("cmd.message.send", JSON.stringify(cmd));
 		return c.json({ draftId: cmd.draftId }, 202);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/unsend",
+		operationId: "unsendMessage",
+		description:
+			"Takes a sent message back out of the Nouvex mailboxes it went into directly. Mail that left Nouvex can't come back.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: { content: { "application/json": { schema: z.object({ messageId: z.string().min(1).max(998) }) } } },
+		},
+		responses: { 202: { description: "Queued" } },
+	}),
+	async (c) => {
+		const cmd: MessageUnsend = { accountId: c.req.valid("param").accountId, messageId: c.req.valid("json").messageId };
+		const { js } = await nats();
+		await js.publish("cmd.message.unsend", JSON.stringify(cmd));
+		return c.body(null, 202);
 	},
 );
 
