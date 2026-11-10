@@ -33,7 +33,7 @@ export type Draft = {
 	saved?: boolean;
 };
 
-type Sender = { id: string; email: string; signature: string };
+type Sender = { id: string; email: string; signature: string; aliases?: string[] };
 
 // The account last used to write to someone, from the newest mail in every Sent folder.
 async function lastFrom(to: string) {
@@ -105,6 +105,12 @@ export function Write({
 	// or a saved draft keeps its account.
 	const [sender, setSender] = useState(from);
 	const senderId = useRef(from?.id);
+	// An alias of a hosted sender to send from instead of its own address.
+	const [alias, setAlias] = useState<string>();
+	const fromOptions = accounts.flatMap((a) => [
+		{ value: a.id, label: a.email },
+		...(a.aliases ?? []).map((x) => ({ value: `${a.id} ${x}`, label: x })),
+	]);
 	const picked = useRef(!!draft.accountId);
 	const firstTo = useRef<string>(undefined);
 	const saved = useRef(!!draft.saved);
@@ -237,6 +243,7 @@ export function Write({
 				draftId,
 				sendAt: m.sendAt?.toISOString(),
 				attachments,
+				from: alias,
 			}),
 		}).catch(() => undefined);
 		if (!res?.ok) {
@@ -301,22 +308,24 @@ export function Write({
 					variant="plain"
 					contacts={contacts}
 					from={
-						accounts.length > 1 ? (
+						fromOptions.length > 1 ? (
 							<>
 								<span>From</span>
 								<Select.Root
-									value={sender?.id}
-									onValueChange={(id) => {
+									value={alias ? `${sender?.id} ${alias}` : sender?.id}
+									onValueChange={(value) => {
+										const [id, as] = String(value ?? "").split(" ");
 										picked.current = true;
 										if (id) switchTo(id);
+										setAlias(as);
 									}}
-									items={accounts.map((a) => ({ value: a.id, label: a.email }))}
+									items={fromOptions}
 								>
 									<Select.Trigger variant="text" aria-label="From" />
 									<Select.Popup>
-										{accounts.map((a) => (
-											<Select.Item key={a.id} value={a.id}>
-												{a.email}
+										{fromOptions.map((o) => (
+											<Select.Item key={o.value} value={o.value}>
+												{o.label}
 											</Select.Item>
 										))}
 									</Select.Popup>

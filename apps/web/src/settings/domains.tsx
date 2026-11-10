@@ -22,6 +22,7 @@ export type Domain = {
 	verified: boolean;
 	catchAllAccountId: string | null;
 	checkedAt: string | null;
+	sesStatus: string | null;
 	records: DnsRecord[];
 };
 
@@ -37,6 +38,15 @@ const purpose: Record<string, string> = {
 	dmarc: "Tells receivers what to do with mail that fails both",
 	bounce: "Brings bounces back to Nouvex",
 	bounceSpf: "Lets Amazon SES send from the bounce domain",
+};
+
+// What Amazon SES's status means for someone sending from the domain.
+const sending = (status: string | null) => {
+	if (status === "ready") return "Ready: mail from this domain goes out signed with its own key.";
+	if (status === null) return "Being set up with Amazon SES. Check again in a minute.";
+	if (status === "not set up on this server") return "Sending outside Nouvex isn't set up on this server yet.";
+	if (status.startsWith("failed: ")) return `Amazon SES refused it: ${status.slice(8)}`;
+	return `Amazon SES is ${status}. Check again in a few minutes.`;
 };
 
 const problem = async (res: Response) =>
@@ -76,6 +86,7 @@ function DomainPage({ domain: d }: { domain: Domain }) {
 						Check now
 					</Button>
 				</Settings.Row>
+				{d.verified && <Settings.Row id="sending" label="Sending" hint={sending(d.sesStatus)} />}
 				<Settings.Row id="cloudflare" label="Cloudflare" hint="Adds the records with a token, used once and not kept">
 					<Button onClick={() => setCf(true)}>Set up in Cloudflare</Button>
 				</Settings.Row>

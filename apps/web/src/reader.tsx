@@ -15,6 +15,7 @@ import {
 	ThreadMessage,
 	Tooltip,
 	useShortcut,
+	useToast,
 } from "@nouvex/ui";
 import { Archive, ChevronLeft, Mail, More, Star, StarFilled, Trash2 } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
@@ -70,6 +71,14 @@ export function Reader({
 	const [replyTo] = usePref("replyDefault");
 	const [classic, setClassic] = useState(false);
 	const newest = messages.at(-1);
+	const toast = useToast();
+	// Sent from a mailbox Nouvex hosts: what went straight into Nouvex mailboxes can be taken back.
+	const hostedSender = accounts.data?.find(
+		(a) =>
+			a.kind === "hosted" &&
+			a.id === newest?.accountId &&
+			[a.email, ...a.aliases].some((x) => x.toLowerCase() === newest?.fromAddr.toLowerCase()),
+	);
 	const actions = (
 		<div className="flex gap-1">
 			{newest?.unsubscribe && (
@@ -115,6 +124,27 @@ export function Reader({
 						</Menu.Popup>
 					</Menu.SubmenuRoot>
 					<Menu.Item onClick={() => onSpam(!newest?.spam)}>{newest?.spam ? "Not spam" : "Report spam"}</Menu.Item>
+					{hostedSender && newest && (
+						<Menu.Item
+							onClick={async () => {
+								const res = await fetch(`/accounts/${newest.accountId}/unsend`, {
+									method: "POST",
+									headers: { "content-type": "application/json" },
+									body: JSON.stringify({ messageId: newest.messageId }),
+								});
+								toast.add(
+									res.ok
+										? {
+												title: "Taken back from Nouvex mailboxes",
+												description: "Copies that left Nouvex stay where they went.",
+											}
+										: { title: "Couldn't take it back" },
+								);
+							}}
+						>
+							Unsend from Nouvex mailboxes
+						</Menu.Item>
+					)}
 				</Menu.Popup>
 			</Menu.Root>
 		</div>
@@ -128,7 +158,7 @@ export function Reader({
 	if (!newest) return null;
 
 	// Replies answer the newest message. When that's one of ours, they go to whoever it went to.
-	const mine = new Set(accounts.data?.map((a) => a.email.toLowerCase()));
+	const mine = new Set(accounts.data?.flatMap((a) => [a.email, ...(a.aliases ?? [])].map((x) => x.toLowerCase())));
 	const ours = mine.has(newest.fromAddr.toLowerCase());
 	const others = [...new Set([newest.fromAddr, ...newest.to, ...newest.cc])].filter((a) => !mine.has(a.toLowerCase()));
 	// The body is waited for, so the quote is there; one that won't load is quoted by its preview.
