@@ -74,7 +74,7 @@ func (b *Bucket) Remove(ctx context.Context, key string) error {
 
 // Drop removes a message's body, designed version and attachments.
 func (b *Bucket) Drop(ctx context.Context, id string) error {
-	keys := []string{"body/" + id + ".html", "rich/" + id + ".html"}
+	keys := []string{"body/" + id + ".html", "rich/" + id + ".html", "eml/" + id}
 	for o := range b.c.ListObjects(ctx, b.name, minio.ListObjectsOptions{Prefix: "att/" + id + "/", Recursive: true}) {
 		if o.Err != nil {
 			return o.Err
@@ -89,10 +89,14 @@ func (b *Bucket) Drop(ctx context.Context, id string) error {
 // it before taking commands.
 func (b *Bucket) Sweep(ctx context.Context, q *db.Queries) error {
 	byID := map[string][]string{}
-	for _, prefix := range []string{"raw/", "body/", "rich/", "att/"} {
+	for _, prefix := range []string{"raw/", "body/", "rich/", "att/", "eml/"} {
 		for o := range b.c.ListObjects(ctx, b.name, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
 			if o.Err != nil {
 				return o.Err
+			}
+			// Parts are stored before their row: a message being stored right now isn't an orphan.
+			if time.Since(o.LastModified) < time.Hour {
+				continue
 			}
 			id := strings.TrimPrefix(o.Key, prefix)
 			id, _, _ = strings.Cut(id, "/")

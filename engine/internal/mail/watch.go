@@ -59,7 +59,8 @@ func watch(ctx context.Context, q *db.Queries, master []byte, accountID string, 
 	if err != nil {
 		return err
 	}
-	if acc.ArchivedAt.Valid {
+	// Hosted mail comes from our MX, not from a server to watch.
+	if acc.ArchivedAt.Valid || acc.Kind == "hosted" {
 		return errArchived
 	}
 	pass, err := secret.Open(master, acc.Secret)

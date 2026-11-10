@@ -281,6 +281,9 @@ func SaveSent(ctx context.Context, q *db.Queries, master []byte, accountID strin
 	if err != nil || keepsSent(acc.SmtpHost) {
 		return err
 	}
+	if acc.Kind == "hosted" {
+		return storeHosted(ctx, acc, "sent", "", raw, imap.FlagSeen)
+	}
 	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
 		return err

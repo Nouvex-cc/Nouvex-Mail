@@ -25,6 +25,10 @@ export const mailAccount = pgTable("mail_account", {
 		.notNull()
 		.references(() => user.id, { onDelete: "cascade" }),
 	email: text("email").notNull(),
+	// imap: a mailbox elsewhere that the engine syncs. hosted: mail lives only with us, received by our MX; its folders
+	// are local and its mail is sealed to the account's own key (account_key), so sharing and resets keep it.
+	// ponytail: hosted rows leave the IMAP and SMTP columns empty rather than splitting the table.
+	kind: text("kind").$type<"imap" | "hosted">().notNull().default("imap"),
 	// What recipients see next to the address, and what new messages end with.
 	displayName: text("display_name").notNull().default(""),
 	signature: text("signature").notNull().default(""),
@@ -102,6 +106,40 @@ export const userKey = pgTable("user_key", {
 	wrappedPrivate: bytea("wrapped_private").notNull(),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// A hosted account's public keys: new mail is sealed to the newest (mail_account.sealed_to), older mail stays on the
+// version it was sealed to. A new version follows when someone loses access.
+export const accountKey = pgTable(
+	"account_key",
+	{
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		version: integer("version").notNull(),
+		publicKey: bytea("public_key").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.accountId, t.version] })],
+);
+
+// Who can read a hosted account: its private key, wrapped by a device to the member's own public key (user_key). The
+// owner has a row too. A grant without a key waits for a member's device to wrap one.
+export const accountMember = pgTable(
+	"account_member",
+	{
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		role: text("role").$type<"owner" | "member">().notNull(),
+		keyVersion: integer("key_version").notNull(),
+		wrappedKey: bytea("wrapped_key"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.accountId, t.userId, t.keyVersion] }), index().on(t.userId)],
+);
 
 export const mailbox = pgTable(
 	"mailbox",

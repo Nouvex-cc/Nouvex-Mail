@@ -40,7 +40,9 @@ INSERT INTO contact (user_id, hash) SELECT $1, unnest(sqlc.arg(hashes)::text[]) 
 SELECT sender, category, spam FROM sender_rule WHERE user_id = $1;
 
 -- name: GetUserKey :one
-SELECT k.public_key FROM user_key k JOIN mail_account a ON a.user_id = k.user_id WHERE a.id = $1;
+-- The key an account's new mail is sealed to: the user's own, or a hosted account's own key (account_key), which its
+-- members' devices open.
+SELECT (CASE WHEN a.kind = 'hosted' THEN a.sealed_to ELSE k.public_key END)::bytea FROM user_key k JOIN mail_account a ON a.user_id = k.user_id WHERE a.id = $1;
 
 -- name: SetSealedTo :exec
 UPDATE mail_account SET sealed_to = $2 WHERE id = $1;
@@ -150,13 +152,36 @@ LIMIT 1;
 SELECT * FROM mail_account WHERE user_id = $1 AND archived_at IS NULL ORDER BY position, created_at LIMIT 1;
 
 -- name: LocalMailbox :one
-SELECT * FROM mailbox WHERE account_id = $1 AND local;
+SELECT * FROM mailbox WHERE account_id = $1 AND local AND role = $2 LIMIT 1;
 
 -- name: CreateLocalMailbox :exec
-INSERT INTO mailbox (id, account_id, name, role, uid_validity, local) VALUES ($1, $2, $3, 'inbox', 1, true);
+INSERT INTO mailbox (id, account_id, name, role, uid_validity, local) VALUES ($1, $2, $3, $4, 1, true);
 
--- name: HasMessage :one
-SELECT EXISTS (SELECT FROM message WHERE account_id = $1 AND message_id = $2);
+-- name: HasMessageIn :one
+SELECT EXISTS (SELECT FROM message WHERE mailbox_id = $1 AND message_id = $2);
+
+-- name: LockAccount :exec
+-- Held until the transaction ends, so two engines storing into one account don't hand out the same UID.
+SELECT pg_advisory_xact_lock(hashtext(sqlc.arg(account_id)::text));
+
+-- name: DeleteByMessageID :many
+-- Removes every message with this Message-ID from a folder, like a draft's earlier versions.
+DELETE FROM message WHERE mailbox_id = $1 AND message_id = $2 RETURNING id;
+
+-- name: MoveLocalMessage :exec
+-- Moves a message to the account's local folder with this role, at the end of it, and logs the change.
+WITH target AS (
+  SELECT id FROM mailbox WHERE account_id = sqlc.arg(account_id) AND local AND role = sqlc.arg(role) LIMIT 1
+), moved AS (
+  UPDATE message SET mailbox_id = target.id,
+    uid = (SELECT coalesce(max(uid), 0) + 1 FROM message WHERE mailbox_id = target.id)
+  FROM target WHERE message.id = sqlc.arg(id) AND message.account_id = sqlc.arg(account_id) AND message.mailbox_id <> target.id
+  RETURNING message.id
+), v AS (
+  UPDATE mail_account SET version = version + 1 WHERE id = sqlc.arg(account_id) AND EXISTS (SELECT FROM moved) RETURNING version
+)
+INSERT INTO change_log (account_id, version, entity, entity_id, op)
+SELECT sqlc.arg(account_id), v.version, 'message', sqlc.arg(id), 'upsert' FROM v;
 
 -- name: DeleteLocalMessage :exec
 -- Removes a message and logs it, for mail that only lives in Nouvex.

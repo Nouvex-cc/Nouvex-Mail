@@ -40,7 +40,10 @@ func Update(ctx context.Context, q *db.Queries, master []byte, cmd msg.MessageUp
 		}
 	}
 	if place.Local {
-		return updateLocal(ctx, q, cmd, place.Flags)
+		if err := updateLocal(ctx, q, cmd, place.Flags, acc.Kind == "hosted"); err != nil || acc.Kind != "hosted" {
+			return err
+		}
+		return moveHosted(ctx, q, cmd, place.Role)
 	}
 	// Only spam that sits in the inbox, or not spam that sits in the junk folder, moves on the server.
 	if cmd.Spam != nil && *cmd.Spam == (place.Role == "junk") {
@@ -199,11 +202,12 @@ func specialFolder(c *imapclient.Client, want, create string) (string, error) {
 	return create, c.Create(create, nil).Wait()
 }
 
-// updateLocal changes mail that only lives in Nouvex, in the database alone: read and starred set its flags,
-// archiving or deleting removes it. Snoozing doesn't apply.
+// updateLocal changes mail that only lives in Nouvex, in the database alone: read and starred set its flags. A
+// seeded announcement in an IMAP account has no folders to move to, so archiving or deleting removes it; a hosted
+// account's message moves afterwards (moveHosted).
 // ponytail: a removed message's parts stay in the bucket until the engine's next start sweeps them.
-func updateLocal(ctx context.Context, q *db.Queries, cmd msg.MessageUpdate, flags []string) error {
-	if (cmd.Archive != nil && *cmd.Archive) || (cmd.Trash != nil && *cmd.Trash) {
+func updateLocal(ctx context.Context, q *db.Queries, cmd msg.MessageUpdate, flags []string, hosted bool) error {
+	if !hosted && ((cmd.Archive != nil && *cmd.Archive) || (cmd.Trash != nil && *cmd.Trash)) {
 		return q.DeleteLocalMessage(ctx, db.DeleteLocalMessageParams{ID: cmd.MessageId, AccountID: cmd.AccountId})
 	}
 	set := map[imap.Flag]bool{}
