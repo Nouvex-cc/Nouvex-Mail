@@ -95,3 +95,10 @@ test("filters", () => {
 	expect(matches(m, q("", ["to", "mateo"]))).toBe(true);
 	expect(matches(m, q("", ["to", "lena@hartmann.example"]))).toBe(false);
 });
+
+test("the word itself comes before a word it's only part of, wherever it is", () => {
+	const part = { ...m, id: "part", subject: "Ihre Paketankündigung", snippet: "", sentAt: "2026-10-09T09:00:00" };
+	const word = { ...m, id: "word", subject: "Hallo", snippet: "Ihre Kündigung ist da", sentAt: "2026-10-01T09:00:00" };
+	expect(find(index([part, word]), q("kündigung"), box).map((f) => f.id)).toEqual(["word", "part"]);
+	expect(likeness("rechnungen", "rechnung")).toBe(3);
+});

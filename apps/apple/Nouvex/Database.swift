@@ -281,10 +281,14 @@ extension Conversation {
         guard !typed.isEmpty else { return try fetch(db, clauses.joined(separator: " AND "), StatementArguments(args)) }
         // The index finds every word that starts with what was typed; the list of all its words adds those it's
         // inside of or a typo away from, so every typed word has to be in the mail one of these ways.
-        let terms = try vocabulary(db)
-        let match = typed.map { t in
-            let close = terms.lazy.map { ($0, Search.likeness(t, $0)) }.filter { $0.1 == 1 || $0.1 == 2 }
-            let words = ["\"\(t)\"*"] + close.sorted { $0.1 > $1.1 }.prefix(200).map { "\"\($0.0)\"" }
+        let known = try vocabulary(db)
+        let wanted = typed.map(Search.Term.init)
+        let match = wanted.map { t in
+            let close = known.compactMap { w -> (String, Int)? in
+                let l = Search.likeness(t, w)
+                return l == 1 || l == 2 || (l == 3 && w.bytes.count < t.bytes.count) ? (w.text, l) : nil
+            }
+            let words = ["\"\(t.text)\"*"] + close.sorted { $0.1 > $1.1 }.prefix(200).map { "\"\($0.0)\"" }
             return "(\(words.joined(separator: " OR ")))"
         }
         clauses.append("rowid IN (SELECT rowid FROM messageSearch WHERE messageSearch MATCH ?)")
@@ -293,16 +297,17 @@ extension Conversation {
         let rows = try Message.filter(sql: clauses.joined(separator: " AND "), arguments: StatementArguments(args))
             .order(Column("sentAt").desc).limit(2000).fetchAll(db)
         // Best fit first, newest first among equals.
-        let scored = rows.map { ($0, Search.score(typed, sender: "\($0.fromName) \($0.fromAddr)", subject: $0.subject, snippet: $0.snippet)) }
-        return group(scored.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.sentAt > $1.0.sentAt }.map(\.0))
+        let scored = rows.map { ($0, Search.score(wanted, sender: "\($0.fromName) \($0.fromAddr)", subject: $0.subject, snippet: $0.snippet)) }
+        // ponytail: the best 200 conversations; a longer list only costs redraws, nobody reads that far.
+        return Array(group(scored.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.sentAt > $1.0.sentAt }.map(\.0)).prefix(200))
     }
 
     // Every word in the index, read again at most every half minute: new mail is still found by how its words
     // start, only typos and word parts in it wait for the next read.
-    private static let terms = Mutex<(read: Date, terms: [String])>((.distantPast, []))
-    private static func vocabulary(_ db: GRDB.Database) throws -> [String] {
+    private static let terms = Mutex<(read: Date, terms: [Search.Term])>((.distantPast, []))
+    private static func vocabulary(_ db: GRDB.Database) throws -> [Search.Term] {
         if let fresh = terms.withLock({ $0.read.timeIntervalSinceNow > -30 ? $0.terms : nil }) { return fresh }
-        let list = try String.fetchAll(db, sql: "SELECT term FROM messageTerm")
+        let list = try String.fetchAll(db, sql: "SELECT term FROM messageTerm").map(Search.Term.init)
         terms.withLock { $0 = (.now, list) }
         return list
     }

@@ -21,8 +21,6 @@ struct MailList: View {
     @State private var selection = Set<String>()
     /// Filters picked in the search field, like the web's chips.
     @State private var tokens: [SearchToken] = []
-    /// People whose mail matches what's typed, offered as "From …".
-    @State private var people: [SearchToken] = []
     /// Where a shift-click range starts.
     @State private var anchor: String?
     /// Conversations a new mail just came into; they light up for a moment.
@@ -62,14 +60,8 @@ struct MailList: View {
         }
         .animation(.quick, value: selection.isEmpty)
         #endif
-        .searchable(text: $query, tokens: $tokens, prompt: "Search mail") { Label($0.title, systemImage: $0.icon) }
-        .searchSuggestions {
-            ForEach(SearchToken.suggestions(for: query, people: people, archived: mail.accounts.contains(where: \.archived))) {
-                Label($0.title, systemImage: $0.icon).searchCompletion($0)
-            }
-        }
-        .task(id: query) { await suggestPeople() }
-        .searchFocused(searching)
+        .environment(\.marks, query.split(separator: " ").filter { !$0.contains(":") }.flatMap { Search.terms(String($0)) })
+        .modifier(SearchBox(query: $query, tokens: $tokens, focused: searching))
         .task(id: [AnyHashable(mail.folder), AnyHashable(mail.inView.map(\.id)), AnyHashable(query), AnyHashable(tokens)]) { await observe() }
         #if os(iOS)
         .toolbar { toolbar }
@@ -336,12 +328,6 @@ struct MailList: View {
         Button("Delete", role: .destructive) { act(c) { mail.update(c.messages, trash: true) } }
     }
 
-    private func suggestPeople() async {
-        let typed = query.trimmingCharacters(in: .whitespaces)
-        guard typed.count > 1, (try? await Task.sleep(for: .milliseconds(100))) != nil else { return people = [] }
-        people = await Store.people(matching: typed, limit: 4).map { SearchToken.from($0.address, $0.name) }
-    }
-
     private func observe() async {
         let folder = mail.folder
         let categories = mail.prefs.categories
@@ -349,8 +335,6 @@ struct MailList: View {
         // in:archived in All inboxes looks into archived accounts too.
         let all = mail.scope == nil && query.split(separator: " ").contains("in:archived")
         let accounts = (all ? mail.accounts : mail.inView).map(\.id)
-        // Waits for typing to pause before searching.
-        if !query.isEmpty, (try? await Task.sleep(for: .milliseconds(150))) == nil { return }
         let fetch: @Sendable (GRDB.Database) throws -> [Conversation] = { db in
             query.isEmpty ? try folder.conversations(db, categories: categories, accounts: accounts) : try Conversation.search(db, query, accounts: accounts)
         }
@@ -394,6 +378,7 @@ struct ConversationRow: View {
     var fresh = false
     var pick: (() -> Void)?
     @State private var hovered = false
+    @Environment(\.marks) private var marks
 
     var body: some View {
         let m = conversation.latest
@@ -428,7 +413,7 @@ struct ConversationRow: View {
             Dot(on: unread).alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(who).font(.lg.weight(unread ? .semibold : .regular)).foregroundStyle(tint ?? .ink).lineLimit(1)
+                    Text(Search.marked(who, marks)).font(.lg.weight(unread ? .semibold : .regular)).foregroundStyle(tint ?? .ink).lineLimit(1)
                     if conversation.messages.count > 1 {
                         Text("\(conversation.messages.count)").font(.xs).foregroundStyle(.muted)
                     }
@@ -437,12 +422,12 @@ struct ConversationRow: View {
                     if m.attachments > 0 { Image(systemName: "paperclip").font(.xs).foregroundStyle(.muted) }
                     Text(m.sentAt.mailDate).font(.sm).foregroundStyle(unread ? .ink : .muted)
                 }
-                Text(m.subject.isEmpty ? "(No subject)" : m.subject)
+                Text(Search.marked(m.subject.isEmpty ? "(No subject)" : m.subject, marks))
                     .fontWeight(unread ? .medium : .regular)
                     .foregroundStyle(.ink)
                     .lineLimit(1)
                 if !m.snippet.isEmpty {
-                    Text(m.snippet).font(.sm).foregroundStyle(.muted).lineLimit(2)
+                    Text(Search.marked(m.snippet, marks)).font(.sm).foregroundStyle(.muted).lineLimit(2)
                 }
             }
         }
@@ -464,7 +449,7 @@ struct ConversationRow: View {
             }
             Dot(on: unread)
             HStack(spacing: 6) {
-                Text(who)
+                Text(Search.marked(who, marks))
                     .fontWeight(unread ? .semibold : .regular)
                     .foregroundStyle(tint ?? (unread ? .ink : .muted))
                     .lineLimit(1)
@@ -473,10 +458,10 @@ struct ConversationRow: View {
                 }
             }
             .frame(width: 160, alignment: .leading)
-            let subject = Text(m.subject.isEmpty ? "(No subject)" : m.subject)
+            let subject = Text(Search.marked(m.subject.isEmpty ? "(No subject)" : m.subject, marks))
                 .fontWeight(unread ? .semibold : .regular)
                 .foregroundStyle(unread ? .ink : .muted)
-            Text("\(subject)\(Text(m.snippet.isEmpty ? "" : " · \(m.snippet)").foregroundStyle(.muted))")
+            Text("\(subject)\(Text(Search.marked(m.snippet.isEmpty ? "" : " · \(m.snippet)", marks)).foregroundStyle(.muted))")
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             if m.attachments > 0 { Image(systemName: "paperclip").font(.xs).foregroundStyle(.muted) }
@@ -540,8 +525,126 @@ private struct SyncLine: View {
     }
 }
 
+extension Search {
+    /// The text with the words that were found stressed, so a result shows why it's there.
+    static func marked(_ text: String, _ typed: [Term]) -> AttributedString {
+        var out = AttributedString(text)
+        guard !typed.isEmpty else { return out }
+        for part in text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            let found = terms(String(part)).contains { w in typed.contains { likeness($0, w) > 0 } }
+            guard found, let range = Range(part.startIndex..<part.endIndex, in: out) else { continue }
+            out[range].inlinePresentationIntent = .stronglyEmphasized
+            out[range].foregroundColor = Color.ink
+        }
+        return out
+    }
+}
+
+extension EnvironmentValues {
+    /// The typed words, for rows to stress where they were found.
+    @Entry var marks: [Search.Term] = []
+}
+
+/// The search field on its own: a keystroke redraws this and not the list under it, which follows once typing pauses.
+private struct SearchBox: ViewModifier {
+    @Environment(Mail.self) private var mail
+    @Binding var query: String
+    @Binding var tokens: [SearchToken]
+    var focused: FocusState<Bool>.Binding
+    @State private var typed = ""
+    /// People whose mail matches the last word typed, offered as "From …".
+    @State private var people: [SearchToken] = []
+    @AppStorage(SearchToken.recentKey) private var recent = ""
+
+    private var offered: [SearchToken] {
+        SearchToken.suggestions(for: typed, people: people, archived: mail.accounts.contains(where: \.archived)).filter { !tokens.contains($0) }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            #if os(iOS)
+            .scrollDismissesKeyboard(.immediately)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // Not searchSuggestions: on a phone those cover the results.
+                SearchChips(offered: offered, recent: typed.isEmpty ? recent.split(separator: "\n").map(String.init) : []) { token in
+                    tokens.append(token)
+                    let kept = typed.split(separator: " ").filter { !token.covers(String($0)) }.joined(separator: " ")
+                    typed = kept.isEmpty ? "" : "\(kept) "
+                } again: { typed = $0 }
+            }
+            #endif
+            .searchable(text: $typed, tokens: $tokens, prompt: "Search mail") { Label($0.title, systemImage: $0.icon) }
+            #if os(macOS)
+            .searchSuggestions {
+                ForEach(offered) { Label($0.title, systemImage: $0.icon).searchCompletion($0) }
+            }
+            #endif
+            .searchFocused(focused)
+            .onSubmit(of: .search) { remember() }
+            .onChange(of: mail.thread) { _, thread in if thread != nil { remember() } }
+            .task(id: typed) { await follow() }
+    }
+
+    private func follow() async {
+        let text = typed.trimmingCharacters(in: .whitespaces)
+        // A single letter is in nearly every mail.
+        guard text.count != 1 else { return query = "" }
+        if !text.isEmpty, (try? await Task.sleep(for: .milliseconds(120))) == nil { return }
+        query = text
+        let last = text.split(separator: " ").last.map(String.init) ?? ""
+        people = last.count > 1 ? await Store.people(matching: last, limit: 4).map { SearchToken.from($0.address, $0.name) } : []
+    }
+
+    private func remember() {
+        guard query.count > 1 else { return }
+        let others = recent.split(separator: "\n").map(String.init).filter { $0.lowercased() != query.lowercased() }
+        recent = ([query] + others).prefix(6).joined(separator: "\n")
+    }
+}
+
+#if os(iOS)
+/// Under the search field while it's in use: filters that fit what's typed, and earlier searches while it's empty.
+private struct SearchChips: View {
+    @Environment(\.isSearching) private var active
+    let offered: [SearchToken]
+    let recent: [String]
+    let pick: (SearchToken) -> Void
+    let again: (String) -> Void
+
+    var body: some View {
+        if active, !offered.isEmpty || !recent.isEmpty {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(offered) { token in chip(token.title, token.icon) { pick(token) } }
+                    ForEach(recent, id: \.self) { text in chip(text, "clock") { again(text) } }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+            }
+            .scrollIndicators(.hidden)
+            .background(.paper)
+        }
+    }
+
+    private func chip(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.sm.weight(.medium))
+                .foregroundStyle(.muted)
+                .lineLimit(1)
+                .padding(.horizontal, 12).frame(height: 32)
+                .overlay(Capsule().strokeBorder(.line))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+#endif
+
 /// A filter in the search field, the way the web turns words into chips.
 enum SearchToken: Identifiable, Hashable {
+    /// Earlier searches, kept on this device until sign-out.
+    static let recentKey = "recentSearches"
+
     case unread, starred, attachment, archived
     case from(String, String)
     case since(Date, String)
@@ -582,30 +685,60 @@ enum SearchToken: Identifiable, Hashable {
         }
     }
 
+    // The words that ask for this filter, in the languages people type in.
+    private var keywords: [String] {
+        switch self {
+        case .unread: ["unread", "ungelesen"]
+        case .starred: ["starred", "markiert", "stern"]
+        case .attachment: ["attachments", "anhang", "anhänge"]
+        case .archived: ["archived", "archiviert"]
+        case .from, .since: []
+        }
+    }
+
+    /// Whether a typed word only asked for this filter, so picking it takes the word out of the field.
+    func covers(_ typed: String) -> Bool {
+        let word = typed.lowercased()
+        switch self {
+        case .from(let address, let name): return ["from", "von"].contains(word) || "\(name) \(address)".lowercased().contains(word)
+        case .since(_, let label): return ["since", "after", "seit", "last", "letzte", "letzten", "letzter"].contains(word) || label.lowercased().contains(word) || Self.day(word) != nil
+        case .attachment where ["with", "mit"].contains(word): return true
+        default: return word.count > 1 && keywords.contains { $0.hasPrefix(word) }
+        }
+    }
+
     /// The filters that fit what's typed (all of them while it's empty), dates it reads as one, and matching people.
     static func suggestions(for text: String, people: [SearchToken], archived: Bool) -> [SearchToken] {
         let typed = text.trimmingCharacters(in: .whitespaces).lowercased()
         let flags = [SearchToken.unread, .starred, .attachment] + (archived ? [.archived] : [])
         guard !typed.isEmpty else { return flags }
         let words = typed.split(separator: " ").map(String.init)
-        let matching = flags.filter { f in words.contains { f.title.lowercased().contains($0) } }
-        return matching + (day(typed).map { [$0] } ?? []) + people
+        let matching = flags.filter { f in words.contains { w in w.count > 1 && f.keywords.contains { $0.hasPrefix(w) } } }
+        let date = day(words.suffix(2).joined(separator: " ")) ?? day(words.last ?? "")
+        return matching + (date.map { [$0] } ?? []) + people
     }
 
     // A day in the past from a word: today, yesterday, a weekday (the last one), or a month (its first day).
     private static func day(_ word: String) -> SearchToken? {
         let cal = Calendar.current
         let today = cal.startOfDay(for: .now)
-        let word = word.replacingOccurrences(of: "since ", with: "").replacingOccurrences(of: "after ", with: "")
-        if word == "today" { return .since(today, "today") }
-        if word == "yesterday" { return .since(cal.date(byAdding: .day, value: -1, to: today)!, "yesterday") }
+        let word = ["since ", "after ", "seit "].reduce(word) { $0.replacingOccurrences(of: $1, with: "") }
+        if ["today", "heute"].contains(word) { return .since(today, "today") }
+        if ["yesterday", "gestern"].contains(word) { return .since(cal.date(byAdding: .day, value: -1, to: today)!, "yesterday") }
+        if ["last week", "letzte woche"].contains(word) { return .since(cal.date(byAdding: .day, value: -7, to: today)!, "a week ago") }
+        if ["last month", "letzter monat", "letzten monat"].contains(word) { return .since(cal.date(byAdding: .month, value: -1, to: today)!, "a month ago") }
+        // The device's language and English, whichever is typed.
+        let english = DateFormatter()
+        english.locale = Locale(identifier: "en")
         let weekdays = cal.weekdaySymbols.map { $0.lowercased() }
-        if let i = weekdays.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
+        let weekdayNames = english.weekdaySymbols.map { $0.lowercased() }
+        if let i = weekdays.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) ?? weekdayNames.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
             let back = (cal.component(.weekday, from: today) - 1 - i + 7) % 7
             return .since(cal.date(byAdding: .day, value: -(back == 0 ? 7 : back), to: today)!, cal.weekdaySymbols[i])
         }
         let months = cal.monthSymbols.map { $0.lowercased() }
-        if let i = months.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
+        let monthNames = english.monthSymbols.map { $0.lowercased() }
+        if let i = months.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) ?? monthNames.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
             var year = cal.component(.year, from: today)
             if i + 1 > cal.component(.month, from: today) { year -= 1 }
             return .since(cal.date(from: DateComponents(year: year, month: i + 1, day: 1))!, cal.monthSymbols[i])

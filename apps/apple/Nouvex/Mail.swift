@@ -193,6 +193,7 @@ struct Toast: Identifiable {
             UserDefaults.standard.removeObject(forKey: Pushes.tokenKey)
         }
         #endif
+        UserDefaults.standard.removeObject(forKey: SearchToken.recentKey)
         Keys.forget()
         unlocked = false
         await API.signOut()

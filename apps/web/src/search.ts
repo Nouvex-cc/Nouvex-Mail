@@ -33,19 +33,26 @@ function edits(a: string, b: string, max: number) {
 	return at(prev, b.length);
 }
 
-/** How well a typed word fits a word of the mail: 4 the same, 3 how it starts, 2 inside it ("rechnung" in
- * "stromrechnung"), 1 a typo away (two in long words, also while the word is still being typed), 0 not at all. */
+/** How well a typed word fits a word of the mail: 4 the same, 3 how it starts or the same word with an ending
+ * ("rechnungen" for "Rechnung"), 2 inside it ("rechnung" in "stromrechnung"), 1 a typo away (two in long words, also
+ * while the word is still being typed), 0 not at all. */
 export function likeness(typed: string, word: string) {
 	if (word === typed) return 4;
 	if (word.startsWith(typed)) return 3;
+	if (word.length >= 5 && typed.length > word.length && typed.length - word.length <= 3 && typed.startsWith(word))
+		return 3;
 	if (typed.length >= 3 && word.includes(typed)) return 2;
 	if (typed.length < 4) return 0;
 	const max = typed.length < 8 ? 1 : 2;
 	return edits(typed, word, max) <= max || edits(typed, word.slice(0, typed.length), max) <= max ? 1 : 0;
 }
 
-// A word in the sender counts most, then the subject, then the preview.
+// Within a tier a word in the sender counts most, then the subject, then the preview.
 const weight = [3, 2, 1] as const;
+
+// The word itself beats a word it's only part of, and that beats a typo, wherever in the mail each one is: a Kündigung
+// in the preview comes before a Paketankündigung in the subject.
+const tier = [0, 0, 1, 2, 2] as const;
 
 // Each message's words per field, split again only when its text changes, so syncing while searching stays cheap.
 let split = new Map<string, { key: string; fields: string[][] }>();
@@ -85,7 +92,7 @@ export function find({ all, places }: ReturnType<typeof index>, q: SearchQuery, 
 			if (!s) continue;
 			for (const p of list) {
 				const d = (p / 3) | 0;
-				best[d] = Math.max(best[d] ?? 0, s * (weight[p % 3] ?? 1));
+				best[d] = Math.max(best[d] ?? 0, (tier[s] ?? 0) * 1000 + s * (weight[p % 3] ?? 1));
 			}
 		}
 		// Every typed word has to be there.
