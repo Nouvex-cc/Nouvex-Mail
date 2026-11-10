@@ -376,7 +376,8 @@ struct MailList: View {
                 // New unread mail lights its conversation up: a new one, or one a reply pushed to the top.
                 let before = Dictionary(conversations.map { ($0.id, $0.latest.id) }, uniquingKeysWith: { a, _ in a })
                 let arrived = first ? [] : value.filter { before[$0.id] != $0.latest.id && !$0.latest.seen }.map(\.id)
-                withAnimation(first || still ? nil : .quick) { conversations = value }
+                // Results swapping in while someone types don't animate: 200 rows moving costs the keyboard frames.
+                withAnimation(first || still || !query.isEmpty ? nil : .quick) { conversations = value }
                 first = false
                 if !arrived.isEmpty {
                     fresh.formUnion(arrived)
@@ -598,7 +599,8 @@ private struct SearchBox: ViewModifier {
             .scrollDismissesKeyboard(.immediately)
             .safeAreaInset(edge: .top, spacing: 0) {
                 // Not searchSuggestions: on a phone those cover the results.
-                SearchChips(offered: offered, recent: typed.isEmpty ? recent.split(separator: "\n").map(String.init) : []) { token in
+                // The flags stay while nothing typed fits, so the bar under the field doesn't come and go per letter.
+                SearchChips(offered: offered.isEmpty ? SearchToken.suggestions(for: "", people: [], archived: false).filter { !tokens.contains($0) } : offered, recent: typed.isEmpty ? recent.split(separator: "\n").map(String.init) : []) { token in
                     tokens.append(token)
                     let kept = typed.split(separator: " ").filter { !token.covers(String($0)) }.joined(separator: " ")
                     typed = kept.isEmpty ? "" : "\(kept) "
@@ -621,7 +623,8 @@ private struct SearchBox: ViewModifier {
         let text = typed.trimmingCharacters(in: .whitespaces)
         // A single letter is in nearly every mail.
         guard text.count != 1 else { return query = "" }
-        if !text.isEmpty, (try? await Task.sleep(for: .milliseconds(120))) == nil { return }
+        // Long enough to sit between the letters of a word typed on a phone, so the list changes when typing pauses.
+        if !text.isEmpty, (try? await Task.sleep(for: .milliseconds(250))) == nil { return }
         query = text
         let last = text.split(separator: " ").last.map(String.init) ?? ""
         people = last.count > 1 ? await Store.people(matching: last, limit: 4).map { SearchToken.from($0.address, $0.name) } : []
@@ -760,6 +763,13 @@ enum SearchToken: Identifiable, Hashable {
         return matching + (date.map { [$0] } ?? []) + people
     }
 
+    // Made once: a DateFormatter per keystroke is what the keyboard feels.
+    private static let english = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en")
+        return (weekdays: f.weekdaySymbols.map { $0.lowercased() }, months: f.monthSymbols.map { $0.lowercased() })
+    }()
+
     // A day in the past from a word: today, yesterday, a weekday (the last one), or a month (its first day).
     private static func day(_ word: String) -> SearchToken? {
         let cal = Calendar.current
@@ -770,16 +780,14 @@ enum SearchToken: Identifiable, Hashable {
         if ["last week", "letzte woche"].contains(word) { return .since(cal.date(byAdding: .day, value: -7, to: today)!, "a week ago") }
         if ["last month", "letzter monat", "letzten monat"].contains(word) { return .since(cal.date(byAdding: .month, value: -1, to: today)!, "a month ago") }
         // The device's language and English, whichever is typed.
-        let english = DateFormatter()
-        english.locale = Locale(identifier: "en")
         let weekdays = cal.weekdaySymbols.map { $0.lowercased() }
-        let weekdayNames = english.weekdaySymbols.map { $0.lowercased() }
+        let weekdayNames = english.weekdays
         if let i = weekdays.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) ?? weekdayNames.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
             let back = (cal.component(.weekday, from: today) - 1 - i + 7) % 7
             return .since(cal.date(byAdding: .day, value: -(back == 0 ? 7 : back), to: today)!, cal.weekdaySymbols[i])
         }
         let months = cal.monthSymbols.map { $0.lowercased() }
-        let monthNames = english.monthSymbols.map { $0.lowercased() }
+        let monthNames = english.months
         if let i = months.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) ?? monthNames.firstIndex(where: { $0.hasPrefix(word) && word.count >= 3 }) {
             var year = cal.component(.year, from: today)
             if i + 1 > cal.component(.month, from: today) { year -= 1 }
