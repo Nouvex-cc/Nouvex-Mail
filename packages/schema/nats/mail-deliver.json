@@ -1,0 +1,16 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MailDeliver",
+	"description": "Command: our MX took a message for a hosted account; the engine seals and stores it (engine/internal/mx).",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string" },
+		"spoolKey": {
+			"type": "string",
+			"description": "Where the message waits, sealed with SECRETS_KEY: in/<id>/<accountId> in the bucket."
+		},
+		"spam": { "type": "boolean", "description": "rspamd would put it in junk." }
+	},
+	"required": ["accountId", "spoolKey", "spam"],
+	"additionalProperties": false
+}

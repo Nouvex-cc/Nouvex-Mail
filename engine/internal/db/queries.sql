@@ -240,3 +240,7 @@ SELECT id FROM mail_account WHERE user_id = $1 AND archived_at IS NULL;
 
 -- name: ListSorted :many
 SELECT id, uid, category, spam FROM message WHERE mailbox_id = $1 AND uid = ANY(sqlc.arg(uids)::bigint[]);
+
+-- name: HostedAccount :one
+-- The hosted mailbox our MX delivers an address to.
+SELECT id FROM mail_account WHERE kind = 'hosted' AND lower(email) = sqlc.arg(address)::text AND archived_at IS NULL LIMIT 1;

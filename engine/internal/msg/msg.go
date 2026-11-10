@@ -181,6 +181,44 @@ func (j *DraftSave) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Command: our MX took a message for a hosted account; the engine seals and stores
+// it (engine/internal/mx).
+type MailDeliver struct {
+	// AccountId corresponds to the JSON schema field "accountId".
+	AccountId string `json:"accountId"`
+
+	// rspamd would put it in junk.
+	Spam bool `json:"spam"`
+
+	// Where the message waits, sealed with SECRETS_KEY: in/<id>/<accountId> in the
+	// bucket.
+	SpoolKey string `json:"spoolKey"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *MailDeliver) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in MailDeliver: required")
+	}
+	if _, ok := raw["spam"]; raw != nil && !ok {
+		return fmt.Errorf("field spam in MailDeliver: required")
+	}
+	if _, ok := raw["spoolKey"]; raw != nil && !ok {
+		return fmt.Errorf("field spoolKey in MailDeliver: required")
+	}
+	type Plain MailDeliver
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = MailDeliver(plain)
+	return nil
+}
+
 // Command: API asks the engine to sync one account.
 type MailboxSync struct {
 	// AccountId corresponds to the JSON schema field "accountId".
