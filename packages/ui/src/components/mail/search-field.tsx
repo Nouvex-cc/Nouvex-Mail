@@ -187,6 +187,8 @@ export function SearchField({
 								}
 								setText(value);
 								setActive(0);
+								// Results follow the typing; Enter isn't needed.
+								onSearch({ text: value.trim(), filters: chips.map(({ key, value }) => ({ key, value })) });
 							}}
 							onKeyDown={(e) => {
 								if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {

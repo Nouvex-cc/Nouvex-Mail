@@ -12,6 +12,7 @@
 		"lint": "biome check .",
 		"typecheck": "tsc",
 		"test": "bun test",
+		"dark": "bun build src/mail-dark-start.ts --minify --target browser --format iife --banner \"// SPDX-License-Identifier: Apache-2.0\" --outfile ../../apps/apple/Nouvex/MailDark.js",
 		"icons": "bun scripts/icons.ts && biome format --write src/icons.tsx"
 	},
 	"dependencies": {

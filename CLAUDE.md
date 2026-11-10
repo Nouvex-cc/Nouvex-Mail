@@ -44,6 +44,7 @@ bun run db:migrate
 bun run gen                         # TS/Go types from packages/schema + sqlc
 bun run openapi                     # rewrite apps/apple/Nouvex/openapi.json
 bun run --cwd packages/rich runtime # rebuild runtime.js and its copy in apps/apple
+bun run --cwd packages/ui dark       # rebuild the mail dark engine's copy in apps/apple
 bun run --cwd apps/api announce mail.eml --to you@x  # seed a rich mail into Nouvex inboxes (docs/deploy.md)
 bun run e2e                         # e2e tests
 bun run --cwd apps/playground dev   # component playground on :5174

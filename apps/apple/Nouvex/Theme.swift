@@ -215,11 +215,17 @@ struct IconButton: View {
     let label: String
     let symbol: String
     var key: String?
+    /// A color of its own, like a set star's, instead of the quiet one.
+    var tint: Color?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 15))
+            if let tint {
+                Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(tint)
+            } else {
+                Image(systemName: symbol).font(.system(size: 15))
+            }
         }
         .buttonStyle(QuietButtonStyle(square: true))
         .help(key.map { "\(label) (\($0))" } ?? label)

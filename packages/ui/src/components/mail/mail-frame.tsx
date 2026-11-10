@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { useDark } from "../../dark";
 import { FileImage, Moon, Sun } from "../../icons";
 import { cn } from "../../lib";
+import { darken } from "../../mail-dark";
 
 export type MailFrameProps = {
 	html: string;
@@ -57,24 +58,24 @@ function appFont() {
 	return font;
 }
 
-// Mails that bring their own dark design say so in their CSS.
-const ownDark = /prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/i;
-
-// In a dark app, a mail with its own dark design gets to use it; any other mail is turned dark by inverting lightness
-// and turning hues back, the way Apple Mail does it. Pictures are inverted back so they look as sent; the slight
-// contrast cut keeps white from glaring.
-const flip = "invert(1) hue-rotate(180deg)";
+// In a dark app the mail starts from its light colors, and its own dark design if it has one, and darken() recolors it
+// for the surface it sits on.
 const looks = {
 	light: ":root { color-scheme: light; } html { background: oklch(0.993 0.002 75); color: #1f1d1b; }",
-	own: ":root { color-scheme: dark; } html { background: oklch(0.175 0.005 60); color: oklch(0.94 0.004 75); }",
-	// On body, not html: the page background behind html isn't filtered and would show as a white edge.
-	flipped: `:root { color-scheme: light; } html { background: oklch(0.175 0.005 60); }
-	body { background: #fff; color: #1f1d1b; filter: ${flip} contrast(0.82); }
-	img, picture, video, canvas, svg, [style*="background-image"], [background] { filter: ${flip}; }`,
+	dark: ":root { color-scheme: dark; } html { color: #1f1d1b; }",
 };
 
+// The color of whatever the frame sits on: the nearest thing around it that paints a background.
+function surfaceOf(el: HTMLElement) {
+	for (let at = el.parentElement; at; at = at.parentElement) {
+		const color = getComputedStyle(at).backgroundColor;
+		if (color !== "transparent" && !/\/ 0\)$|, 0\)$/.test(color)) return color;
+	}
+	return getComputedStyle(document.documentElement).getPropertyValue("--paper") || "#12100e";
+}
+
 // Inside the frame: readable defaults in the chosen look, quotes hidden until the toggle outside shows them.
-const base = ({ faces, stack }: { faces: string; stack: string }, look: keyof typeof looks) => `<style>
+const base = ({ faces, stack }: { faces: string; stack: string }, look: keyof typeof looks) => `<style data-nx>
 	${faces}
 	${looks[look]}
 	body { margin: 0; padding: 16px 20px; font: 16px/1.6 ${stack}; overflow-wrap: anywhere; }
@@ -163,7 +164,7 @@ function prepare(html: string, allow: boolean, proxy?: (url: string) => string) 
 export function MailFrame({ html, proxy, ask, onMailto, className }: MailFrameProps) {
 	const dark = useDark();
 	const [original, setOriginal] = useState(false);
-	const look = !dark || original ? "light" : ownDark.test(html) ? "own" : "flipped";
+	const look = !dark || original ? "light" : "dark";
 	// Through a proxy remote images can't reveal the reader, so they load right away.
 	const [allow, setAllow] = useState(proxy !== undefined && !ask);
 	const [showQuote, setShowQuote] = useState(false);
@@ -185,6 +186,7 @@ export function MailFrame({ html, proxy, ask, onMailto, className }: MailFramePr
 		d.open();
 		d.write(doc);
 		d.close();
+		if (look === "dark") darken(d, surfaceOf(el), getComputedStyle(el).color);
 		const fit = () => {
 			el.style.height = `${d.documentElement.scrollHeight}px`;
 		};
@@ -204,7 +206,7 @@ export function MailFrame({ html, proxy, ask, onMailto, className }: MailFramePr
 			cancelAnimationFrame(raf);
 			d.removeEventListener("click", click);
 		};
-	}, [doc]);
+	}, [doc, look]);
 
 	// Quotes toggle in place without rewriting the frame.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a rewritten frame needs the class again
@@ -242,10 +244,10 @@ export function MailFrame({ html, proxy, ask, onMailto, className }: MailFramePr
 					ref={frame}
 					title="Message"
 					sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-					// The mail's own dark CSS only matches when the frame itself is dark.
+					// A mail's own dark CSS only matches when the frame itself is dark.
 					className={cn(
 						"block h-0 w-full data-[ready]:transition-all data-[ready]:duration-150 data-[ready]:ease-out",
-						look === "own" ? "scheme-dark" : "scheme-light",
+						look === "dark" ? "scheme-dark" : "scheme-light",
 					)}
 					data-ready={ready || undefined}
 				/>

@@ -35,7 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { Dexie } from "dexie";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { asleep, named, resting, useAccounts, useGroups, wake, wakes } from "../accounts";
 import { AddAccount } from "../add-account";
 import { text } from "../answering";
@@ -46,7 +46,7 @@ import { Now } from "../now";
 import { Outbox, useOutbox } from "../outbox";
 import { usePref } from "../prefs";
 import { attachment, body, Reader } from "../reader";
-import { matches } from "../search";
+import { find, index } from "../search";
 import { shortcuts } from "../shortcuts";
 import { arrived, forget, listen, pull, sortSender, unsubscribe, update } from "../sync";
 import { storedLook } from "../theme";
@@ -223,16 +223,22 @@ function Inbox() {
 	const [limit, setLimit] = useState(page);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: a different view starts at the first page again
 	useEffect(() => setLimit(page), [shown.join(), query, tab]);
-	const messages = useLiveQuery(async () => {
+	// While searching, all mail is read and indexed once; typing only looks words up, without waiting for the list
+	// to redraw.
+	// ponytail: the index is rebuilt on the main thread when mail changes mid-search (~300 ms at 100k messages), a
+	// worker if that janks.
+	const all = useLiveQuery<Message[] | null>(() => (searching ? db.messages.toArray() : null), [searching]);
+	// Spam shows under Junk only, not in search.
+	const indexed = useMemo(() => all && index(all.filter((m) => !m.spam)), [all]);
+	const typed = useDeferredValue(query);
+	const searched = shown.join();
+	const found = useMemo(
+		() => (indexed ? find(indexed, typed, new Set(searched.split(","))) : undefined),
+		[indexed, typed, searched],
+	);
+	const browsed = useLiveQuery(async () => {
 		const inView = new Set(shown);
-		if (searching) {
-			return db.messages
-				.orderBy("sentAt")
-				.reverse()
-				.filter((m) => inView.has(m.mailboxId) && !m.spam && matches(m, query))
-				.limit(limit)
-				.toArray();
-		}
+		if (searching) return [];
 		if (folder === "starred") {
 			return db.messages
 				.where("[starred+sentAt]")
@@ -271,7 +277,8 @@ function Inbox() {
 			.flat()
 			.sort((a, b) => b.sentAt.localeCompare(a.sentAt))
 			.slice(0, limit);
-	}, [shown.join(), boxes.length, query, limit, folder, tab]);
+	}, [shown.join(), boxes.length, searching, limit, folder, tab]);
+	const messages = searching ? found?.slice(0, limit) : browsed;
 	// Except for answers to what was sent from them: those still show in All inboxes.
 	const [archivedReplies] = usePref("archivedReplies");
 	const sleeping = every.filter((b) => archived.has(b.accountId) && current === "all" && !withArchived);
