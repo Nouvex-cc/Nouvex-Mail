@@ -70,8 +70,6 @@ struct MailBody: View {
 struct Frame {
     let html: String
 
-    /// It brings its own dark design.
-    var ownDark: Bool { html.contains(/(?i)prefers-color-scheme\s*:\s*dark|color-scheme\s*:[^;"'}]*\bdark/) }
     /// It loads pictures or backgrounds from the web.
     var remote: Bool { html.contains(/(?i)(src|background)\s*=\s*["']https?:|url\(\s*['"]?https?:|srcset\s*=/) }
     /// It carries an earlier mail, quoted.
@@ -89,29 +87,23 @@ struct Frame {
         return compiled
     }
 
-    // In dark mode, a mail with its own dark design uses it; any other is turned dark the way Apple Mail does it.
-    private static let flip = "invert(1) hue-rotate(180deg)"
     // paper and ink from the tokens (Assets.xcassets/Tokens).
+    static let paper = "#12100e", ink = "#edebe8"
+    /// Where the mail's document lives. The image proxy's scheme, so the dark engine may read its pictures.
+    static let base = URL(string: "nouvex-image://proxy/")!
     // The frame is see-through, so a mail without its own background sits right on the paper.
     private static let light = ":root { color-scheme: light; } html { color: #181513; }"
-    private static let own = ":root { color-scheme: dark; } html { color: #edebe8; }"
-    // On body, not html, like the web: html gets the paper, or a white body of the mail would spread to the page
-    // behind html, which no filter reaches, and dark text would end up light on white.
-    private static let flipped = """
-        :root { color-scheme: light; }
-        html { background: #12100e; }
-        body { background: #fff; color: #181513; filter: \(flip) contrast(0.82); }
-        img, picture, video, canvas, svg, [style*="background-image"], [background] { filter: \(flip); }
-        """
+    // packages/ui/src/mail-dark.ts recolors it for the paper and then shows it, so its white never flashes.
+    private static let shaded = ":root { color-scheme: dark; } html { background: \(paper); color: #181513; visibility: hidden; }"
     // The same places the web folds: a Gmail quote, a cited blockquote, or one standing on its own.
     private static let folded = ".gmail_quote, blockquote[type='cite' i], body > blockquote { display: none; }"
     // Without the proxy the blocker stops them anyway; hidden, they don't leave broken frames behind.
     private static let unloaded = "img[src^='http' i], img[srcset] { display: none; }"
 
     func render(dark: Bool, pictures: Bool, quote: Bool) -> String {
-        let look = !dark ? Self.light : ownDark ? Self.own : Self.flipped
+        let look = dark ? Self.shaded : Self.light
         return #"<meta name="viewport" content="width=device-width, initial-scale=1">"#
-            + "<style>\(look) body { margin: 0; font: 16px/1.6 -apple-system, system-ui; overflow-wrap: anywhere; }"
+            + "<style data-nx>\(look) body { margin: 0; font: 16px/1.6 -apple-system, system-ui; overflow-wrap: anywhere; }"
             + " blockquote { margin: 0 0 0 4px; padding-left: 12px; border-left: 2px solid #e2ded9; color: #6b655f; }"
             + (quote ? "" : Self.folded) + (pictures ? "" : Self.unloaded) + "</style>"
             + (pictures ? Self.proxied(html) : html)
@@ -175,7 +167,7 @@ typealias MailWebView = WKWebView
 
 // Links open in the browser and mailto: in the composer; the mail itself never navigates.
 @MainActor func follow(_ action: WKNavigationAction, write: (URL) -> Void) async -> WKNavigationActionPolicy {
-    guard action.navigationType == .other, action.request.url?.absoluteString == "about:blank" else {
+    guard action.navigationType == .other, ["about:blank", Frame.base.absoluteString].contains(action.request.url?.absoluteString) else {
         if action.navigationType == .linkActivated, let url = action.request.url, url.scheme == "mailto" {
             await MainActor.run { write(url) }
         } else if action.navigationType == .linkActivated, let url = action.request.url, ["http", "https"].contains(url.scheme) {
@@ -234,6 +226,13 @@ struct WebView: ViewRepresentable {
         injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient
     )
 
+    // In the same world as measure: the mail's own scripts stay off.
+    private static let shade = WKUserScript(
+        source: "const NOUVEX_DARK = [\"\(Frame.paper)\", \"\(Frame.ink)\"];"
+            + ((try? String(contentsOf: Bundle.main.url(forResource: "MailDark", withExtension: "js")!, encoding: .utf8)) ?? "document.documentElement.style.visibility = 'visible'"),
+        injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .defaultClient
+    )
+
     private func make(_ context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
@@ -266,7 +265,11 @@ struct WebView: ViewRepresentable {
         #endif
         guard context.coordinator.html != html else { return }
         context.coordinator.html = html
-        view.loadHTMLString(html, baseURL: nil)
+        let scripts = view.configuration.userContentController
+        scripts.removeAllUserScripts()
+        scripts.addUserScript(Self.measure)
+        if dark { scripts.addUserScript(Self.shade) }
+        view.loadHTMLString(html, baseURL: Frame.base)
     }
 
     #if os(macOS)
