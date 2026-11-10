@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 import { expect, test } from "bun:test";
-import { decrypt, derive, newKeys, openKey, openPrivate, unlock, wrapPrivate } from "./crypto";
+import {
+	decrypt,
+	derive,
+	newAccountKey,
+	newKeys,
+	newRecoveryKey,
+	openAccount,
+	openKey,
+	openPrivate,
+	openRecovery,
+	openSealed,
+	sealRecovery,
+	sealTo,
+	unlock,
+	wrapPrivate,
+} from "./crypto";
 import fixture from "./crypto.fixture.json";
 
 // Sealed by the engine (engine/internal/seal), so this checks the two sides agree.
@@ -21,4 +36,27 @@ test("a new password keeps the same key", async () => {
 	const moved = await wrapPrivate(next.encKey, await openPrivate(old.encKey, made.wrappedPrivate));
 	expect(await openPrivate(next.encKey, moved)).toEqual(await openPrivate(old.encKey, made.wrappedPrivate));
 	await expect(openPrivate(old.encKey, moved)).rejects.toThrow();
+});
+
+test("a hosted account's key opens for its owner, and only under its own label", async () => {
+	const owner = await newKeys((await derive("pw", "a@b.c")).encKey);
+	const account = await newAccountKey(owner.publicKey);
+	const keys = await openAccount(owner.keys, account.publicKey, account.wrapped);
+	expect(keys.publicKey).toEqual(account.publicKey);
+	// What is sealed to the account opens with the keys its owner unwrapped.
+	const sealed = await sealTo(account.publicKey, new Uint8Array([1, 2, 3]), "test");
+	expect(await openSealed(keys, sealed, "test")).toEqual(new Uint8Array([1, 2, 3]));
+	await expect(openSealed(keys, sealed, "nouvex message key")).rejects.toThrow();
+	await expect(openKey(owner.keys, account.wrapped)).rejects.toThrow();
+});
+
+test("a recovery key opens the private key again, typed loosely", async () => {
+	const made = await newKeys((await derive("pw", "a@b.c")).encKey);
+	const raw = await openPrivate((await derive("pw", "a@b.c")).encKey, made.wrappedPrivate);
+	const recovery = newRecoveryKey();
+	expect(recovery).toMatch(/^([0-9A-HJKMNP-TV-Z]{4}-){7}[0-9A-HJKMNP-TV-Z]{4}$/);
+	const wrapped = await sealRecovery(recovery, raw);
+	expect(await openRecovery(` ${recovery.toLowerCase().replaceAll("-", " ")} `, wrapped)).toEqual(raw);
+	await expect(openRecovery(newRecoveryKey(), wrapped)).rejects.toThrow();
+	await expect(openRecovery("too short", wrapped)).rejects.toThrow("That's not a recovery key.");
 });

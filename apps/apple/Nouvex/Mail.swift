@@ -218,6 +218,7 @@ struct Toast: Identifiable {
         }
         #endif
         UserDefaults.standard.removeObject(forKey: SearchToken.recentKey)
+        UserDefaults.standard.removeObject(forKey: Keys.grantsKey)
         Keys.forget()
         unlocked = false
         await API.signOut()
@@ -299,7 +300,9 @@ struct Toast: Identifiable {
         let list: [Account]
         switch try await API.client.listAccounts() {
         case .ok(let ok):
-            list = try ok.body.json.map {
+            let all = try ok.body.json
+            Keys.remember(Dictionary(uniqueKeysWithValues: all.map { a in (a.id, a.keys.compactMap { Data(base64Encoded: $0.wrappedKey) }) }))
+            list = all.map {
                 Account(
                     id: $0.id, email: $0.email, displayName: $0.displayName, signature: $0.signature, archived: $0.archivedAt != nil,
                     syncError: $0.syncError, nickname: $0.nickname, color: $0.color?.rawValue, muted: $0.muted
@@ -451,11 +454,11 @@ struct Toast: Identifiable {
         while true {
             let since = try await Store.db.read { try Cursor.fetchOne($0, key: accountId)?.version } ?? 0
             let page = try await API.client.getChanges(path: .init(accountId: accountId), query: .init(since: since)).ok.body.json
-            guard let mine = Keys.stored else { return fresh }
+            guard Keys.stored != nil else { return fresh }
             // One that doesn't open stops the pull before the cursor moves: skipping it would lose it here for good.
             let messages = try page.messages.upserted.map { m -> Message in
                 let key = Data(base64Encoded: m.key) ?? Data()
-                let plain = try Crypto.decrypt(Crypto.openKey(mine, key), "meta", Data(base64Encoded: m.sealed) ?? Data())
+                let plain = try Crypto.decrypt(Keys.messageKey(accountId: accountId, key: key), "meta", Data(base64Encoded: m.sealed) ?? Data())
                 let meta = try metaDecoder.decode(Meta.self, from: plain)
                 var message = Message(
                     id: m.id, accountId: accountId, mailboxId: m.mailboxId, messageId: meta.messageId, threadId: m.threadId,

@@ -11,7 +11,9 @@ const text = new TextEncoder();
 const empty = new Uint8Array();
 
 export const privateLabel = "nouvex private key";
-const info = text.encode("nouvex message key");
+const messageInfo = "nouvex message key";
+/** What a hosted account's private key is wrapped under, for each member (account_member). */
+export const accountInfo = "nouvex account key";
 
 const url = { alphabet: "base64url", omitPadding: true } as const;
 
@@ -96,25 +98,93 @@ const extract = (suite: Bytes, salt: Bytes, label: string, ikm: Bytes) =>
 const expand = async (suite: Bytes, prk: Bytes, label: string, ctx: Bytes, length: number) =>
 	(await hmac(prk, cat([0, length], text.encode("HPKE-v1"), suite, text.encode(label), ctx, [1]))).slice(0, length);
 
-/** Opens a message's key, sealed by the engine to this user. */
-export async function openKey({ publicKey, privateKey }: Keys, sealed: Bytes) {
-	const enc = sealed.subarray(0, 32);
-	const ephemeral = await subtle.importKey("raw", enc, { name: "X25519" }, false, []);
-	const dh = new Uint8Array(await subtle.deriveBits({ name: "X25519", public: ephemeral }, privateKey, 256));
+// The key and nonce both sides of a single-shot HPKE message derive from their X25519 secret.
+async function schedule(dh: Bytes, enc: Bytes, recipient: Bytes, info: string) {
 	const shared = await expand(
 		kemSuite,
 		await extract(kemSuite, empty, "eae_prk", dh),
 		"shared_secret",
-		cat(enc, publicKey),
+		cat(enc, recipient),
 		32,
 	);
 	const ctx = cat(
 		[0],
 		await extract(hpkeSuite, empty, "psk_id_hash", empty),
-		await extract(hpkeSuite, empty, "info_hash", info),
+		await extract(hpkeSuite, empty, "info_hash", text.encode(info)),
 	);
 	const secret = await extract(hpkeSuite, shared, "secret", empty);
-	const key = await aes(await expand(hpkeSuite, secret, "key", ctx, 32));
-	const iv = await expand(hpkeSuite, secret, "base_nonce", ctx, 12);
-	return aes(new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv }, key, sealed.subarray(32))));
+	return {
+		key: await aes(await expand(hpkeSuite, secret, "key", ctx, 32)),
+		iv: await expand(hpkeSuite, secret, "base_nonce", ctx, 12),
+	};
 }
+
+/** Opens what was sealed to these keys under info, as bytes. */
+export async function openSealed({ publicKey, privateKey }: Keys, sealed: Bytes, info: string) {
+	const enc = sealed.subarray(0, 32);
+	const ephemeral = await subtle.importKey("raw", enc, { name: "X25519" }, false, []);
+	const dh = new Uint8Array(await subtle.deriveBits({ name: "X25519", public: ephemeral }, privateKey, 256));
+	const { key, iv } = await schedule(dh, enc, publicKey, info);
+	return new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv }, key, sealed.subarray(32)));
+}
+
+/** Seals bytes to someone's public key under info, the way the engine seals message keys (seal.Wrap). */
+export async function sealTo(publicKey: Bytes, plain: Bytes, info: string) {
+	const pair = (await subtle.generateKey({ name: "X25519" }, true, ["deriveBits"])) as CryptoKeyPair;
+	const enc = new Uint8Array(await subtle.exportKey("raw", pair.publicKey));
+	const them = await subtle.importKey("raw", publicKey, { name: "X25519" }, false, []);
+	const dh = new Uint8Array(await subtle.deriveBits({ name: "X25519", public: them }, pair.privateKey, 256));
+	const { key, iv } = await schedule(dh, enc, publicKey, info);
+	return cat(enc, new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv }, key, plain)));
+}
+
+/** Opens a message's key, sealed by the engine to these keys: the user's, or a hosted account's. */
+export const openKey = async (keys: Keys, sealed: Bytes) => aes(await openSealed(keys, sealed, messageInfo));
+
+/**
+ * A new key pair for a hosted account: its mail is sealed to publicKey, and wrapped (the private half sealed to the
+ * owner's public key) is what the owner's devices open it with.
+ */
+export async function newAccountKey(owner: Bytes) {
+	const pair = (await subtle.generateKey({ name: "X25519" }, true, ["deriveBits"])) as CryptoKeyPair;
+	const raw = Uint8Array.fromBase64((await subtle.exportKey("jwk", pair.privateKey)).d ?? "", url);
+	const publicKey = new Uint8Array(await subtle.exportKey("raw", pair.publicKey));
+	return { publicKey, wrapped: await sealTo(owner, raw, accountInfo) };
+}
+
+// Crockford's base32: no I, L, O or U, so a typed 1 or 0 is never mistaken.
+const base32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** A recovery key: 160 random bits as 32 characters in groups of four, shown once and kept by the user. */
+export function newRecoveryKey() {
+	const bytes = crypto.getRandomValues(new Uint8Array(20));
+	let bits = "";
+	for (const b of bytes) bits += b.toString(2).padStart(8, "0");
+	const chars = bits.match(/.{5}/g)?.map((five) => base32[Number.parseInt(five, 2)]) ?? [];
+	return chars.join("").match(/.{4}/g)?.join("-") ?? "";
+}
+
+async function recoveryKey(typed: string) {
+	const chars = typed
+		.toUpperCase()
+		.replace(/[^0-9A-Z]/g, "")
+		.replace(/O/g, "0")
+		.replace(/[IL]/g, "1");
+	if (chars.length !== 32 || [...chars].some((c) => !base32.includes(c))) throw new Error("That's not a recovery key.");
+	const bits = [...chars].map((c) => base32.indexOf(c).toString(2).padStart(5, "0")).join("");
+	const raw = Uint8Array.from(bits.match(/.{8}/g) ?? [], (byte) => Number.parseInt(byte, 2));
+	const hkdf = await subtle.importKey("raw", raw, "HKDF", false, ["deriveBits"]);
+	const info = text.encode("nouvex recovery");
+	return aes(new Uint8Array(await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: empty, info }, hkdf, 256)));
+}
+
+/** The raw private key, wrapped with a recovery key for the server to keep. */
+export const sealRecovery = async (recovery: string, raw: Bytes) =>
+	encrypt(await recoveryKey(recovery), privateLabel, raw);
+/** The raw private key again, with the recovery key it was wrapped with. */
+export const openRecovery = async (recovery: string, wrapped: Bytes) =>
+	decrypt(await recoveryKey(recovery), privateLabel, wrapped);
+
+/** A hosted account's keys, from the private half wrapped for this user (newAccountKey, or a member's grant). */
+export const openAccount = async (mine: Keys, publicKey: Bytes, wrapped: Bytes) =>
+	unlock(await openSealed(mine, wrapped, accountInfo), publicKey);

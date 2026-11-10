@@ -75,6 +75,7 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	mail.KeepHostedIn(pool, store)
 
 	// Reconnect forever; the default gives up after two minutes, e.g. while the laptop sleeps.
 	nc, err := nats.Connect(cmp.Or(os.Getenv("NATS_URL"), nats.DefaultURL), nats.MaxReconnects(-1))

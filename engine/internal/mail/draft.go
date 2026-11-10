@@ -55,6 +55,9 @@ func SaveDraft(ctx context.Context, q *db.Queries, get Get, master []byte, cmd m
 	if err != nil {
 		return err
 	}
+	if acc.Kind == "hosted" {
+		return saveHostedDraft(ctx, acc, get, cmd, files, discard)
+	}
 	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
 		return err
@@ -162,4 +165,28 @@ func draftFiles(list []msg.MessageSendAttachmentsElem) []msg.DraftSaveAttachment
 		out[i] = msg.DraftSaveAttachmentsElem(a)
 	}
 	return out
+}
+
+// saveHostedDraft is SaveDraft for a hosted account: the new version goes into its local Drafts in place of the old.
+func saveHostedDraft(ctx context.Context, acc db.MailAccount, get Get, cmd msg.DraftSave, files string, discard bool) error {
+	id := draftID(cmd.DraftId, acc.Email)
+	if discard {
+		return storeHosted(ctx, acc, "drafts", id, nil)
+	}
+	attached := make([]File, len(cmd.Attachments))
+	for i, a := range cmd.Attachments {
+		data, err := get(ctx, files+a.Id)
+		if err != nil {
+			return fmt.Errorf("attachment %s: %w", a.Name, err)
+		}
+		attached[i] = File{Name: a.Name, Type: a.Type, Data: data}
+	}
+	raw, err := Compose(mail.Address{Name: acc.DisplayName, Address: acc.Email}, msg.MessageSend{
+		AccountId: cmd.AccountId, DraftId: cmd.DraftId, To: cmd.To, Cc: cmd.Cc, Bcc: cmd.Bcc, Subject: cmd.Subject,
+		Text: cmd.Text, Html: cmd.Html, InReplyTo: cmd.InReplyTo,
+	}, id, attached, time.Now(), true)
+	if err != nil {
+		return err
+	}
+	return storeHosted(ctx, acc, "drafts", id, raw, imap.FlagDraft, imap.FlagSeen)
 }

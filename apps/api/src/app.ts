@@ -13,6 +13,8 @@ import { db } from "./db";
 import {
 	accountGroup,
 	accountGroupMember,
+	accountKey,
+	accountMember,
 	changeLog,
 	device,
 	labelColors,
@@ -54,8 +56,10 @@ app.use("/prefs", signedIn);
 app.use("/devices", signedIn);
 app.use("/devices/*", signedIn);
 app.use("/keys", signedIn);
+app.use("/keys/*", signedIn);
 app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
+app.use("/hosted-accounts", signedIn);
 app.use("/groups/*", signedIn);
 app.use("/order", signedIn);
 app.use("/rich/*", signedIn);
@@ -114,6 +118,10 @@ app.openapi(
 								nickname: z.string(),
 								color: z.enum(labelColors).nullable(),
 								muted: z.boolean(),
+								kind: z.enum(["imap", "hosted"]),
+								// A hosted account's keys, newest first: its private key wrapped to this user, opened with
+								// their own key (packages/sdk openAccount). Mail opens with the version it was sealed to.
+								keys: z.array(z.object({ version: z.int(), publicKey: z.string(), wrappedKey: z.string() })),
 							}),
 						),
 					},
@@ -121,25 +129,139 @@ app.openapi(
 			},
 		},
 	}),
-	async (c) =>
-		c.json(
-			await db
-				.select({
-					id: mailAccount.id,
-					email: mailAccount.email,
-					displayName: mailAccount.displayName,
-					signature: mailAccount.signature,
-					syncError: mailAccount.syncError,
-					archivedAt: mailAccount.archivedAt,
-					nickname: mailAccount.nickname,
-					color: mailAccount.color,
-					muted: mailAccount.muted,
-				})
-				.from(mailAccount)
-				.where(eq(mailAccount.userId, c.get("userId")))
-				.orderBy(mailAccount.position, mailAccount.createdAt),
+	async (c) => {
+		const userId = c.get("userId");
+		const accounts = await db
+			.select({
+				id: mailAccount.id,
+				email: mailAccount.email,
+				displayName: mailAccount.displayName,
+				signature: mailAccount.signature,
+				syncError: mailAccount.syncError,
+				archivedAt: mailAccount.archivedAt,
+				nickname: mailAccount.nickname,
+				color: mailAccount.color,
+				muted: mailAccount.muted,
+				kind: mailAccount.kind,
+			})
+			.from(mailAccount)
+			.where(eq(mailAccount.userId, userId))
+			.orderBy(mailAccount.position, mailAccount.createdAt);
+		const grants = await db
+			.select({
+				accountId: accountMember.accountId,
+				version: accountMember.keyVersion,
+				publicKey: accountKey.publicKey,
+				wrappedKey: accountMember.wrappedKey,
+			})
+			.from(accountMember)
+			.innerJoin(
+				accountKey,
+				and(eq(accountKey.accountId, accountMember.accountId), eq(accountKey.version, accountMember.keyVersion)),
+			)
+			.where(eq(accountMember.userId, userId))
+			.orderBy(desc(accountMember.keyVersion));
+		const b64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
+		return c.json(
+			accounts.map((a) => ({
+				...a,
+				keys: grants
+					.filter((g) => g.accountId === a.id && g.wrappedKey)
+					.map((g) => ({
+						version: g.version,
+						publicKey: b64(g.publicKey),
+						wrappedKey: b64(g.wrappedKey as Uint8Array),
+					})),
+			})),
 			200,
-		),
+		);
+	},
+);
+
+// Domains we host mail for, until customers add their own (the domain table, next phase).
+// ponytail: an environment list, e.g. HOSTED_DOMAINS=louma.cc,byl8.com.
+const hostedDomains = () =>
+	(process.env.HOSTED_DOMAINS ?? "")
+		.split(",")
+		.map((d) => d.trim().toLowerCase())
+		.filter(Boolean);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/hosted-accounts",
+		operationId: "createHostedAccount",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							email: z.email(),
+							displayName: z.string().max(200).optional(),
+							// The account's own key pair, made on the device (packages/sdk newAccountKey): the public half
+							// its mail is sealed to, and the private half sealed to this user's public key.
+							publicKey: z.base64(),
+							wrappedKey: z.base64(),
+						}),
+					},
+				},
+			},
+		},
+		responses: {
+			201: {
+				description: "Mailbox created, its folders are being made",
+				content: { "application/json": { schema: z.object({ id: z.string() }) } },
+			},
+			422: {
+				description: "We don't host mail for this address",
+				content: { "application/json": { schema: z.object({ error: z.string() }) } },
+			},
+		},
+	}),
+	async (c) => {
+		const { email, displayName, publicKey, wrappedKey } = c.req.valid("json");
+		const address = email.toLowerCase();
+		const domain = address.slice(address.lastIndexOf("@") + 1);
+		if (!hostedDomains().includes(domain)) return c.json({ error: `Nouvex doesn't host mail for ${domain}.` }, 422);
+		const pub = Buffer.from(publicKey, "base64");
+		if (pub.length !== 32) return c.json({ error: "That's not an account key." }, 422);
+		const id = crypto.randomUUID();
+		const taken = await db.transaction(async (tx) => {
+			// One mailbox per address; locked so two at once can't both take it.
+			await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${address}))`);
+			const [there] = await tx
+				.select({ id: mailAccount.id })
+				.from(mailAccount)
+				.where(and(eq(mailAccount.kind, "hosted"), eq(sql`lower(${mailAccount.email})`, address)));
+			if (there) return true;
+			await tx.insert(mailAccount).values({
+				id,
+				userId: c.get("userId"),
+				email: address,
+				displayName: displayName ?? "",
+				kind: "hosted",
+				imapHost: "",
+				imapPort: 0,
+				smtpHost: "",
+				smtpPort: 0,
+				username: "",
+				secret: new Uint8Array(),
+				sealedTo: pub,
+			});
+			await tx.insert(accountKey).values({ accountId: id, version: 1, publicKey: pub });
+			await tx.insert(accountMember).values({
+				accountId: id,
+				userId: c.get("userId"),
+				role: "owner",
+				keyVersion: 1,
+				wrappedKey: Buffer.from(wrappedKey, "base64"),
+			});
+			return false;
+		});
+		if (taken) return c.json({ error: `${address} is taken.` }, 422);
+		await sync(id);
+		return c.json({ id }, 201);
+	},
 );
 
 app.openapi(
@@ -265,7 +387,16 @@ app.openapi(
 		responses: {
 			200: {
 				description: "Who the link from src/user.ts is for",
-				content: { "application/json": { schema: z.object({ email: z.string() }) } },
+				content: {
+					"application/json": {
+						schema: z.object({
+							email: z.string(),
+							// After a reset: the key that was, wrapped with the recovery key only its owner has. Opening it
+							// keeps the key and everything sealed to it.
+							recovery: z.object({ publicKey: z.string(), wrapped: z.string() }).nullable(),
+						}),
+					},
+				},
 			},
 			404: { description: "Used or expired" },
 		},
@@ -275,7 +406,11 @@ app.openapi(
 		const row = await ctx.internalAdapter.findVerificationValue(`invite:${c.req.valid("param").token}`);
 		const user = row && row.expiresAt > new Date() && (await ctx.internalAdapter.findUserById(row.value));
 		if (!user) return c.body(null, 404);
-		return c.json({ email: user.email }, 200);
+		const [kept] = await db.select().from(userKey).where(eq(userKey.userId, user.id));
+		const recovery = kept?.recoveryWrapped
+			? { publicKey: kept.publicKey.toBase64(), wrapped: kept.recoveryWrapped.toBase64() }
+			: null;
+		return c.json({ email: user.email, recovery }, 200);
 	},
 );
 
@@ -306,9 +441,15 @@ app.openapi(
 		const hash = await ctx.password.hash(password);
 		if (await ctx.internalAdapter.findCredentialAccount(userId)) await ctx.internalAdapter.updatePassword(userId, hash);
 		else await ctx.internalAdapter.linkAccount({ userId, providerId: "credential", accountId: userId, password: hash });
+		const [before] = await db.select().from(userKey).where(eq(userKey.userId, userId));
 		const keys = {
 			publicKey: Uint8Array.fromBase64(publicKey),
 			wrappedPrivate: Uint8Array.fromBase64(wrappedPrivate),
+			// The same key, opened with the recovery key, keeps its recovery; a new one has none yet.
+			recoveryWrapped:
+				before && Buffer.from(before.publicKey).equals(Buffer.from(publicKey, "base64"))
+					? before.recoveryWrapped
+					: null,
 			createdAt: new Date(),
 		};
 		await db
@@ -382,8 +523,8 @@ app.openapi(
 		operationId: "getKeys",
 		responses: {
 			200: {
-				description: "The user's key pair, the private half wrapped",
-				content: { "application/json": { schema: Keys } },
+				description: "The user's key pair, the private half wrapped, and whether a recovery key is set",
+				content: { "application/json": { schema: Keys.extend({ recovery: z.boolean() }) } },
 			},
 			404: { description: "None yet" },
 		},
@@ -394,7 +535,54 @@ app.openapi(
 			.from(userKey)
 			.where(eq(userKey.userId, c.get("userId")));
 		if (!row) return c.body(null, 404);
-		return c.json({ publicKey: row.publicKey.toBase64(), wrappedPrivate: row.wrappedPrivate.toBase64() }, 200);
+		return c.json(
+			{
+				publicKey: row.publicKey.toBase64(),
+				wrappedPrivate: row.wrappedPrivate.toBase64(),
+				recovery: !!row.recoveryWrapped,
+			},
+			200,
+		);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "put",
+		path: "/keys/recovery",
+		operationId: "setRecovery",
+		description:
+			"Keeps the private key wrapped with a new recovery key, made on the device; an older one stops working.",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						// password is the authKey, asked again because a recovery key opens everything.
+						schema: z.object({ password: z.string(), recoveryWrapped: z.base64() }),
+					},
+				},
+			},
+		},
+		responses: {
+			204: { description: "Kept" },
+			400: {
+				description: "The password is wrong",
+				content: { "application/json": { schema: z.object({ message: z.string() }) } },
+			},
+		},
+	}),
+	async (c) => {
+		const { password, recoveryWrapped } = c.req.valid("json");
+		const ok = await auth.api
+			.verifyPassword({ body: { password }, headers: c.req.raw.headers })
+			.then(() => true)
+			.catch(() => false);
+		if (!ok) return c.json({ message: "That's not your password." }, 400);
+		await db
+			.update(userKey)
+			.set({ recoveryWrapped: Uint8Array.fromBase64(recoveryWrapped) })
+			.where(eq(userKey.userId, c.get("userId")));
+		return c.body(null, 204);
 	},
 );
 

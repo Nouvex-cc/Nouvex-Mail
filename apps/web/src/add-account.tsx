@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { Button, Dialog, Field, Toggle, ToggleGroup } from "@nouvex/ui";
 import { useState } from "react";
+import { createMailbox } from "./keys";
 
 const fields = [
 	{ name: "email", label: "Email", type: "email" },
@@ -27,7 +28,8 @@ const providers = {
 		server: { imapHost: "imap.mail.me.com", imapPort: "993", smtpHost: "smtp.mail.me.com", smtpPort: "587" },
 	},
 };
-type Provider = keyof typeof providers | "other";
+// A mailbox we host: its mail comes to Nouvex directly, no server or password to enter.
+type Provider = keyof typeof providers | "other" | "nouvex";
 
 export function AddAccount({
 	open,
@@ -41,7 +43,7 @@ export function AddAccount({
 	const [error, setError] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [provider, setProvider] = useState<Provider>("gmail");
-	const preset = provider === "other" ? undefined : providers[provider];
+	const preset = provider === "other" || provider === "nouvex" ? undefined : providers[provider];
 
 	return (
 		<Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -56,16 +58,19 @@ export function AddAccount({
 							...(Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>),
 						};
 						setBusy(true);
-						const res = await fetch("/accounts", {
-							method: "POST",
-							headers: { "content-type": "application/json" },
-							body: JSON.stringify({
-								...f,
-								username: f.username || f.email,
-								imapPort: Number(f.imapPort),
-								smtpPort: Number(f.smtpPort),
-							}),
-						});
+						const res =
+							provider === "nouvex"
+								? await createMailbox(f.email ?? "", f.displayName ?? "")
+								: await fetch("/accounts", {
+										method: "POST",
+										headers: { "content-type": "application/json" },
+										body: JSON.stringify({
+											...f,
+											username: f.username || f.email,
+											imapPort: Number(f.imapPort),
+											smtpPort: Number(f.smtpPort),
+										}),
+									});
 						setBusy(false);
 						// The engine tried to log in; its answer says what the server didn't like.
 						if (res.status === 422) return setError(((await res.json()) as { error: string }).error);
@@ -82,9 +87,12 @@ export function AddAccount({
 							</Toggle>
 						))}
 						<Toggle value="other">Other</Toggle>
+						<Toggle value="nouvex">Nouvex</Toggle>
 					</ToggleGroup>
 					{fields
-						.filter((f) => !preset || f.name === "email" || f.name === "password")
+						.filter((f) =>
+							provider === "nouvex" ? f.name === "email" : !preset || f.name === "email" || f.name === "password",
+						)
 						.map((f) => (
 							<Field.Root key={f.name}>
 								<Field.Label>{preset && f.name === "password" ? "App password" : f.label}</Field.Label>
@@ -106,6 +114,12 @@ export function AddAccount({
 								)}
 							</Field.Root>
 						))}
+					{provider === "nouvex" && (
+						<Field.Root>
+							<Field.Label>Name</Field.Label>
+							<Field.Control name="displayName" placeholder="What recipients see next to the address" />
+						</Field.Root>
+					)}
 					{error && <p className="text-sm text-danger">{error}</p>}
 					<Dialog.Footer>
 						<Dialog.Close render={<Button variant="ghost" />}>Cancel</Dialog.Close>

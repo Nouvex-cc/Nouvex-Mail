@@ -176,6 +176,20 @@
       "when": 1793020058815,
       "tag": "0024_sort_model",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794334169741,
+      "tag": "0025_hosted_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794335079669,
+      "tag": "0026_recovery_key",
+      "breakpoints": true
     }
   ]
 }

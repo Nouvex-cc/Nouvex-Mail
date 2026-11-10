@@ -10,6 +10,8 @@ enum Crypto {
     static let privateLabel = "nouvex private key"
     private static let suite = HPKE.Ciphersuite(kem: .Curve25519_HKDF_SHA256, kdf: .HKDF_SHA256, aead: .AES_GCM_256)
     private static let info = Data("nouvex message key".utf8)
+    /// What a hosted account's private key is wrapped under for each member (account_member).
+    private static let accountInfo = Data("nouvex account key".utf8)
 
     /// authKey goes to the server as the password, encKey stays here.
     static func derive(password: String, email: String) -> (authKey: String, encKey: SymmetricKey) {
@@ -44,8 +46,26 @@ enum Crypto {
 
     /// Opens a message's key, sealed by the engine: the encapsulated key, then the sealed message key.
     static func openKey(_ key: Curve25519.KeyAgreement.PrivateKey, _ sealed: Data) throws -> SymmetricKey {
+        SymmetricKey(data: try open(key, sealed, info: info))
+    }
+
+    /// A hosted account's private key, from what was wrapped for this user.
+    static func openAccount(_ mine: Curve25519.KeyAgreement.PrivateKey, _ wrapped: Data) throws -> Curve25519.KeyAgreement.PrivateKey {
+        try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: open(mine, wrapped, info: accountInfo))
+    }
+
+    /// A new key pair for a hosted account: its mail is sealed to publicKey, and wrapped is the private half sealed to
+    /// the owner, the same as packages/sdk newAccountKey.
+    static func newAccountKey(owner: Curve25519.KeyAgreement.PublicKey) throws -> (publicKey: Data, wrapped: Data) {
+        let pair = Curve25519.KeyAgreement.PrivateKey()
+        var sender = try HPKE.Sender(recipientKey: owner, ciphersuite: suite, info: accountInfo)
+        let sealed = try sender.seal(pair.rawRepresentation)
+        return (pair.publicKey.rawRepresentation, sender.encapsulatedKey + sealed)
+    }
+
+    private static func open(_ key: Curve25519.KeyAgreement.PrivateKey, _ sealed: Data, info: Data) throws -> Data {
         var recipient = try HPKE.Recipient(privateKey: key, ciphersuite: suite, info: info, encapsulatedKey: sealed.prefix(32))
-        return SymmetricKey(data: try recipient.open(sealed.dropFirst(32)))
+        return try recipient.open(sealed.dropFirst(32))
     }
 }
 

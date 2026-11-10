@@ -4,9 +4,9 @@
 import { type ClientHttp2Session, connect } from "node:http2";
 import type { MessageArrived } from "@nouvex/schema";
 import { within } from "@nouvex/sdk/focus";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./db";
-import { accountGroup, accountGroupMember, device, mailAccount, message, userPrefs } from "./db/schema";
+import { accountGroup, accountGroupMember, accountMember, device, mailAccount, message, userPrefs } from "./db/schema";
 import { nats } from "./nats";
 
 export type Device = typeof device.$inferSelect;
@@ -33,10 +33,14 @@ export function resting(focus: { days: number[]; from: string; to: string } | nu
 	return !within(focus, day, Number(parts.hour) * 60 + Number(parts.minute));
 }
 
-/** The push for one message: a plain fallback, and the sealed meta for the extension if it fits. */
+/**
+ * The push for one message: a plain fallback, and the sealed meta for the extension if it fits. A hosted account's
+ * mail is sealed to its own key, so the push brings that key as wrapped for the user (grant) for the extension to open.
+ */
 export function note(
 	m: { id: string; threadId: string; key: Uint8Array; sealed: Uint8Array },
 	account: { email: string; nickname: string },
+	grant?: Uint8Array | null,
 ): Push {
 	const aps = {
 		alert: { title: "New mail", body: account.nickname || account.email },
@@ -44,7 +48,10 @@ export function note(
 		"thread-id": m.threadId,
 		"mutable-content": 1,
 	};
-	const body = { aps, m: { key: m.key.toBase64(), sealed: m.sealed.toBase64() } };
+	const body = {
+		aps,
+		m: { key: m.key.toBase64(), sealed: m.sealed.toBase64(), ...(grant ? { g: grant.toBase64() } : {}) },
+	};
 	return { id: m.id, body: JSON.stringify(body).length <= maxSize ? body : { aps } };
 }
 
@@ -55,7 +62,7 @@ export function note(
 export async function pushes(e: MessageArrived, at = new Date()) {
 	const [account] = await db.select().from(mailAccount).where(eq(mailAccount.id, e.accountId));
 	if (!account || account.archivedAt || account.muted) return [];
-	const [devices, groups, [prefs], messages] = await Promise.all([
+	const [devices, groups, [prefs], messages, [grant]] = await Promise.all([
 		db.select().from(device).where(eq(device.userId, account.userId)),
 		db
 			.select({ muted: accountGroup.muted, focus: accountGroup.focus })
@@ -73,12 +80,18 @@ export async function pushes(e: MessageArrived, at = new Date()) {
 			})
 			.from(message)
 			.where(and(eq(message.accountId, account.id), inArray(message.id, e.messageIds))),
+		db
+			.select({ wrappedKey: accountMember.wrappedKey })
+			.from(accountMember)
+			.where(and(eq(accountMember.accountId, account.id), eq(accountMember.userId, account.userId)))
+			.orderBy(desc(accountMember.keyVersion))
+			.limit(1),
 	]);
 	if (groups.some((g) => g.muted)) return [];
 	const loud = (prefs?.prefs as { categories?: boolean } | undefined)?.categories
 		? ["primary"]
 		: ["primary", "updates"];
-	const notes = messages.filter((m) => loud.includes(m.category)).map((m) => note(m, account));
+	const notes = messages.filter((m) => loud.includes(m.category)).map((m) => note(m, account, grant?.wrappedKey));
 	return devices
 		.filter((d) => !groups.some((g) => resting(g.focus, d.timeZone, at)))
 		.flatMap((d) => notes.map((n) => ({ device: d, push: n })));

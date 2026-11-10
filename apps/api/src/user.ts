@@ -33,8 +33,10 @@ export async function addUser(email: string, name: string) {
 	return { user, link: await link(user.id) };
 }
 
-// The old password and key go, and with the key everything stored for this person can't be read anymore: the engine
-// drops it and fetches the mail again once they've set a new password.
+// The old password goes. So does the key, unless they made a recovery key: then the key stays wrapped with it until
+// they open it on the link's page and nothing is lost. Without one, everything stored for them can't be read
+// anymore: the engine drops it and fetches their mail again once they've set a new password, and the mailboxes Nouvex
+// hosts for them stay sealed to a key that is gone.
 export async function resetUser(email: string) {
 	const found = await ctx.internalAdapter.findUserByEmail(email.toLowerCase());
 	if (!found) throw new Error(`${email} has no account.`);
@@ -42,7 +44,9 @@ export async function resetUser(email: string) {
 	const credential = await ctx.internalAdapter.findCredentialAccount(id);
 	if (credential) await ctx.internalAdapter.deleteAccount(credential.id);
 	await ctx.internalAdapter.deleteUserSessions(id);
-	await db.delete(userKey).where(eq(userKey.userId, id));
+	const [kept] = await db.select({ recovery: userKey.recoveryWrapped }).from(userKey).where(eq(userKey.userId, id));
+	if (kept?.recovery) await db.update(userKey).set({ wrappedPrivate: new Uint8Array() }).where(eq(userKey.userId, id));
+	else await db.delete(userKey).where(eq(userKey.userId, id));
 	return link(id);
 }
 

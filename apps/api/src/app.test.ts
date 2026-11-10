@@ -272,7 +272,7 @@ test.skipIf(!process.env.DATABASE_URL)("nobody signs up on their own or learns s
 	const session = await signIn("correct-horse-9");
 	expect(session.status).toBe(200);
 	const cookie = session.headers.getSetCookie().join("; ");
-	expect(await (await app.request("/keys", { headers: { cookie } })).json()).toEqual(keys);
+	expect(await (await app.request("/keys", { headers: { cookie } })).json()).toEqual({ ...keys, recovery: false });
 
 	// The password only changes together with the wrapped key.
 	const direct = await app.request("/api/auth/change-password", { method: "POST", headers: { cookie } });
@@ -532,4 +532,81 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sen
 	} finally {
 		await db.delete(user).where(eq(user.id, me.id));
 	}
+});
+
+// Needs the database and NATS (docker compose up -d).
+test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
+	"a hosted mailbox: our domains only, one per address",
+	async () => {
+		const { db } = await import("./db");
+		const { mailAccount } = await import("./db/schema");
+		const { eq } = await import("drizzle-orm");
+		process.env.HOSTED_DOMAINS = "hosted.test";
+		const me = await signedIn("Lena");
+		const other = await signedIn("Max");
+		const address = `${crypto.randomUUID()}@hosted.test`;
+		const make = (cookie: string, email: string) =>
+			app.request("/hosted-accounts", {
+				method: "POST",
+				headers: { cookie, "content-type": "application/json" },
+				body: JSON.stringify({ email, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("wrapped") }),
+			});
+		try {
+			expect((await make(me.cookie, `${crypto.randomUUID()}@gmail.com`)).status).toBe(422);
+			const res = await make(me.cookie, address);
+			expect(res.status).toBe(201);
+			expect((await make(other.cookie, address.toUpperCase())).status).toBe(422);
+			const list = (await (await app.request("/accounts", { headers: { cookie: me.cookie } })).json()) as {
+				email: string;
+				kind: string;
+				keys: { version: number; publicKey: string; wrappedKey: string }[];
+			}[];
+			const hosted = list.find((a) => a.email === address);
+			expect(hosted?.kind).toBe("hosted");
+			expect(hosted?.keys).toEqual([{ version: 1, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("wrapped") }]);
+		} finally {
+			await db.delete(mailAccount).where(eq(mailAccount.email, address));
+		}
+	},
+);
+
+// Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
+test.skipIf(!process.env.DATABASE_URL)("a recovery key survives a reset and keeps the key", async () => {
+	const { resetUser } = await import("./user");
+	const { auth } = await import("./auth");
+	const me = await signedIn("Lena");
+	const set = (password: string) =>
+		app.request("/keys/recovery", {
+			method: "PUT",
+			headers: { cookie: me.cookie, "content-type": "application/json" },
+			body: JSON.stringify({ password, recoveryWrapped: btoa("recovered") }),
+		});
+	expect((await set("wrong-password")).status).toBe(400);
+	expect((await set("correct-horse-9")).status).toBe(204);
+	const stored = async (cookie: string) =>
+		(await (await app.request("/keys", { headers: { cookie } })).json()) as { recovery: boolean };
+	expect((await stored(me.cookie)).recovery).toBe(true);
+
+	const again = async (publicKey: string) => {
+		const link = await resetUser(me.email);
+		const token = link.split("#")[1];
+		const invite = (await (await app.request(`/invites/${token}`)).json()) as { recovery: unknown };
+		await app.request(`/invites/${token}`, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ password: "correct-horse-9", publicKey, wrappedPrivate: btoa("new wrap") }),
+		});
+		const res = await auth.api.signInEmail({
+			body: { email: me.email, password: "correct-horse-9" },
+			asResponse: true,
+		});
+		return { invite, cookie: res.headers.getSetCookie().join("; ") };
+	};
+	// The same key, opened with the recovery key: it stays, and so does its recovery.
+	const kept = await again(keys.publicKey);
+	expect(kept.invite.recovery).toEqual({ publicKey: keys.publicKey, wrapped: btoa("recovered") });
+	expect((await stored(kept.cookie)).recovery).toBe(true);
+	// A new key starts without one.
+	const fresh = await again(btoa("another key"));
+	expect((await stored(fresh.cookie)).recovery).toBe(false);
 });

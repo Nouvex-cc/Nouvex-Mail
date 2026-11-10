@@ -38,6 +38,22 @@ type AccountGroupMember struct {
 	AccountID string
 }
 
+type AccountKey struct {
+	AccountID string
+	Version   int32
+	PublicKey []byte
+	CreatedAt pgtype.Timestamptz
+}
+
+type AccountMember struct {
+	AccountID  string
+	UserID     string
+	Role       string
+	KeyVersion int32
+	WrappedKey []byte
+	CreatedAt  pgtype.Timestamptz
+}
+
 type ChangeLog struct {
 	AccountID string
 	Version   int64
@@ -81,6 +97,7 @@ type MailAccount struct {
 	Color       pgtype.Text
 	Position    int32
 	Muted       bool
+	Kind        string
 }
 
 type Mailbox struct {
@@ -191,10 +208,11 @@ type User struct {
 }
 
 type UserKey struct {
-	UserID         string
-	PublicKey      []byte
-	WrappedPrivate []byte
-	CreatedAt      pgtype.Timestamptz
+	UserID          string
+	PublicKey       []byte
+	WrappedPrivate  []byte
+	CreatedAt       pgtype.Timestamptz
+	RecoveryWrapped []byte
 }
 
 type UserPref struct {

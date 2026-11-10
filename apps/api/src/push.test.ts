@@ -35,6 +35,9 @@ test("a push carries only what's sealed, and leaves it out when too big", () => 
 	const big = note({ ...m, sealed: new Uint8Array(4000) }, { email: "lena@example.com", nickname: "Work" });
 	expect(big.body).not.toHaveProperty("m");
 	expect(JSON.stringify(big.body)).toContain("Work");
+	// A hosted account's push brings its key, wrapped for the user.
+	const hosted = note(m, { email: "lena@example.com", nickname: "" }, new Uint8Array([5]));
+	expect((hosted.body as { m: { g: string } }).m.g).toBe("BQ==");
 });
 
 test("the provider token verifies with the key's public half", async () => {

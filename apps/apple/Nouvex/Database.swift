@@ -105,11 +105,8 @@ struct Message: Codable, Hashable, Identifiable, Sendable, FetchableRecord, Pers
     /// Where answers go when it isn't the sender, like a mailing list.
     var replyTo: String?
 
-    /// Opens the message's key with this device's private key.
-    func open() throws -> SymmetricKey {
-        guard let mine = Keys.stored else { throw AuthError(errorDescription: "This device is locked.") }
-        return try Crypto.openKey(mine, key)
-    }
+    /// Opens the message's key with this device's keys, its account's own if Nouvex hosts it.
+    func open() throws -> SymmetricKey { try Keys.messageKey(accountId: accountId, key: key) }
 
     var sender: String { fromName.isEmpty ? fromAddr : fromName }
     /// Sent from one of the reader's own addresses.

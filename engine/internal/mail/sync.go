@@ -98,6 +98,10 @@ func Sync(ctx context.Context, pool *pgxpool.Pool, store Store, master []byte, a
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
+	// Hosted mail has no server to sync with, and nothing to fetch again after a reset: only its folders are made.
+	if acc.Kind == "hosted" {
+		return provision(ctx, pool, store, acc, pub)
+	}
 	s := &syncer{ctx: ctx, pool: pool, store: store, progress: progress, acc: acc, pub: pub, master: master}
 	if err := s.begin(); err != nil {
 		return 0, err
@@ -630,11 +634,12 @@ func (s *syncer) prepare(boxID string, m *imapclient.FetchMessageBuffer) (*prepa
 		refs[i] = Hashed(r)
 	}
 	row.Refs = refs
-	return &prepared{row: &row, sample: parsed.Sample, pinned: pinned}, s.keep(&row, meta, parsed)
+	return &prepared{row: &row, sample: parsed.Sample, pinned: pinned}, s.keep(&row, meta, parsed, nil)
 }
 
-// keep seals a message for the user: its key and Meta into the row, its parts into the bucket.
-func (s *syncer) keep(row *db.InsertMessageParams, meta Meta, parsed Parsed) (err error) {
+// keep seals a message for the user: its key and Meta into the row, its parts into the bucket, and the whole message
+// as eml/<id> when one is given.
+func (s *syncer) keep(row *db.InsertMessageParams, meta Meta, parsed Parsed, whole []byte) (err error) {
 	key := seal.NewKey()
 	if row.Key, err = seal.Wrap(s.pub, key); err != nil {
 		return err
@@ -648,6 +653,11 @@ func (s *syncer) keep(row *db.InsertMessageParams, meta Meta, parsed Parsed) (er
 	}
 	if err := s.store.Put(s.ctx, "body/"+row.ID+".html", seal.Encrypt(key, "body", []byte(parsed.Body)), "application/octet-stream"); err != nil {
 		return err
+	}
+	if whole != nil {
+		if err := s.store.Put(s.ctx, "eml/"+row.ID, seal.Encrypt(key, "eml", whole), "application/octet-stream"); err != nil {
+			return err
+		}
 	}
 	if meta.Rich {
 		return s.store.Put(s.ctx, "rich/"+row.ID+".html", seal.Encrypt(key, "rich", []byte(parsed.Rich)), "application/octet-stream")
