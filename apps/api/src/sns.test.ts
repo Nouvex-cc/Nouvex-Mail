@@ -117,6 +117,11 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 		const { mailAccount, sendEvent, user } = await import("./db/schema");
 		const { eq } = await import("drizzle-orm");
 		const cert = withCert();
+		// CI runs no engine, so the stream it makes may not be there.
+		const { jetstreamManager } = await import("@nats-io/jetstream");
+		const { nats } = await import("./nats");
+		const jsm = await jetstreamManager((await nats()).nc);
+		await jsm.streams.add({ name: "COMMANDS", subjects: ["cmd.>"], retention: "workqueue" }).catch(() => {});
 		process.env.SES_TOPIC_ARN = "arn:aws:sns:eu-central-1:1:ses";
 		const id = crypto.randomUUID();
 		await db.insert(user).values({
