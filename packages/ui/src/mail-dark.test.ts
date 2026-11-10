@@ -64,4 +64,14 @@ test("pictures: dark ink on nothing flips, a drawing on white blends, photos sta
 	expect(picture(logo, 4)).toBe("blend");
 	expect(picture(fill([120, 90, 60, 255]), 4)).toBe(null);
 	expect(picture(fill([0, 0, 0, 0]), 4)).toBe(null);
+	// A photo with transparent padding, a dark app icon with a white letter, a colored avatar on white: the middle
+	// eight of 16 pixels.
+	const middle = (...px: number[][]) => [...fill([0, 0, 0, 0], 2), ...px.flat(), ...fill([0, 0, 0, 0], 2)];
+	const on = (c: number[], n: number) => Array.from({ length: n }, () => c);
+	expect(picture(middle(...on([200, 60, 80, 255], 8)), 4)).toBe(null);
+	expect(picture(middle(...on([25, 25, 25, 255], 7), [255, 255, 255, 255]), 4)).toBe(null);
+	const avatar = fill([255, 255, 255, 255]);
+	avatar.splice(20, 16, ...on([60, 160, 90, 255], 4).flat());
+	expect(avatar.length).toBe(64);
+	expect(picture(avatar, 4)).toBe(null);
 });

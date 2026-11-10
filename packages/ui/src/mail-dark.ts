@@ -79,7 +79,8 @@ export function line(color: Rgb, surface: Rgb): Rgb {
 
 /**
  * What a picture needs on dark: "flip" for dark ink on transparency, which would vanish, "blend" for a drawing on a
- * white box, which would glare. Photos and anything else stay as sent. `data` is RGBA.
+ * white box, which would glare. Both only for colorless ink: photos, avatars, colored logos and dark icons with a
+ * light mark stay as sent, since turning those is worse than a white box. `data` is RGBA.
  */
 export function picture(data: ArrayLike<number>, width: number) {
 	const total = data.length / 4;
@@ -91,7 +92,8 @@ export function picture(data: ArrayLike<number>, width: number) {
 	let clear = 0;
 	let white = 0;
 	let light = 0;
-	let chroma = 0;
+	let colored = 0;
+	let bright = 0;
 	for (let i = 0; i < total; i++) {
 		if ((data[i * 4 + 3] ?? 0) < 16) {
 			clear++;
@@ -99,14 +101,16 @@ export function picture(data: ArrayLike<number>, width: number) {
 		}
 		const { l, c } = lch([data[i * 4] ?? 0, data[i * 4 + 1] ?? 0, data[i * 4 + 2] ?? 0]);
 		light += l;
-		chroma += c;
+		if (c > 0.05) colored++;
+		if (l > 0.7) bright++;
 		if (l > 0.94 && c < 0.03) white++;
 	}
 	const seen = total - clear;
 	if (!seen) return null;
-	if (clear / total > 0.15) return light / seen < 0.5 ? "flip" : null;
+	if (colored / seen > 0.1) return null;
+	if (clear / total > 0.15) return light / seen < 0.5 && bright / seen < 0.05 ? "flip" : null;
 	const corners = [0, width - 1, total - width, total - 1];
-	return height > 1 && corners.every(pale) && white / seen > 0.45 && chroma / seen < 0.06 ? "blend" : null;
+	return height > 1 && corners.every(pale) && white / seen > 0.45 ? "blend" : null;
 }
 
 const css = (c: Rgb) => `rgb(${c[0]} ${c[1]} ${c[2]})`;
