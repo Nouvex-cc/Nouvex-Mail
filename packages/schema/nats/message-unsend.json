@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "MessageUnsend",
+	"description": "Command: API asks the engine to take a sent message back out of the Nouvex mailboxes it went to directly.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string", "description": "The hosted account that sent it." },
+		"messageId": { "type": "string", "description": "Its Message-ID, as the sender's device read it." }
+	},
+	"required": ["accountId", "messageId"],
+	"additionalProperties": false
+}

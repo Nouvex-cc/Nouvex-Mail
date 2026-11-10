@@ -24,36 +24,47 @@ func Receive(ctx context.Context, pool *pgxpool.Pool, store Store, get Get, mast
 	if err != nil {
 		return 0, nil, err
 	}
+	_, version, arrived, err = deliver(ctx, pool, store, d.AccountId, []byte(raw), d.Spam)
+	return version, arrived, err
+}
+
+// deliver puts a whole message into a hosted account's inbox, the way Receive and mail between Nouvex mailboxes
+// do. It returns the new row ("" if it was there already), the account's version, and the row again if it's new,
+// unread inbox mail to tell about.
+func deliver(ctx context.Context, pool *pgxpool.Pool, store Store, accountID string, raw []byte, spam bool) (rowID string, version int64, arrived []string, err error) {
 	q := db.New(pool)
-	acc, err := q.GetAccount(ctx, d.AccountId)
+	acc, err := q.GetAccount(ctx, accountID)
 	if err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
 	pub, err := q.GetUserKey(ctx, acc.ID)
 	if err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
 	s := &syncer{ctx: ctx, pool: pool, store: store, progress: func(int64, []string) {}, acc: acc, pub: pub}
 	if err := s.begin(); err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
 	defer func() { _ = s.tx.Rollback(ctx) }()
 	box, err := s.localBox("inbox", "Inbox")
 	if err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
-	row, added, err := s.ingest(box, []byte(raw), arrival{flags: []string{}, sorted: true, spam: d.Spam})
+	row, added, err := s.ingest(box, raw, arrival{flags: []string{}, sorted: true, spam: spam})
 	if err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
 	if err := s.flush(); err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
 	if err := s.tx.Commit(ctx); err != nil {
-		return 0, nil, err
+		return "", 0, nil, err
 	}
-	if added && !row.Spam {
+	if !added {
+		return "", s.acc.Version, nil, nil
+	}
+	if !row.Spam {
 		arrived = []string{row.ID}
 	}
-	return s.acc.Version, arrived, nil
+	return row.ID, s.acc.Version, arrived, nil
 }

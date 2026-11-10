@@ -96,6 +96,15 @@ type Domain struct {
 	DnsCheck          []byte
 	CheckedAt         pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
+	SesStatus         pgtype.Text
+}
+
+type InternalDelivery struct {
+	SenderAccountID    string
+	MessageID          string
+	RecipientAccountID string
+	RecipientMessageID string
+	CreatedAt          pgtype.Timestamptz
 }
 
 type MailAccount struct {
@@ -181,6 +190,13 @@ type Scheduled struct {
 	RunAt     pgtype.Timestamptz
 	Kind      string
 	Payload   []byte
+}
+
+type SendEvent struct {
+	ID        string
+	AccountID string
+	Kind      string
+	CreatedAt pgtype.Timestamptz
 }
 
 type SenderRule struct {

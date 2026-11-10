@@ -68,6 +68,10 @@
 			"type": "string",
 			"description": "An HTML version next to the text, e.g. a forwarded message with its formatting."
 		},
+		"from": {
+			"type": "string",
+			"description": "An alias of a hosted account to send from instead of its own address."
+		},
 		"references": {
 			"type": "array",
 			"items": {

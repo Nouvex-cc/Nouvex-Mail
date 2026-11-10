@@ -1,0 +1,9 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "DomainSetup",
+	"description": "Command: API asks the engine to set a verified domain up with Amazon SES (DKIM with its own key, the bounce domain), or to read back how far SES is.",
+	"type": "object",
+	"properties": { "domainId": { "type": "string" } },
+	"required": ["domainId"],
+	"additionalProperties": false
+}

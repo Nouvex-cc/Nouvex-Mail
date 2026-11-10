@@ -34,6 +34,8 @@ type Outcome struct {
 	Retry  time.Duration
 	Event  msg.MessageSent
 	Resync bool
+	// Nouvex mailboxes the message went into directly, whose clients get told too.
+	Inside []Arrival
 }
 
 // Deliver gets a message out once. The outbox row of its draft lets a command that comes again (a restart, a
@@ -87,10 +89,11 @@ func Deliver(ctx context.Context, q *db.Queries, files Files, master []byte, cmd
 		return Outcome{}, err
 	}
 	sent, err := Send(ctx, q, files.Get, master, cmd, kept)
+	out.Inside = sent.Inside
 	if !sent.Taken {
 		if Temporary(err) && tries <= len(Retries) {
 			slog.Warn("send failed, trying again", "account", cmd.AccountId, "try", tries, "err", err)
-			return Outcome{Retry: Retries[tries-1]}, nil
+			return Outcome{Retry: Retries[tries-1], Inside: sent.Inside}, nil
 		}
 		reason := Reason(err)
 		slog.Error("send failed", "account", cmd.AccountId, "err", err)

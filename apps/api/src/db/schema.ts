@@ -133,6 +133,8 @@ export const domain = pgTable(
 		dkimPublic: text("dkim_public").notNull(),
 		dkimPrivate: bytea("dkim_private").notNull(),
 		dnsCheck: jsonb("dns_check").$type<Record<string, { ok: boolean; found: string[] }>>(),
+		// Amazon SES's view of it once verified: pending, ready, or what went wrong. Written by the engine.
+		sesStatus: text("ses_status"),
 		checkedAt: timestamp("checked_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},
@@ -140,6 +142,42 @@ export const domain = pgTable(
 		uniqueIndex("domain_verified_name").on(t.name).where(sql`verified_at IS NOT NULL`),
 		unique().on(t.userId, t.name),
 	],
+);
+
+// Mail a hosted mailbox sent to other Nouvex mailboxes went straight into theirs; this is how to take it back.
+// Written by the engine.
+export const internalDelivery = pgTable(
+	"internal_delivery",
+	{
+		senderAccountId: text("sender_account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		// The sent message's Message-ID, SHA-256 like message.message_id.
+		messageId: text("message_id").notNull(),
+		recipientAccountId: text("recipient_account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		recipientMessageId: text("recipient_message_id")
+			.notNull()
+			.references(() => message.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.senderAccountId, t.messageId, t.recipientAccountId] })],
+);
+
+// What Amazon SES reported about mail a hosted mailbox sent out: how often it bounced or was marked as spam, to see
+// abuse early. Who it went to stays out: that's in the sealed notice the sender gets.
+export const sendEvent = pgTable(
+	"send_event",
+	{
+		id: text("id").primaryKey(),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		kind: text("kind").$type<"bounce" | "complaint">().notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [index().on(t.accountId, t.createdAt)],
 );
 
 // Where our MX delivers each address: a hosted account's own address, or an alias of it. Lowercase.

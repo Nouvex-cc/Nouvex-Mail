@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -29,6 +30,7 @@ import (
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/mail"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/ses"
 )
 
 func main() {
@@ -76,6 +78,14 @@ func run() error {
 	}
 	defer pool.Close()
 	mail.KeepHostedIn(pool, store)
+	// Hosted accounts send outside Nouvex through Amazon SES once it's configured (docs/deploy.md).
+	var sesClient *ses.Client
+	if region := os.Getenv("SES_REGION"); region != "" {
+		if sesClient, err = ses.New(ctx, region, os.Getenv("SES_CONFIGURATION_SET"), ""); err != nil {
+			return err
+		}
+		mail.Outward = sesClient.Send
+	}
 
 	// Reconnect forever; the default gives up after two minutes, e.g. while the laptop sleeps.
 	nc, err := nats.Connect(cmp.Or(os.Getenv("NATS_URL"), nats.DefaultURL), nats.MaxReconnects(-1))
@@ -98,9 +108,12 @@ func run() error {
 		}
 	}
 	cons, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Durable:        "engine",
-		FilterSubjects: []string{"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save", "cmd.message.seed", "cmd.mail.deliver"},
-		AckPolicy:      jetstream.AckExplicitPolicy,
+		Durable: "engine",
+		FilterSubjects: []string{
+			"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save", "cmd.message.seed",
+			"cmd.mail.deliver", "cmd.domain.setup", "cmd.message.unsend", "cmd.send.feedback",
+		},
+		AckPolicy: jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
 		MaxDeliver: 5,
 		// A first sync of a big mailbox takes a while; redelivering it meanwhile would start a second one.
@@ -286,6 +299,89 @@ func run() error {
 				_ = nc.Publish("evt.message.arrived", ev)
 			}
 			return owed
+		case "cmd.domain.setup":
+			var d msg.DomainSetup
+			if err := json.Unmarshal(m.Data(), &d); err != nil {
+				_ = m.Term()
+				return owed
+			}
+			q := db.New(pool)
+			dom, err := q.GetDomain(ctx, d.DomainId)
+			if err != nil || !dom.VerifiedAt.Valid {
+				_ = m.Ack()
+				return owed
+			}
+			status := "not set up on this server"
+			if sesClient != nil {
+				key, err := secret.Open(master, dom.DkimPrivate)
+				if err == nil {
+					status, err = sesClient.SetUp(ctx, dom.Name, key)
+				}
+				if err != nil {
+					slog.Error("ses setup", "domain", dom.Name, "err", err)
+					status = "failed: " + err.Error()
+				}
+			}
+			_ = q.SetSesStatus(ctx, db.SetSesStatusParams{ID: dom.ID, SesStatus: pgtype.Text{String: status, Valid: true}})
+			_ = m.Ack()
+			return owed
+		case "cmd.message.unsend":
+			var u msg.MessageUnsend
+			if err := json.Unmarshal(m.Data(), &u); err != nil {
+				_ = m.Term()
+				return owed
+			}
+			gone, err := mail.Unsend(ctx, db.New(pool), store, u.AccountId, u.MessageId)
+			if err != nil {
+				slog.Error("unsend failed", "account", u.AccountId, "err", err)
+				_ = m.NakWithDelay(30 * time.Second)
+				return owed
+			}
+			_ = m.Ack()
+			for _, g := range gone {
+				ev, _ := json.Marshal(msg.MailboxSynced{AccountId: g.AccountID, Version: int(g.Version)})
+				_ = nc.Publish("evt.mailbox.synced", ev)
+			}
+			return owed
+		case "cmd.send.feedback":
+			// The report names who the mail went to, so it travels sealed with SECRETS_KEY.
+			var fb msg.SendFeedback
+			var report mail.Feedback
+			var sealed []byte
+			var plain string
+			err := json.Unmarshal(m.Data(), &fb)
+			if err == nil {
+				sealed, err = base64.StdEncoding.DecodeString(fb.Sealed)
+			}
+			if err == nil {
+				plain, err = secret.Open(master, sealed)
+			}
+			if err == nil {
+				err = json.Unmarshal([]byte(plain), &report)
+			}
+			if err != nil {
+				slog.Warn("bad feedback", "err", err)
+				_ = m.Term()
+				return owed
+			}
+			acc, err := db.New(pool).GetAccount(ctx, fb.AccountId)
+			var in mail.Arrival
+			if err == nil {
+				in, err = mail.Notify(ctx, pool, store, fb.AccountId, mail.Report(acc.Email, report))
+			}
+			if err != nil {
+				slog.Error("feedback failed", "account", fb.AccountId, "err", err)
+				_ = m.NakWithDelay(time.Minute)
+				return owed
+			}
+			_ = m.Ack()
+			ev, _ := json.Marshal(msg.MailboxSynced{AccountId: in.AccountID, Version: int(in.Version)})
+			_ = nc.Publish("evt.mailbox.synced", ev)
+			if len(in.Arrived) > 0 {
+				ev, _ := json.Marshal(msg.MessageArrived{AccountId: in.AccountID, MessageIds: in.Arrived})
+				_ = nc.Publish("evt.message.arrived", ev)
+			}
+			return owed
 		case "cmd.draft.save":
 			var d msg.DraftSave
 			if err := json.Unmarshal(m.Data(), &d); err != nil {
@@ -453,6 +549,15 @@ func send(ctx context.Context, m jetstream.Msg, nc *nats.Conn, js jetstream.JetS
 		slog.Error("send", "account", cmd.AccountId, "err", err)
 		_ = m.NakWithDelay(time.Minute)
 		return
+	}
+	// Nouvex mailboxes it went into directly have new mail, also when the rest waits for another try.
+	for _, in := range out.Inside {
+		ev, _ := json.Marshal(msg.MailboxSynced{AccountId: in.AccountID, Version: int(in.Version)})
+		_ = nc.Publish("evt.mailbox.synced", ev)
+		if len(in.Arrived) > 0 {
+			ev, _ := json.Marshal(msg.MessageArrived{AccountId: in.AccountID, MessageIds: in.Arrived})
+			_ = nc.Publish("evt.message.arrived", ev)
+		}
 	}
 	if out.Retry > 0 {
 		_ = m.NakWithDelay(out.Retry)

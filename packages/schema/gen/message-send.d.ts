@@ -40,6 +40,10 @@ export interface MessageSend {
    */
   html?: string;
   /**
+   * An alias of a hosted account to send from instead of its own address.
+   */
+  from?: string;
+  /**
    * Message-IDs of the conversation, oldest first, for the References header.
    */
   references?: string[];

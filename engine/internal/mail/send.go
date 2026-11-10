@@ -173,10 +173,12 @@ func write(w io.Writer, b []byte) error {
 // Get loads an object, e.g. from S3.
 type Get func(ctx context.Context, key string) ([]byte, error)
 
-// Sent is what Send did: whether the server took the message, and the copy to keep in Sent.
+// Sent is what Send did: whether the server took the message, the copy to keep in Sent, and the Nouvex mailboxes
+// a hosted account's message went into directly.
 type Sent struct {
-	Taken bool
-	Copy  []byte
+	Taken  bool
+	Copy   []byte
+	Inside []Arrival
 }
 
 // Send delivers the message over SMTP. Once the server has taken it, a failing goodbye doesn't make it unsent:
@@ -186,7 +188,7 @@ func Send(ctx context.Context, q *db.Queries, get Get, master []byte, cmd msg.Me
 	if err != nil {
 		return Sent{}, err
 	}
-	pass, err := secret.Open(master, acc.Secret)
+	address, err := sendingAddress(ctx, q, acc, cmd.From)
 	if err != nil {
 		return Sent{}, err
 	}
@@ -199,14 +201,22 @@ func Send(ctx context.Context, q *db.Queries, get Get, master []byte, cmd msg.Me
 		}
 		attached[i] = File{Name: a.Name, Type: a.Type, Data: data}
 	}
-	from := mail.Address{Name: acc.DisplayName, Address: acc.Email}
+	from := mail.Address{Name: acc.DisplayName, Address: address}
 	now := time.Now()
-	id := SendID(cmd.DraftId, acc.Email)
+	id := SendID(cmd.DraftId, address)
 	raw, err := Compose(from, cmd, id, attached, now, false)
 	if err != nil {
 		return Sent{}, err
 	}
 	kept, err := Compose(from, cmd, id, attached, now, true)
+	if err != nil {
+		return Sent{}, err
+	}
+	if acc.Kind == "hosted" {
+		inside, err := sendHosted(ctx, acc, address, envelope(slices.Concat(cmd.To, cmd.Cc, cmd.Bcc)), raw, id)
+		return Sent{Taken: err == nil, Copy: kept, Inside: inside}, err
+	}
+	pass, err := secret.Open(master, acc.Secret)
 	if err != nil {
 		return Sent{}, err
 	}
