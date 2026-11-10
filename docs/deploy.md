@@ -55,7 +55,7 @@ Nouvex can host mailboxes on domains people add in Settings, Domains: our MX rec
 
 Once, for the server:
 1. **DNS of your own domain.** `MX_HOST` (default `mx.nouvex.cc`) points at the machine running the MX, and `SPF_INCLUDE` (default `spf.nouvex.cc`) has `TXT "v=spf1 include:amazonses.com ~all"`. Customers include that one name, so new senders (our own IPs later) only change it here.
-2. **Amazon SES** in `SES_REGION` (eu-central-1):
+2. **Amazon SES** in `SES_REGION` (ours: eu-north-1, Stockholm):
    - Request production access, so SES sends to anyone.
    - Make a configuration set (`SES_CONFIGURATION_SET`) with an event destination for bounces and complaints to an SNS topic (`SES_TOPIC_ARN`).
    - Subscribe `https://<your domain>/webhooks/ses` to that topic over HTTPS. The API confirms the subscription by itself.
