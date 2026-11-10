@@ -533,3 +533,39 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)("what can be sen
 		await db.delete(user).where(eq(user.id, me.id));
 	}
 });
+
+// Needs the database and NATS (docker compose up -d).
+test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
+	"a hosted mailbox: our domains only, one per address",
+	async () => {
+		const { db } = await import("./db");
+		const { mailAccount } = await import("./db/schema");
+		const { eq } = await import("drizzle-orm");
+		process.env.HOSTED_DOMAINS = "hosted.test";
+		const me = await signedIn("Lena");
+		const other = await signedIn("Max");
+		const address = `${crypto.randomUUID()}@hosted.test`;
+		const make = (cookie: string, email: string) =>
+			app.request("/hosted-accounts", {
+				method: "POST",
+				headers: { cookie, "content-type": "application/json" },
+				body: JSON.stringify({ email, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("wrapped") }),
+			});
+		try {
+			expect((await make(me.cookie, `${crypto.randomUUID()}@gmail.com`)).status).toBe(422);
+			const res = await make(me.cookie, address);
+			expect(res.status).toBe(201);
+			expect((await make(other.cookie, address.toUpperCase())).status).toBe(422);
+			const list = (await (await app.request("/accounts", { headers: { cookie: me.cookie } })).json()) as {
+				email: string;
+				kind: string;
+				keys: { version: number; wrappedKey: string }[];
+			}[];
+			const hosted = list.find((a) => a.email === address);
+			expect(hosted?.kind).toBe("hosted");
+			expect(hosted?.keys).toEqual([{ version: 1, publicKey: btoa("k".repeat(32)), wrappedKey: btoa("wrapped") }]);
+		} finally {
+			await db.delete(mailAccount).where(eq(mailAccount.email, address));
+		}
+	},
+);

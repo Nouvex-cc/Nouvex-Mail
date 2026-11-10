@@ -30,8 +30,8 @@ type Changes = {
 };
 
 // The server keeps what only this user can read sealed; opened here, it's stored on this device like any message.
-async function open({ sealed, ...m }: Sealed) {
-	const meta = await decrypt(await messageKey(m), "meta", Uint8Array.fromBase64(sealed));
+async function open(accountId: string, { sealed, ...m }: Sealed) {
+	const meta = await decrypt(await messageKey({ ...m, accountId }), "meta", Uint8Array.fromBase64(sealed));
 	return { ...m, ...(JSON.parse(new TextDecoder().decode(meta)) as Meta) };
 }
 
@@ -51,7 +51,7 @@ export function pull(accountId: string) {
 				const { version, more, mailboxes, messages }: Changes = await res.json();
 				// Before the transaction: IndexedDB ends one that waits for anything else. If one doesn't open, the cursor
 				// stays, or the message would be lost here for good. Most likely this tab holds the key from before a reset.
-				const upserted = await Promise.all(messages.upserted.map(open)).catch((e) => {
+				const upserted = await Promise.all(messages.upserted.map((m) => open(accountId, m))).catch((e) => {
 					reload();
 					throw e;
 				});
