@@ -25,6 +25,7 @@ const used: Record<string, string> = {
 	FileVideo: "video-line",
 	Folder: "folder-line",
 	Forward: "corner-up-right-line",
+	Globe: "globe-line",
 	Inbox: "inbox-line",
 	Italic: "italic-line",
 	Layers: "layers-line",

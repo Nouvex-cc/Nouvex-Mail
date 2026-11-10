@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, Input, LabelColorPicker, Settings, Sidebar, Switch, Textarea } from "@nouvex/ui";
-import { Archive, Mail, Plus } from "@nouvex/ui/icons";
+import { Button, Input, LabelColorPicker, Settings, Sidebar, Switch, Textarea, useToast } from "@nouvex/ui";
+import { Archive, Mail, Plus, X } from "@nouvex/ui/icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { type Account, useAccounts } from "../accounts";
@@ -70,6 +70,8 @@ function AccountPage({ account: a }: { account: Account }) {
 				</Button>
 			</form>
 
+			{a.kind === "hosted" && <Aliases account={a} />}
+
 			<Settings.Section>
 				<Settings.Row
 					id="color"
@@ -111,6 +113,61 @@ function AccountPage({ account: a }: { account: Account }) {
 				</Settings.Row>
 			</Settings.Section>
 		</Settings.Page>
+	);
+}
+
+// Other addresses of a mailbox Nouvex hosts: they receive into it, on the user's verified domains.
+function Aliases({ account: a }: { account: Account }) {
+	const accounts = useAccounts();
+	const toast = useToast();
+	const [busy, setBusy] = useState(false);
+	return (
+		<Settings.Section title="Addresses">
+			<Settings.Row id="address" label={a.email} hint="Its own address" />
+			{a.aliases.map((alias) => (
+				<Settings.Row key={alias} label={alias} hint="Alias">
+					<Button
+						variant="ghost"
+						aria-label={`Remove ${alias}`}
+						onClick={async () => {
+							await fetch(`/accounts/${a.id}/aliases/${encodeURIComponent(alias)}`, { method: "DELETE" });
+							void accounts.refetch();
+						}}
+					>
+						<X strokeWidth={1.75} />
+					</Button>
+				</Settings.Row>
+			))}
+			<form
+				className="flex gap-2 py-2"
+				onSubmit={async (e) => {
+					e.preventDefault();
+					const form = e.currentTarget;
+					setBusy(true);
+					const res = await fetch(`/accounts/${a.id}/aliases`, {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({ address: String(new FormData(form).get("alias")) }),
+					});
+					setBusy(false);
+					if (!res.ok)
+						return toast.add({ title: ((await res.json()) as { error?: string }).error ?? "Couldn't add it." });
+					form.reset();
+					void accounts.refetch();
+				}}
+			>
+				<Input
+					name="alias"
+					type="email"
+					required
+					aria-label="New alias"
+					placeholder={`hello@${a.email.split("@")[1]}`}
+				/>
+				<Button type="submit" loading={busy}>
+					Add alias
+				</Button>
+			</form>
+		</Settings.Section>
 	);
 }
 

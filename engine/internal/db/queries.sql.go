@@ -431,15 +431,22 @@ func (q *Queries) HasMessageIn(ctx context.Context, arg HasMessageInParams) (boo
 }
 
 const hostedAccount = `-- name: HostedAccount :one
-SELECT id FROM mail_account WHERE kind = 'hosted' AND lower(email) = $1::text AND archived_at IS NULL LIMIT 1
+SELECT x.id::text FROM (
+  -- Archived ones too: an address used rarely still receives.
+  SELECT a.account_id AS id, 0 AS rank FROM address a WHERE a.address = $1::text
+  UNION ALL
+  SELECT d.catch_all_account_id, 1 FROM domain d
+    WHERE d.name = split_part($1::text, '@', 2) AND d.verified_at IS NOT NULL AND d.catch_all_account_id IS NOT NULL
+) x ORDER BY x.rank LIMIT 1
 `
 
-// The hosted mailbox our MX delivers an address to.
+// The hosted mailbox our MX delivers an address to: the one it belongs to (its own or an alias), or else its verified
+// domain's catch-all.
 func (q *Queries) HostedAccount(ctx context.Context, address string) (string, error) {
 	row := q.db.QueryRow(ctx, hostedAccount, address)
-	var id string
-	err := row.Scan(&id)
-	return id, err
+	var x_id string
+	err := row.Scan(&x_id)
+	return x_id, err
 }
 
 const insertMessage = `-- name: InsertMessage :execrows

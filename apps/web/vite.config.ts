@@ -15,6 +15,7 @@ export default defineConfig({
 			"/api": api,
 			"/accounts": api,
 			"/hosted-accounts": api,
+			"/domains": api,
 			"/groups": api,
 			"/order": api,
 			"/rich": api,

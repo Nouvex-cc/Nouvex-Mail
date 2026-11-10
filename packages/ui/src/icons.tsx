@@ -212,6 +212,16 @@ export const Forward = icon(
 		/>
 	</>,
 );
+export const Globe = icon(
+	<>
+		<path
+			fill="none"
+			stroke="currentColor"
+			strokeLinecap="round"
+			d="M12 18.001a9 9 0 0 0 6-15.708m-6 15.708a8.99 8.99 0 0 1-7.5-4.023m7.5 4.023v3m-4 0h8m2-12a6 6 0 1 1-12 0a6 6 0 0 1 12 0Z"
+		/>
+	</>,
+);
 export const Inbox = icon(
 	<>
 		<path
