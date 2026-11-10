@@ -40,6 +40,28 @@ struct AnsweringTests {
         #expect(Answering.addresses(.replyAll, sent, mine: mine) == (["lena@x.example"], ["max@x.example"]))
     }
 
+    /// A saved reply comes back as one text; what's written and the quote come apart again.
+    @Test func split() {
+        let saved = "Sure, Friday works.\n\n-- \nMateo\n\nOn 6 Nov 2026 at 15:00, Lena wrote:\n> Dinner?\n> On Mon, Max wrote:"
+        let (body, quote) = Answering.split(saved)
+        #expect(body == "Sure, Friday works.\n\n-- \nMateo")
+        #expect(quote == "\n\nOn 6 Nov 2026 at 15:00, Lena wrote:\n> Dinner?\n> On Mon, Max wrote:")
+        #expect(Answering.split("On 6 Nov, Lena wrote:\n> Hi") == ("", "\n\nOn 6 Nov, Lena wrote:\n> Hi"))
+        #expect(Answering.split("No quote here") == ("No quote here", ""))
+    }
+
+    /// A quote comes apart into its messages, newest first, each without its ">".
+    @Test func history() {
+        let quote = "\n\nOn 6 Nov 2026 at 15:00, Lena wrote:\n> Dinner?\n>\n> On Thu, 6 Nov, Max wrote:\n> > Sure\n> > soon"
+        #expect(Answering.history(quote) == [
+            .init(from: "Lena", date: "6 Nov 2026 at 15:00", text: "Dinner?"),
+            .init(from: "Max", date: "Thu, 6 Nov", text: "Sure\nsoon"),
+        ])
+        #expect(Answering.history("On 6 Nov, Lena wrote:\n> > Dinner?").first?.text == "Dinner?")
+        #expect(Answering.history("On 6 Nov, Lena wrote:\n \u{00A0}>\u{00A0}Dinner?").first?.text == "Dinner?")
+        #expect(Answering.history("no quote").isEmpty)
+    }
+
     @Test func references() {
         let ids = (1...25).map { "<\($0)@x>" }
         #expect(Answering.references(ids) == Array(ids.suffix(20)))

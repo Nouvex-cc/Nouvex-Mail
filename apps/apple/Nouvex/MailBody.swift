@@ -14,19 +14,15 @@ struct MailBody: View {
     @State private var height: CGFloat = 40
     @State private var pictures = false
     @State private var quote = false
-    @State private var original = false
+    /// Its own colors instead of dark ones, from the conversation's toolbar.
+    var original = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let html, let rules {
                 let page = Frame(html: html)
                 let hidden = !pictures && mail.prefs.remoteImages == "ask" && page.remote
-                if hidden || scheme == .dark {
-                    HStack(spacing: 6) {
-                        if hidden { pill("Remote images hidden · Show") { pictures = true } }
-                        if scheme == .dark { pill(original ? "Original colors · Show dark" : "Dark colors · Show original") { original.toggle() } }
-                    }
-                }
+                if hidden { pill("Remote images hidden · Show") { pictures = true } }
                 let dark = scheme == .dark && !original
                 WebView(
                     html: page.render(dark: dark, pictures: !hidden, quote: quote),

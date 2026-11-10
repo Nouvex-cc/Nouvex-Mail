@@ -15,15 +15,32 @@ struct SettingsView: View {
         @Bindable var mail = mail
         NavigationSplitView {
             List(selection: $mail.settings) {
-                Section("Mail") {
-                    Label("Reading", systemImage: "book").tag(SettingsPage.reading)
-                    Label("Writing", systemImage: "pencil.line").tag(SettingsPage.writing)
-                    Label("Shortcuts", systemImage: "keyboard").tag(SettingsPage.shortcuts)
+                // Who's signed in, first, like the Settings app.
+                Section {
+                    let name = mail.me.name.isEmpty ? mail.me.email : mail.me.name
+                    HStack(spacing: 12) {
+                        Avatar(name: name, size: 44)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name).font(.lg.weight(.semibold)).foregroundStyle(.ink).lineLimit(1)
+                            if !mail.me.name.isEmpty { Text(mail.me.email).font(.sm).foregroundStyle(.muted).lineLimit(1) }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .tag(SettingsPage.profile)
                 }
                 Section("Accounts") {
-                    // Archived accounts come last, marked by their icon.
+                    // Each with its color and short name, so they tell apart; archived ones come last, marked by their icon.
                     ForEach(mail.accountList + mail.accounts.filter(\.archived)) { a in
-                        Label(a.name, systemImage: a.archived ? "archivebox" : "envelope").tag(SettingsPage.account(a.id))
+                        HStack(spacing: 12) {
+                            Avatar(name: a.name, size: 30, color: a.color)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(a.name).lineLimit(1)
+                                if a.name != a.email { Text(a.email).font(.sm).foregroundStyle(.muted).lineLimit(1) }
+                            }
+                            Spacer(minLength: 0)
+                            if a.archived { Image(systemName: "archivebox").font(.sm).foregroundStyle(.muted).accessibilityLabel("Archived") }
+                        }
+                        .tag(SettingsPage.account(a.id))
                     }
                     Label("Add account", systemImage: "plus").tag(SettingsPage.addAccount)
                 }
@@ -37,12 +54,15 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Section("You") {
-                    Label("Profile", systemImage: "person").tag(SettingsPage.profile)
-                    Label("Security", systemImage: "lock.shield").tag(SettingsPage.security)
+                Section("Mail") {
+                    Label("Reading", systemImage: "book").tag(SettingsPage.reading)
+                    Label("Writing", systemImage: "pencil.line").tag(SettingsPage.writing)
+                    // Shortcuts need a keyboard.
+                    if !Device.phone { Label("Shortcuts", systemImage: "keyboard").tag(SettingsPage.shortcuts) }
                 }
                 Section("App") {
                     Label("Appearance", systemImage: "circle.lefthalf.filled").tag(SettingsPage.appearance)
+                    Label("Security", systemImage: "lock.shield").tag(SettingsPage.security)
                 }
             }
             .navigationTitle("Settings")
@@ -268,8 +288,19 @@ private struct AccountPage: View {
     @State private var signature = ""
     @State private var saved = false
 
+    private var changed: Bool { name != account.displayName || signature != account.signature || nickname != account.nickname }
+
     var body: some View {
         Form {
+            Section {
+                VStack(spacing: 6) {
+                    Avatar(name: account.name, size: 64, color: account.color)
+                    Text(account.name).font(.xl).foregroundStyle(.ink).lineLimit(1).padding(.top, 4)
+                    if account.name != account.email { Text(account.email).font(.md).foregroundStyle(.muted).lineLimit(1) }
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+            }
             if let error = account.syncError {
                 Section {
                     Label {
@@ -280,62 +311,56 @@ private struct AccountPage: View {
                     }
                 }
             }
-            Section("In your inbox") {
-                TextField(text: $nickname, prompt: Text(account.email)) {
-                    Text("Short name")
-                    Text("In the account picker and on the From line")
-                }
-                .modifier(Labeled("Short name"))
-                LabeledContent {
-                    HuePicker(selection: account.color) { color in
-                        Task { _ = await update(.init(color: .init(rawValue: color ?? "none")), failed: "Couldn't change \(account.email)") }
-                    }
-                } label: {
-                    Text("Color")
-                    Text("Its senders take it where several accounts are mixed, like All inboxes")
-                }
-                Toggle(isOn: Binding(get: { account.muted }, set: { on in Task { _ = await update(.init(muted: on), failed: "Couldn't change \(account.email)") } })) {
-                    Text("Mute")
-                    Text("Its mail stays, without an unread dot or a notification in All inboxes")
-                }
-            }
-            Section("Sending") {
-                TextField(text: $name, prompt: Text(account.email)) {
-                    Text("Name")
-                    Text("Shown next to your address")
-                }
-                .modifier(Labeled("Name"))
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Signature")
-                    Text("Added below new messages and replies").font(.xs).foregroundStyle(.muted)
-                    TextEditor(text: $signature)
-                        .font(.md).frame(minHeight: 96).scrollContentBackground(.hidden)
-                        .padding(6).background(.hover, in: .rect(cornerRadius: Radius.md))
-                }
-                HStack {
-                    Spacer()
-                    Button(saved ? "Saved" : "Save") { Task { await save() } }
-                        .glassButton(prominent: true)
-                        .disabled(name == account.displayName && signature == account.signature && nickname == account.nickname)
-                }
+            Section {
+                TextField("Short name", text: $nickname, prompt: Text(account.email)).modifier(Labeled("Short name"))
+                TextField("Your name", text: $name, prompt: Text("Your name")).modifier(Labeled("Your name"))
+            } header: {
+                Text("Name")
+            } footer: {
+                Text("The short name is how this account shows in Nouvex. Your name is what people see next to your address.")
             }
             Section {
-                Toggle(isOn: Binding(get: { account.archived }, set: { on in Task { await archive(on) } })) {
-                    Text("Archive")
-                    Text("Out of All inboxes and the account picker, checked for mail once a day. Still there under Archived.")
+                HuePicker(selection: account.color) { color in
+                    Task { _ = await update(.init(color: .init(rawValue: color ?? "none")), failed: "Couldn't change \(account.email)") }
                 }
-                LabeledContent {
+            } header: {
+                Text("Color")
+            } footer: {
+                Text("Where several accounts mix, like All inboxes, its senders take this color.")
+            }
+            Section {
+                TextEditor(text: $signature).font(.md).frame(minHeight: 96).scrollContentBackground(.hidden)
+            } header: {
+                Text("Signature")
+            } footer: {
+                Text("Added below new messages and replies.")
+            }
+            Section {
+                Toggle("Mute", isOn: Binding(get: { account.muted }, set: { on in Task { _ = await update(.init(muted: on), failed: "Couldn't change \(account.email)") } }))
+            } footer: {
+                Text("Its mail stays in All inboxes, without an unread dot or a notification.")
+            }
+            Section {
+                Toggle("Archive", isOn: Binding(get: { account.archived }, set: { on in Task { await archive(on) } }))
+                LabeledContent("Remove account") {
                     HoldButton(title: "Remove") {
                         mail.settings = .reading
                         Task { await mail.remove(account) }
                     }
-                } label: {
-                    Text("Remove account")
-                    Text("Its mail is removed from Nouvex, the mailbox itself stays as it is")
                 }
+            } footer: {
+                Text("Archived, it leaves All inboxes and the account picker and is checked for mail once a day. Removed, its mail leaves Nouvex; the mailbox itself stays as it is.")
             }
         }
-        .navigationTitle(account.email)
+        .navigationTitle(account.name)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(saved ? "Saved" : "Save") { Task { await save() } }.disabled(!changed)
+            }
+        }
         .onAppear {
             name = account.displayName
             signature = account.signature
@@ -380,7 +405,9 @@ private struct HuePicker: View {
         Button { pick(hue) } label: {
             Circle()
                 .fill(Color.label(hue: hue) ?? .clear)
-                .overlay { if hue == nil { Circle().strokeBorder(.lineStrong) } }
+                .overlay {
+                    if hue == nil { Image(systemName: "nosign").font(.system(size: 20, weight: .light)).foregroundStyle(.muted) }
+                }
                 .frame(width: 20, height: 20)
                 .padding(3)
                 .overlay { if selection == hue { Circle().strokeBorder(.ink, lineWidth: 2) } }

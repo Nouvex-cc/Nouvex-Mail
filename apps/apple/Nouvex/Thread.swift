@@ -17,8 +17,14 @@ struct ThreadView: View {
     @State private var open: Set<String> = []
     @State private var unfolded = false
     @State private var snoozing = false
+    /// The view's width, which the reply field in a phone's bottom bar is sized from.
+    @State private var width: CGFloat = 0
     @State private var preview: URL?
     @State private var classic = false
+    /// Mail in its own colors instead of turned dark.
+    @State private var original = false
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.composer) private var composer
     @FocusState private var focused: Bool
 
     /// A rich mail on its own takes the whole reading area; in a conversation it reads like any other mail.
@@ -29,6 +35,7 @@ struct ThreadView: View {
             if let rich { RichMail(message: rich).id(rich.id) } else { conversation }
         }
         .background(.paper)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .navigationTitle(compact ? "" : subject)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -43,15 +50,16 @@ struct ThreadView: View {
             if let reply = mail.reply, reply.thread == threadId, !narrow {
                 Composer(placement: .reply).id(reply.draftId).padding(.horizontal, 24).padding(.bottom, 16)
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .bottom)))
-            } else if let newest {
+            } else if let newest, !narrow {
                 ReplyBar(to: replyTo(newest), others: newest.others(mail.accountList), everyone: everyone, resuming: saved != nil, write: answer)
                 .padding(.horizontal, 16).padding(.bottom, 16)
             }
         }
-        .focusable()
+        // Keys need focus; on a phone taking it cost the first tap on the bottom bar.
+        .focusable(!Device.phone)
         .focusEffectDisabled()
         .focused($focused)
-        .onAppear { focused = true }
+        .onAppear { focused = !Device.phone }
         .onKeyPress(phases: .down) { press in key(press) }
         .onEscape { back() }
         .quickLookPreview($preview)
@@ -131,6 +139,46 @@ struct ThreadView: View {
     private var draft: Message? { messages.last.flatMap { drafts.contains($0.mailboxId) ? $0 : nil } }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        #if os(iOS)
+        // Items of the system's bottom bar, laid out like search and New message in the list, so both sit alike.
+        if narrow, let newest {
+            let to = replyTo(newest)
+            let both = newest.others(mail.accountList).count > 1
+            ToolbarItem(placement: .bottomBar) {
+                Button { answer(everyone ? .replyAll : .reply) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: everyone ? "arrowshape.turn.up.left.2" : "arrowshape.turn.up.left")
+                        Text(ReplyBar.prompt(to: to, everyone: everyone, resuming: saved != nil)).lineLimit(1)
+                    }
+                    .foregroundStyle(.muted)
+                    // ponytail: the bar takes an item at its own width and drops one that's too wide, and a flexible
+                    // spacer next to it hides it too. So it's the room beside the buttons, from iOS 26's bar margins and
+                    // padding; measure the buttons if those change.
+                    .frame(width: max(0, width - (both ? 196 : 138)), alignment: .leading)
+                }
+            }
+            .composerSource(everyone ? "replyAll" : "reply", in: composer)
+            if #available(iOS 26, *) { ToolbarSpacer(.fixed, placement: .bottomBar) }
+            if both {
+                ToolbarItem(placement: .bottomBar) {
+                    if everyone {
+                        Button("Reply", systemImage: "arrowshape.turn.up.left") { answer(.reply) }
+                    } else {
+                        Button("Reply all", systemImage: "arrowshape.turn.up.left.2") { answer(.replyAll) }
+                    }
+                }
+                .composerSource(everyone ? "reply" : "replyAll", in: composer)
+            }
+            ToolbarItem(placement: .bottomBar) {
+                Button("Forward", systemImage: "arrowshape.turn.up.right") { answer(.forward) }
+            }
+            .composerSource("forward", in: composer)
+        }
+        #endif
+        if scheme == .dark, rich == nil {
+            ToolbarItem { colors }
+            if #available(iOS 26, *) { ToolbarSpacer(.fixed) }
+        }
         if compact {
             ToolbarItem {
                 Button("Archive", systemImage: "archivebox") { leave { mail.update(inFolder, archive: true) } }
@@ -158,6 +206,12 @@ struct ThreadView: View {
         } else {
             wideToolbar
         }
+    }
+
+    /// In the dark appearance mail is turned dark; this shows it in the colors it was sent with, and back.
+    private var colors: some View {
+        Button(original ? "Show dark colors" : "Show original colors", systemImage: original ? "moon" : "moon.fill") { original.toggle() }
+            .help(original ? "Show dark colors" : "Show original colors")
     }
 
     @ToolbarContentBuilder private var wideToolbar: some ToolbarContent {
@@ -216,19 +270,14 @@ struct ThreadView: View {
             HStack(alignment: .top, spacing: 12) {
                 Avatar(name: m.sender)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        SenderName(message: m)
-                        if drafts.contains(m.mailboxId) { Text("Draft").font(.sm).foregroundStyle(.danger) }
-                    }
+                    SenderName(message: m, draft: drafts.contains(m.mailboxId))
                     Text("to \(m.to.joined(separator: ", "))\(m.cc.isEmpty ? "" : " · cc \(m.cc.joined(separator: ", "))")")
                         .font(.sm).foregroundStyle(.muted).lineLimit(1)
                 }
-                Spacer()
-                Text(m.sentAt.formatted(date: .abbreviated, time: .shortened)).font(.xs).foregroundStyle(.muted)
             }
             .contentShape(.rect)
             .onTapGesture { if m.id != messages.last?.id { withAnimation(.quick) { _ = open.remove(m.id) } } }
-            MailBody(message: m)
+            MailBody(message: m, original: original)
             if !m.files.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 260), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
                     ForEach(Array(m.files.enumerated()), id: \.offset) { index, file in
@@ -237,7 +286,10 @@ struct ThreadView: View {
                 }
             }
         }
+        // On iOS selectable text here takes the taps meant for the sender's name.
+        #if os(macOS)
         .textSelection(.enabled)
+        #endif
         .padding(.horizontal, inset)
         .padding(.vertical, 20)
         .overlay(alignment: .bottom) { Rectangle().fill(.line).frame(height: 1).padding(.horizontal, 12) }
@@ -350,13 +402,17 @@ struct ReplyBar: View {
     var resuming = false
     let write: (Answering.Kind) -> Void
 
+    static func prompt(to: String, everyone: Bool, resuming: Bool) -> String {
+        resuming ? "Continue your reply to \(to)…" : everyone ? "Reply to everyone…" : "Reply to \(to)…"
+    }
+
     var body: some View {
         GlassGroup(spacing: 8) {
             HStack(spacing: 8) {
                 Button { write(everyone ? .replyAll : .reply) } label: {
                     HStack(spacing: 10) {
                         Image(systemName: everyone ? "arrowshape.turn.up.left.2" : "arrowshape.turn.up.left").font(.sm).foregroundStyle(.muted)
-                        Text(resuming ? "Continue your reply to \(to)…" : everyone ? "Reply to everyone…" : "Reply to \(to)…")
+                        Text(Self.prompt(to: to, everyone: everyone, resuming: resuming))
                             .lineLimit(1).font(.md).foregroundStyle(.muted)
                         Spacer()
                         if !Device.phone {
@@ -389,26 +445,68 @@ struct ReplyBar: View {
 }
 
 /// The sender's name; hovering shows the address, a click copies it.
+/// The sender's name and the date. A tap (hover on the Mac) swaps the name for the address and the date makes room;
+/// a long press (a right click) lifts the address with what can be done with it.
 private struct SenderName: View {
+    @Environment(Mail.self) private var mail
     let message: Message
-    @State private var hovered = false
+    var draft = false
+    @State private var address = false
     @State private var copied = false
 
     var body: some View {
-        Button {
-            Clipboard.copy(message.fromAddr)
-            copied = true
-        } label: {
-            Text(copied ? "Copied" : hovered ? message.fromAddr : message.sender)
-                .font(.md.weight(.medium)).foregroundStyle(.ink).contentTransition(.opacity)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            name
+            if draft { Text("Draft").font(.sm).foregroundStyle(.danger) }
+            Spacer(minLength: 8)
+            if !address {
+                Text(message.sentAt.formatted(date: .abbreviated, time: .shortened)).font(.xs).foregroundStyle(.muted)
+                    .transition(.blurReplace)
+            }
         }
-        .buttonStyle(.plain)
-        .onHover { over in withAnimation(.quick) { hovered = over } }
-        .help("Copy \(message.fromAddr)")
+        .animation(.smooth(duration: 0.2), value: address)
+        .animation(.smooth(duration: 0.2), value: copied)
         .task(id: copied) {
             guard copied, (try? await Task.sleep(for: .seconds(1.5))) != nil else { return }
             copied = false
         }
+    }
+
+    private var name: some View {
+        let label = copied ? "Copied" : address ? message.fromAddr : message.sender
+        let text = Text(label).font(.md.weight(.medium)).foregroundStyle(.ink).lineLimit(1)
+            .id(label).transition(.blurReplace)
+            .contextMenu {
+                Button("Copy address", systemImage: "doc.on.doc") { copy() }
+                Button("New message", systemImage: "square.and.pencil") {
+                    if let url = URL(string: "mailto:\(message.fromAddr)") { mail.write(Draft.mailto(url, accountId: message.accountId)) }
+                }
+                Divider()
+                SortMenu(message: message)
+            } preview: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(message.sender).font(.lg.weight(.semibold)).foregroundStyle(.ink)
+                    Text(message.fromAddr).font(.md).foregroundStyle(.muted)
+                }
+                .padding(16)
+                .frame(minWidth: 260, alignment: .leading)
+            }
+        #if os(iOS)
+        return text
+            .onTapGesture { address.toggle() }
+            .sensoryFeedback(.success, trigger: copied) { _, now in now }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Shows the address")
+        #else
+        return text
+            .onHover { address = $0 }
+            .help(message.fromAddr)
+        #endif
+    }
+
+    private func copy() {
+        Clipboard.copy(message.fromAddr)
+        copied = true
     }
 }
 

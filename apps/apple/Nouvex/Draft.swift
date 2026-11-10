@@ -18,7 +18,11 @@ struct Draft: Hashable {
     var cc: [String] = []
     var bcc: [String] = []
     var subject = ""
+    /// What's written, as plain text; `rich` has it with its formatting where the editor can format.
     var body = ""
+    var rich: AttributedString?
+    /// `rich` as HTML, only when something in it is formatted.
+    var richHTML: String?
     /// A reply's quoted text, below what's written.
     var quote = ""
     /// A forward's original, shown as a card and sent along with its formatting.
@@ -30,6 +34,8 @@ struct Draft: Hashable {
     var person = ""
     /// It's in the Drafts folder: it has its signature already, and discarding it deletes it there.
     var saved = false
+    /// Taken off its schedule to be changed: closing puts it back on for then.
+    var scheduledFor: Date?
 
     struct Forwarded: Hashable {
         var from: String
@@ -67,13 +73,18 @@ struct Draft: Hashable {
         return body + "\n\n---------- Forwarded message ----------\nFrom: \(f.from)\nDate: \(f.date)\nSubject: \(f.subject)\n\n\(f.text)"
     }
 
-    /// A forward goes out with the original's formatting too: what was written, then the original as it looked.
+    /// Formatted writing goes out as HTML too, with the quote under it; a forward with the original as it looked. Plain
+    /// writing stays plain text.
     var html: String? {
-        guard let f = forwarded, let original = f.html else { return nil }
         let escape = { (s: String) in
             s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
         }
-        let written = escape(body).replacingOccurrences(of: "\n", with: "<br>")
+        let written = richHTML ?? escape(body).replacingOccurrences(of: "\n", with: "<br>")
+        guard let f = forwarded, let original = f.html else {
+            guard richHTML != nil else { return nil }
+            let quoted = quote.trimmingCharacters(in: .newlines)
+            return "<div>\(written)</div>" + (quoted.isEmpty ? "" : "<br><div>\(escape(quoted).replacingOccurrences(of: "\n", with: "<br>"))</div>")
+        }
         return """
         <div>\(written)</div><br><div>---------- Forwarded message ----------<br>From: \(escape(f.from))<br>Date: \(escape(f.date))<br>\
         Subject: \(escape(f.subject))</div><br>\(original)
@@ -128,15 +139,20 @@ struct Draft: Hashable {
     static func resume(_ m: Message) async -> Draft {
         let earlier = try? await Store.db.read { db in try sent(m.threadId).fetchAll(db) }
         let parent = earlier?.last
-        return Draft(
+        // A reply was saved as one text; the quote goes back under the fold, below what's written.
+        let (body, quote) = Answering.split(await Html.load(m).map(Html.text) ?? "")
+        var draft = Draft(
             draftId: m.draftId ?? UUID().uuidString.lowercased(), accountId: m.accountId, kind: parent == nil ? nil : .reply,
             thread: parent == nil ? nil : m.threadId, to: m.to, cc: m.cc, subject: m.subject,
-            body: await Html.load(m).map(Html.text) ?? "",
+            body: body,
             files: m.files.enumerated().map { i, f in Piece(name: f.name, type: f.type, size: f.size, source: m, index: i) },
             inReplyTo: parent.flatMap { $0.messageId.isEmpty ? nil : $0.messageId },
             references: Answering.references((earlier ?? []).map(\.messageId)), person: parent?.sender ?? "", saved: true
         )
+        draft.quote = quote
+        return draft
     }
+
 
     /// A new message from a mailto: link, with what it asks for.
     static func mailto(_ url: URL, accountId: String?) -> Draft {
