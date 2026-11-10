@@ -104,6 +104,9 @@ export const userKey = pgTable("user_key", {
 		.references(() => user.id, { onDelete: "cascade" }),
 	publicKey: bytea("public_key").notNull(),
 	wrappedPrivate: bytea("wrapped_private").notNull(),
+	// The same private key wrapped with the user's recovery key (packages/sdk sealRecovery), which only they have. A
+	// reset keeps it, so the key and the mail sealed to it can come back.
+	recoveryWrapped: bytea("recovery_wrapped"),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

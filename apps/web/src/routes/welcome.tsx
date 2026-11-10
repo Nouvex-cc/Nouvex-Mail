@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { derive, newKeys } from "@nouvex/sdk/crypto";
+import { derive, newKeys, openRecovery, wrapPrivate } from "@nouvex/sdk/crypto";
 import { Button, Field } from "@nouvex/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -21,10 +21,13 @@ function Welcome() {
 		queryKey: ["welcome", token],
 		queryFn: async () => {
 			const res = await fetch(`/invites/${token}`);
-			return res.ok ? ((await res.json()) as { email: string }) : null;
+			return res.ok
+				? ((await res.json()) as { email: string; recovery: { publicKey: string; wrapped: string } | null })
+				: null;
 		},
 	});
 	const email = link.data?.email;
+	const recovery = link.data?.recovery;
 
 	return (
 		<main className="grid min-h-screen place-items-center p-4">
@@ -41,7 +44,20 @@ function Welcome() {
 						if (password !== f.get("again")) return setError("The two passwords differ.");
 						setBusy(true);
 						const { authKey, encKey } = await derive(password, email);
-						const made = await newKeys(encKey);
+						// With the recovery key the key that was stays, and with it all mail sealed to it.
+						const typed = String(f.get("recovery") ?? "").trim();
+						let made: { publicKey: Uint8Array; wrappedPrivate: Uint8Array };
+						if (recovery && typed) {
+							const raw = await openRecovery(typed, Uint8Array.fromBase64(recovery.wrapped)).catch(() => undefined);
+							if (!raw) {
+								setBusy(false);
+								return setError("That recovery key doesn't fit. Check it, or leave it empty to start with a new key.");
+							}
+							made = {
+								publicKey: Uint8Array.fromBase64(recovery.publicKey),
+								wrappedPrivate: await wrapPrivate(encKey, raw),
+							};
+						} else made = await newKeys(encKey);
 						const res = await fetch(`/invites/${token}`, {
 							method: "POST",
 							headers: { "content-type": "application/json" },
@@ -63,8 +79,16 @@ function Welcome() {
 					<span role="img" aria-label="Nouvex" className="logo mb-4" />
 					<p className="text-sm text-muted">
 						Pick a password for {email}. It never leaves this device, so nobody running the server can read your mail.
-						If you forget it, your mail is fetched again from your mailboxes.
+						If you forget it, a recovery key brings everything back (Settings, Security). Without one, mail is fetched
+						again from your mailboxes, and mail Nouvex hosts can't be opened anymore.
 					</p>
+					{recovery && (
+						<Field.Root>
+							<Field.Label>Recovery key</Field.Label>
+							<Field.Control name="recovery" autoComplete="off" spellCheck={false} placeholder="XXXX-XXXX-…" />
+							<Field.Description>Keeps your mail as it is. Leave it empty if you don't have it.</Field.Description>
+						</Field.Root>
+					)}
 					<Field.Root>
 						<Field.Label>Password</Field.Label>
 						<Field.Control

@@ -56,6 +56,7 @@ app.use("/prefs", signedIn);
 app.use("/devices", signedIn);
 app.use("/devices/*", signedIn);
 app.use("/keys", signedIn);
+app.use("/keys/*", signedIn);
 app.use("/password", signedIn);
 app.use("/accounts/*", signedIn);
 app.use("/hosted-accounts", signedIn);
@@ -386,7 +387,16 @@ app.openapi(
 		responses: {
 			200: {
 				description: "Who the link from src/user.ts is for",
-				content: { "application/json": { schema: z.object({ email: z.string() }) } },
+				content: {
+					"application/json": {
+						schema: z.object({
+							email: z.string(),
+							// After a reset: the key that was, wrapped with the recovery key only its owner has. Opening it
+							// keeps the key and everything sealed to it.
+							recovery: z.object({ publicKey: z.string(), wrapped: z.string() }).nullable(),
+						}),
+					},
+				},
 			},
 			404: { description: "Used or expired" },
 		},
@@ -396,7 +406,11 @@ app.openapi(
 		const row = await ctx.internalAdapter.findVerificationValue(`invite:${c.req.valid("param").token}`);
 		const user = row && row.expiresAt > new Date() && (await ctx.internalAdapter.findUserById(row.value));
 		if (!user) return c.body(null, 404);
-		return c.json({ email: user.email }, 200);
+		const [kept] = await db.select().from(userKey).where(eq(userKey.userId, user.id));
+		const recovery = kept?.recoveryWrapped
+			? { publicKey: kept.publicKey.toBase64(), wrapped: kept.recoveryWrapped.toBase64() }
+			: null;
+		return c.json({ email: user.email, recovery }, 200);
 	},
 );
 
@@ -427,9 +441,15 @@ app.openapi(
 		const hash = await ctx.password.hash(password);
 		if (await ctx.internalAdapter.findCredentialAccount(userId)) await ctx.internalAdapter.updatePassword(userId, hash);
 		else await ctx.internalAdapter.linkAccount({ userId, providerId: "credential", accountId: userId, password: hash });
+		const [before] = await db.select().from(userKey).where(eq(userKey.userId, userId));
 		const keys = {
 			publicKey: Uint8Array.fromBase64(publicKey),
 			wrappedPrivate: Uint8Array.fromBase64(wrappedPrivate),
+			// The same key, opened with the recovery key, keeps its recovery; a new one has none yet.
+			recoveryWrapped:
+				before && Buffer.from(before.publicKey).equals(Buffer.from(publicKey, "base64"))
+					? before.recoveryWrapped
+					: null,
 			createdAt: new Date(),
 		};
 		await db
@@ -503,8 +523,8 @@ app.openapi(
 		operationId: "getKeys",
 		responses: {
 			200: {
-				description: "The user's key pair, the private half wrapped",
-				content: { "application/json": { schema: Keys } },
+				description: "The user's key pair, the private half wrapped, and whether a recovery key is set",
+				content: { "application/json": { schema: Keys.extend({ recovery: z.boolean() }) } },
 			},
 			404: { description: "None yet" },
 		},
@@ -515,7 +535,54 @@ app.openapi(
 			.from(userKey)
 			.where(eq(userKey.userId, c.get("userId")));
 		if (!row) return c.body(null, 404);
-		return c.json({ publicKey: row.publicKey.toBase64(), wrappedPrivate: row.wrappedPrivate.toBase64() }, 200);
+		return c.json(
+			{
+				publicKey: row.publicKey.toBase64(),
+				wrappedPrivate: row.wrappedPrivate.toBase64(),
+				recovery: !!row.recoveryWrapped,
+			},
+			200,
+		);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "put",
+		path: "/keys/recovery",
+		operationId: "setRecovery",
+		description:
+			"Keeps the private key wrapped with a new recovery key, made on the device; an older one stops working.",
+		request: {
+			body: {
+				content: {
+					"application/json": {
+						// password is the authKey, asked again because a recovery key opens everything.
+						schema: z.object({ password: z.string(), recoveryWrapped: z.base64() }),
+					},
+				},
+			},
+		},
+		responses: {
+			204: { description: "Kept" },
+			400: {
+				description: "The password is wrong",
+				content: { "application/json": { schema: z.object({ message: z.string() }) } },
+			},
+		},
+	}),
+	async (c) => {
+		const { password, recoveryWrapped } = c.req.valid("json");
+		const ok = await auth.api
+			.verifyPassword({ body: { password }, headers: c.req.raw.headers })
+			.then(() => true)
+			.catch(() => false);
+		if (!ok) return c.json({ message: "That's not your password." }, 400);
+		await db
+			.update(userKey)
+			.set({ recoveryWrapped: Uint8Array.fromBase64(recoveryWrapped) })
+			.where(eq(userKey.userId, c.get("userId")));
+		return c.body(null, 204);
 	},
 );
 

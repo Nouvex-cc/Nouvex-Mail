@@ -9,9 +9,11 @@ import {
 	encrypt,
 	type Keys,
 	newAccountKey,
+	newRecoveryKey,
 	openAccount,
 	openKey,
 	openPrivate,
+	sealRecovery,
 	unlock,
 	wrapPrivate,
 } from "@nouvex/sdk/crypto";
@@ -136,6 +138,24 @@ export async function createMailbox(email: string, displayName: string) {
 	});
 	accounts = undefined;
 	return res;
+}
+
+/**
+ * Makes a new recovery key: the server keeps the private key wrapped with it, the key itself is shown once and only
+ * the user keeps it. An older one stops working.
+ */
+export async function makeRecoveryKey(email: string, password: string) {
+	const { authKey, encKey } = await derive(password, email);
+	const raw = await privateKey(encKey, await stored());
+	const recovery = newRecoveryKey();
+	const res = await fetch("/keys/recovery", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ password: authKey, recoveryWrapped: (await sealRecovery(recovery, raw)).toBase64() }),
+	});
+	if (!res.ok)
+		throw new Error(((await res.json()) as { message?: string }).message ?? "Couldn't keep the recovery key.");
+	return recovery;
 }
 
 /** What the server takes as the password, for settings that ask for it again. */

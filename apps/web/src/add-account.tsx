@@ -89,12 +89,6 @@ export function AddAccount({
 						<Toggle value="other">Other</Toggle>
 						<Toggle value="nouvex">Nouvex</Toggle>
 					</ToggleGroup>
-					{provider === "nouvex" && (
-						<Field.Root>
-							<Field.Label>Name</Field.Label>
-							<Field.Control name="displayName" placeholder="What recipients see next to the address" />
-						</Field.Root>
-					)}
 					{fields
 						.filter((f) =>
 							provider === "nouvex" ? f.name === "email" : !preset || f.name === "email" || f.name === "password",
@@ -120,6 +114,12 @@ export function AddAccount({
 								)}
 							</Field.Root>
 						))}
+					{provider === "nouvex" && (
+						<Field.Root>
+							<Field.Label>Name</Field.Label>
+							<Field.Control name="displayName" placeholder="What recipients see next to the address" />
+						</Field.Root>
+					)}
 					{error && <p className="text-sm text-danger">{error}</p>}
 					<Dialog.Footer>
 						<Dialog.Close render={<Button variant="ghost" />}>Cancel</Dialog.Close>

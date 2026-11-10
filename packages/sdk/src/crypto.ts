@@ -152,6 +152,39 @@ export async function newAccountKey(owner: Bytes) {
 	return { publicKey, wrapped: await sealTo(owner, raw, accountInfo) };
 }
 
+// Crockford's base32: no I, L, O or U, so a typed 1 or 0 is never mistaken.
+const base32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** A recovery key: 160 random bits as 32 characters in groups of four, shown once and kept by the user. */
+export function newRecoveryKey() {
+	const bytes = crypto.getRandomValues(new Uint8Array(20));
+	let bits = "";
+	for (const b of bytes) bits += b.toString(2).padStart(8, "0");
+	const chars = bits.match(/.{5}/g)?.map((five) => base32[Number.parseInt(five, 2)]) ?? [];
+	return chars.join("").match(/.{4}/g)?.join("-") ?? "";
+}
+
+async function recoveryKey(typed: string) {
+	const chars = typed
+		.toUpperCase()
+		.replace(/[^0-9A-Z]/g, "")
+		.replace(/O/g, "0")
+		.replace(/[IL]/g, "1");
+	if (chars.length !== 32 || [...chars].some((c) => !base32.includes(c))) throw new Error("That's not a recovery key.");
+	const bits = [...chars].map((c) => base32.indexOf(c).toString(2).padStart(5, "0")).join("");
+	const raw = Uint8Array.from(bits.match(/.{8}/g) ?? [], (byte) => Number.parseInt(byte, 2));
+	const hkdf = await subtle.importKey("raw", raw, "HKDF", false, ["deriveBits"]);
+	const info = text.encode("nouvex recovery");
+	return aes(new Uint8Array(await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: empty, info }, hkdf, 256)));
+}
+
+/** The raw private key, wrapped with a recovery key for the server to keep. */
+export const sealRecovery = async (recovery: string, raw: Bytes) =>
+	encrypt(await recoveryKey(recovery), privateLabel, raw);
+/** The raw private key again, with the recovery key it was wrapped with. */
+export const openRecovery = async (recovery: string, wrapped: Bytes) =>
+	decrypt(await recoveryKey(recovery), privateLabel, wrapped);
+
 /** A hosted account's keys, from the private half wrapped for this user (newAccountKey, or a member's grant). */
 export const openAccount = async (mine: Keys, publicKey: Bytes, wrapped: Bytes) =>
 	unlock(await openSealed(mine, wrapped, accountInfo), publicKey);

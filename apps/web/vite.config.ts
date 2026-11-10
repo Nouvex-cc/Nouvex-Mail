@@ -4,24 +4,28 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+// API_URL points the dev server at an API on another port.
+const api = process.env.API_URL ?? "http://localhost:3000";
+
 export default defineConfig({
 	plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), tailwindcss()],
 	resolve: { tsconfigPaths: true },
 	server: {
 		proxy: {
-			"/api": "http://localhost:3000",
-			"/accounts": "http://localhost:3000",
-			"/groups": "http://localhost:3000",
-			"/order": "http://localhost:3000",
-			"/rich": "http://localhost:3000",
-			"/rules": "http://localhost:3000",
-			"/unsubscribe": "http://localhost:3000",
-			"/keys": "http://localhost:3000",
-			"/password": "http://localhost:3000",
-			"/invites": "http://localhost:3000",
-			"/prefs": "http://localhost:3000",
-			"/image": "http://localhost:3000",
-			"/ws": { target: "ws://localhost:3000", ws: true },
+			"/api": api,
+			"/accounts": api,
+			"/hosted-accounts": api,
+			"/groups": api,
+			"/order": api,
+			"/rich": api,
+			"/rules": api,
+			"/unsubscribe": api,
+			"/keys": api,
+			"/password": api,
+			"/invites": api,
+			"/prefs": api,
+			"/image": api,
+			"/ws": { target: api.replace(/^http/, "ws"), ws: true },
 		},
 	},
 });

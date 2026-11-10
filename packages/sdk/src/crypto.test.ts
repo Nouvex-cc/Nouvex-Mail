@@ -5,10 +5,13 @@ import {
 	derive,
 	newAccountKey,
 	newKeys,
+	newRecoveryKey,
 	openAccount,
 	openKey,
 	openPrivate,
+	openRecovery,
 	openSealed,
+	sealRecovery,
 	sealTo,
 	unlock,
 	wrapPrivate,
@@ -45,4 +48,15 @@ test("a hosted account's key opens for its owner, and only under its own label",
 	expect(await openSealed(keys, sealed, "test")).toEqual(new Uint8Array([1, 2, 3]));
 	await expect(openSealed(keys, sealed, "nouvex message key")).rejects.toThrow();
 	await expect(openKey(owner.keys, account.wrapped)).rejects.toThrow();
+});
+
+test("a recovery key opens the private key again, typed loosely", async () => {
+	const made = await newKeys((await derive("pw", "a@b.c")).encKey);
+	const raw = await openPrivate((await derive("pw", "a@b.c")).encKey, made.wrappedPrivate);
+	const recovery = newRecoveryKey();
+	expect(recovery).toMatch(/^([0-9A-HJKMNP-TV-Z]{4}-){7}[0-9A-HJKMNP-TV-Z]{4}$/);
+	const wrapped = await sealRecovery(recovery, raw);
+	expect(await openRecovery(` ${recovery.toLowerCase().replaceAll("-", " ")} `, wrapped)).toEqual(raw);
+	await expect(openRecovery(newRecoveryKey(), wrapped)).rejects.toThrow();
+	await expect(openRecovery("too short", wrapped)).rejects.toThrow("That's not a recovery key.");
 });

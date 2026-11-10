@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { encode } from "uqr";
 import { auth } from "../auth";
-import { authKey, changePassword, signOut } from "../keys";
+import { authKey, changePassword, makeRecoveryKey, signOut } from "../keys";
 import type { Module, Page } from "./registry";
 
 type Result = { error: { message?: string } | null };
@@ -244,6 +244,68 @@ function TwoFactor({ on, email }: { on: boolean; email: string }) {
 	);
 }
 
+// Opens the private key again after a reset, so no mail is lost; shown once, kept by the user alone.
+function RecoveryKey({ email }: { email: string }) {
+	const kept = useQuery({
+		queryKey: ["keys"],
+		queryFn: async () => ((await (await fetch("/keys")).json()) as { recovery: boolean }).recovery,
+	});
+	const [asking, setAsking] = useState(false);
+	const [shown, setShown] = useState<string>();
+	const toast = useToast();
+	return (
+		<Settings.Row
+			id="recovery-key"
+			label="Recovery key"
+			hint={
+				kept.data
+					? "Set. If you forget your password, it brings your mail back."
+					: "Not set. If you forget your password, mail Nouvex hosts for you can't be opened anymore."
+			}
+			stack={!!shown}
+		>
+			{shown ? (
+				<div className="grid gap-2 text-sm">
+					<p className="text-muted">Keep it in your password manager or print it. It won't be shown again.</p>
+					<code className="justify-self-start rounded-md bg-sunken px-3 py-2 tracking-wide">{shown}</code>
+					<div className="flex gap-2">
+						<Button
+							onClick={async () => {
+								await navigator.clipboard.writeText(shown);
+								toast.add({ title: "Recovery key copied" });
+							}}
+						>
+							Copy
+						</Button>
+						<Button variant="ghost" onClick={() => setShown(undefined)}>
+							Done
+						</Button>
+					</div>
+				</div>
+			) : (
+				<Button onClick={() => setAsking(true)}>{kept.data ? "Make a new one" : "Make a recovery key"}</Button>
+			)}
+			<Confirm
+				title={kept.data ? "Make a new recovery key?" : "Make a recovery key"}
+				action="Make"
+				open={asking}
+				onOpenChange={setAsking}
+				onConfirm={async (password) => {
+					try {
+						setShown(await makeRecoveryKey(email, password));
+						kept.refetch();
+						return "";
+					} catch (e) {
+						return e instanceof Error ? e.message : "Couldn't make a recovery key.";
+					}
+				}}
+			>
+				{kept.data && <p className="text-sm text-muted">The one you have stops working.</p>}
+			</Confirm>
+		</Settings.Row>
+	);
+}
+
 function BackupCodes({ codes }: { codes: string[] }) {
 	return (
 		<div className="grid gap-2 text-sm">
@@ -292,6 +354,7 @@ function Security() {
 		<Settings.Page title="Security">
 			<Settings.Section>
 				<TwoFactor on={!!session.data?.user.twoFactorEnabled} email={session.data?.user.email ?? ""} />
+				<RecoveryKey email={session.data?.user.email ?? ""} />
 			</Settings.Section>
 
 			<Settings.Section title="Passkeys">
@@ -384,6 +447,7 @@ const security: Page = {
 	icon: <Shield strokeWidth={1.75} />,
 	entries: [
 		{ id: "two-factor", label: "Two-factor authentication", keywords: "2fa totp authenticator code backup" },
+		{ id: "recovery-key", label: "Recovery key", keywords: "forgot password reset recover backup restore" },
 		{ id: "passkeys", label: "Passkeys", keywords: "fingerprint face touch id webauthn" },
 		{ id: "sessions", label: "Where you're signed in", keywords: "sessions devices sign out log out" },
 	],
