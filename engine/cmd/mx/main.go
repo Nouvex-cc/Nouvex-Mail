@@ -88,11 +88,12 @@ func run() error {
 	}
 	s := mx.Server(deps, cmp.Or(os.Getenv("MX_ADDR"), ":25"))
 	if cert, key := os.Getenv("MX_TLS_CERT"), os.Getenv("MX_TLS_KEY"); cert != "" {
-		pair, err := tls.LoadX509KeyPair(cert, key)
-		if err != nil {
-			return err
-		}
-		s.TLSConfig = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+		// Read on every handshake: Caddy renews it in place, and may not have it yet on a new server.
+		// ponytail: a file read per STARTTLS, cache by modification time if MX traffic ever makes that count.
+		s.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			pair, err := tls.LoadX509KeyPair(cert, key)
+			return &pair, err
+		}}
 	}
 	go func() {
 		<-ctx.Done()

@@ -4,7 +4,7 @@ name: nouvex
 x-backend: &backend
   restart: unless-stopped
   env_file: .env
-  environment:
+  environment: &env
     NODE_ENV: production
     DATABASE_URL: postgres://nouvex:${PG_PASSWORD}@postgres:5432/nouvex
     NATS_URL: nats://nats:4222
@@ -90,9 +90,44 @@ services:
     volumes: [caddy:/data]
     depends_on: [api]
 
+  # Hosted mail: our MX on port 25, with rspamd checking SPF, DKIM, DMARC and spam (docs/deploy.md, Hosted mail).
+  # Only with COMPOSE_PROFILES=mx in .env. STARTTLS uses the certificate Caddy gets for MX_HOST, so MX_HOST is in SITE.
+  mx:
+    <<: *backend
+    build: ../engine
+    entrypoint: ["/mx"]
+    profiles: [mx]
+    environment:
+      <<: *env
+      MX_HOSTNAME: ${MX_HOST:-mx.nouvex.cc}
+      RSPAMD_URL: http://rspamd:11333
+      MX_TLS_CERT: /caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${MX_HOST:-mx.nouvex.cc}/${MX_HOST:-mx.nouvex.cc}.crt
+      MX_TLS_KEY: /caddy/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${MX_HOST:-mx.nouvex.cc}/${MX_HOST:-mx.nouvex.cc}.key
+    ports: ["25:25"]
+    volumes: [caddy:/caddy:ro]
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_started }
+      s3: { condition: service_healthy }
+      rspamd: { condition: service_started }
+
+  rspamd:
+    image: rspamd/rspamd:4.2
+    restart: unless-stopped
+    profiles: [mx]
+    depends_on: [valkey]
+    volumes: [../docker/rspamd:/etc/rspamd/local.d:ro]
+
+  valkey:
+    image: valkey/valkey:9.0-alpine
+    restart: unless-stopped
+    profiles: [mx]
+    volumes: [valkey:/data]
+
 volumes:
   pg:
   nats:
   s3:
   caddy:
   models:
+  valkey:

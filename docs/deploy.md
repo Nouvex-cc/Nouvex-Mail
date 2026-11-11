@@ -60,6 +60,7 @@ Once, for the server:
    - Make a configuration set (`SES_CONFIGURATION_SET`) with an event destination for bounces and complaints to an SNS topic (`SES_TOPIC_ARN`).
    - Subscribe `https://<your domain>/webhooks/ses` to that topic over HTTPS. The API confirms the subscription by itself.
 3. **An IAM user for the engine** with `ses:SendEmail`, `ses:SendRawEmail`, `ses:CreateEmailIdentity`, `ses:GetEmailIdentity` and `ses:PutEmailIdentityMailFromAttributes` in that region. Its key goes into `deploy/.env` as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+4. **The MX on this machine.** In `deploy/.env`, `COMPOSE_PROFILES=mx` starts it with rspamd and Valkey on port 25, and `SITE=<your domain>, <MX_HOST>` has Caddy get the certificate it uses for STARTTLS. Port 25 has to be open; the MX takes mail for verified domains only.
 
 Per domain, nothing: once its TXT record verifies it, the engine makes it an SES identity that signs with the domain's own DKIM key and bounces through `bounce.<domain>`. Its page in Settings says when SES is ready. Without `SES_REGION`, hosted mailboxes still send to Nouvex mailboxes; anything else comes back with that reason.
 
