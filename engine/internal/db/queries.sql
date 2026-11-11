@@ -270,3 +270,10 @@ SELECT * FROM domain WHERE id = $1;
 
 -- name: SetSesStatus :exec
 UPDATE domain SET ses_status = $2 WHERE id = $1;
+
+-- name: SentToday :one
+SELECT coalesce((SELECT count FROM send_count WHERE account_id = $1 AND day = (now() AT TIME ZONE 'utc')::date), 0)::int;
+
+-- name: AddSent :exec
+INSERT INTO send_count (account_id, day, count) VALUES ($1, (now() AT TIME ZONE 'utc')::date, sqlc.arg(n)::int)
+ON CONFLICT (account_id, day) DO UPDATE SET count = send_count.count + excluded.count;

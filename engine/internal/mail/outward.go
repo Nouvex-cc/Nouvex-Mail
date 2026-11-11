@@ -6,10 +6,13 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"log/slog"
 	"mime"
 	"strings"
 	"time"
 
+	"github.com/emersion/go-smtp"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,6 +34,14 @@ type Arrival struct {
 
 // errNotSetUp is what a hosted account hears when the server can't send outside Nouvex yet.
 var errNotSetUp = errors.New("sending outside Nouvex isn't set up on this server yet")
+
+// errPaused is what a hosted account hears once the SES webhook paused it (mail_account.sending_paused_at).
+var errPaused = &smtp.SMTPError{Code: 554, Message: "sending outside Nouvex is paused for this mailbox, as too many " +
+	"of its messages bounced or were marked as spam; ask your Nouvex admin to look into it"}
+
+// DailyLimit is how many recipients outside Nouvex a hosted mailbox sends to in a day (UTC).
+// ponytail: one limit for every mailbox, per plan once there are plans.
+var DailyLimit = 200
 
 // sendHosted delivers a hosted account's message. Recipients Nouvex hosts get it straight into their inbox, sealed
 // to their mailbox's key, without it going over the internet; that's remembered, so it can be taken back
@@ -73,7 +84,25 @@ func sendHosted(ctx context.Context, acc db.MailAccount, from string, to []strin
 	if Outward == nil {
 		return inside, errNotSetUp
 	}
-	return inside, Outward(ctx, from, outside, raw, map[string]string{"account": acc.ID})
+	if acc.SendingPausedAt.Valid {
+		return inside, errPaused
+	}
+	sent, err := q.SentToday(ctx, acc.ID)
+	if err != nil {
+		return inside, err
+	}
+	if int(sent)+len(outside) > DailyLimit {
+		return inside, &smtp.SMTPError{Code: 554, Message: fmt.Sprintf(
+			"this mailbox sends to at most %d recipients outside Nouvex a day, and that's reached until midnight UTC", DailyLimit)}
+	}
+	if err := Outward(ctx, from, outside, raw, map[string]string{"account": acc.ID}); err != nil {
+		return inside, err
+	}
+	// It went out: a failed count mustn't make the outbox send it again.
+	if err := q.AddSent(ctx, db.AddSentParams{AccountID: acc.ID, N: int32(len(outside))}); err != nil {
+		slog.Warn("counting sent mail", "account", acc.ID, "err", err)
+	}
+	return inside, nil
 }
 
 // sendingAddress is the address a message goes out from: the account's own, or one of its aliases if asked for.

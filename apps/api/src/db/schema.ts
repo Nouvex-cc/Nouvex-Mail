@@ -4,6 +4,7 @@ import {
 	bigint,
 	boolean,
 	customType,
+	date,
 	index,
 	integer,
 	jsonb,
@@ -55,6 +56,9 @@ export const mailAccount = pgTable("mail_account", {
 	color: text("color").$type<LabelColor>(),
 	position: integer("position").notNull().default(0),
 	muted: boolean("muted").notNull().default(false),
+	// Set by the SES webhook when too many of a hosted mailbox's messages bounce or are marked as spam; it then sends
+	// only to Nouvex mailboxes until someone clears it (docs/deploy.md, Hosted mail).
+	sendingPausedAt: timestamp("sending_paused_at", { withTimezone: true }),
 	createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -178,6 +182,20 @@ export const sendEvent = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [index().on(t.accountId, t.createdAt)],
+);
+
+// How many recipients outside Nouvex each hosted mailbox sent to on a day (UTC): its daily limit, and the share of
+// them that bounced or complained. Written by the engine.
+export const sendCount = pgTable(
+	"send_count",
+	{
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		day: date("day").notNull(),
+		count: integer("count").notNull().default(0),
+	},
+	(t) => [primaryKey({ columns: [t.accountId, t.day] })],
 );
 
 // Where our MX delivers each address: a hosted account's own address, or an alias of it. Lowercase.

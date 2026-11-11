@@ -62,6 +62,12 @@ Once, for the server:
 3. **An IAM user for the engine** with `ses:SendEmail`, `ses:SendRawEmail`, `ses:CreateEmailIdentity`, `ses:GetEmailIdentity` and `ses:PutEmailIdentityMailFromAttributes` in that region. Its key goes into `deploy/.env` as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 4. **The MX on this machine.** In `deploy/.env`, `COMPOSE_PROFILES=mx` starts it with rspamd and Valkey on port 25, and `SITE=<your domain>, <MX_HOST>` has Caddy get the certificate it uses for STARTTLS. Port 25 has to be open; the MX takes mail for verified domains only.
 
+Each hosted mailbox sends to at most 200 recipients outside Nouvex a day. When over 30 days more than 0.1% of what it sent there drew a complaint, or more than 5% bounced (5 at least), the SES webhook pauses that: it then only reaches Nouvex mailboxes and says why. After looking into it, turn it back on:
+
+```sh
+docker compose -f deploy/compose.yml exec postgres psql -U nouvex -c "UPDATE mail_account SET sending_paused_at = NULL WHERE email = 'lena@example.com'"
+```
+
 Per domain, nothing: once its TXT record verifies it, the engine makes it an SES identity that signs with the domain's own DKIM key and bounces through `bounce.<domain>`. Its page in Settings says when SES is ready. Without `SES_REGION`, hosted mailboxes still send to Nouvex mailboxes; anything else comes back with that reason.
 
 ## Sorting

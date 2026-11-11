@@ -114,7 +114,7 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 	async () => {
 		const { app } = await import("./app");
 		const { db } = await import("./db");
-		const { mailAccount, sendEvent, user } = await import("./db/schema");
+		const { mailAccount, sendCount, sendEvent, user } = await import("./db/schema");
 		const { eq } = await import("drizzle-orm");
 		const cert = withCert();
 		// CI runs no engine, so the stream it makes may not be there.
@@ -144,6 +144,7 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 			username: "",
 			secret: new Uint8Array(),
 		});
+		await db.insert(sendCount).values({ accountId: id, day: new Date().toISOString().slice(0, 10), count: 500 });
 		const post = (m: Sns) => app.request("/webhooks/ses", { method: "POST", body: JSON.stringify(m) });
 		try {
 			const bounce = note({
@@ -154,6 +155,17 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 			expect((await post({ ...bounce, TopicArn: "arn:aws:sns:eu-central-1:2:theirs" })).status).toBe(403);
 			expect((await post(bounce)).status).toBe(200);
 			expect(await db.select().from(sendEvent).where(eq(sendEvent.accountId, id))).toHaveLength(1);
+			// One bounce in 500 is no reason to stop; one complaint in 500 is.
+			const paused = async () =>
+				(await db.select().from(mailAccount).where(eq(mailAccount.id, id)))[0]?.sendingPausedAt != null;
+			expect(await paused()).toBe(false);
+			const complaint = note({
+				eventType: "Complaint",
+				mail: { tags: { account: [id] }, commonHeaders: { subject: "Plan" } },
+				complaint: { complainedRecipients: [{ emailAddress: "x@y.z" }] },
+			});
+			expect((await post(complaint)).status).toBe(200);
+			expect(await paused()).toBe(true);
 
 			const confirm = signed({
 				Type: "SubscriptionConfirmation",

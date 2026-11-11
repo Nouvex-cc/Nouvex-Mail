@@ -108,27 +108,28 @@ type InternalDelivery struct {
 }
 
 type MailAccount struct {
-	ID          string
-	UserID      string
-	Email       string
-	ImapHost    string
-	ImapPort    int32
-	SmtpHost    string
-	SmtpPort    int32
-	Username    string
-	Secret      []byte
-	Version     int64
-	CreatedAt   pgtype.Timestamptz
-	SyncError   pgtype.Text
-	DisplayName string
-	Signature   string
-	ArchivedAt  pgtype.Timestamptz
-	SealedTo    []byte
-	Nickname    string
-	Color       pgtype.Text
-	Position    int32
-	Muted       bool
-	Kind        string
+	ID              string
+	UserID          string
+	Email           string
+	ImapHost        string
+	ImapPort        int32
+	SmtpHost        string
+	SmtpPort        int32
+	Username        string
+	Secret          []byte
+	Version         int64
+	CreatedAt       pgtype.Timestamptz
+	SyncError       pgtype.Text
+	DisplayName     string
+	Signature       string
+	ArchivedAt      pgtype.Timestamptz
+	SealedTo        []byte
+	Nickname        string
+	Color           pgtype.Text
+	Position        int32
+	Muted           bool
+	Kind            string
+	SendingPausedAt pgtype.Timestamptz
 }
 
 type Mailbox struct {
@@ -190,6 +191,12 @@ type Scheduled struct {
 	RunAt     pgtype.Timestamptz
 	Kind      string
 	Payload   []byte
+}
+
+type SendCount struct {
+	AccountID string
+	Day       pgtype.Date
+	Count     int32
 }
 
 type SendEvent struct {
