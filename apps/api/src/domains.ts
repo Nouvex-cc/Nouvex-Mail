@@ -61,10 +61,22 @@ export function resolver(): Lookup {
 		throw e;
 	};
 	return {
-		txt: (name) => r.resolveTxt(name).then((rows) => rows.map((chunks) => chunks.join("")), none),
+		// Over DNS over HTTPS: Bun's resolveTxt (1.4) hands each 255-character piece of a long record back as a record
+		// of its own, so a DKIM key never matched.
+		txt: async (name) => {
+			const url = `https://cloudflare-dns.com/dns-query?type=TXT&name=${encodeURIComponent(name)}`;
+			const res = await dnsDeps.fetch(url, { headers: { accept: "application/dns-json" } });
+			if (!res.ok) throw new Error(`DNS lookup of ${name} failed (${res.status})`);
+			const { Answer = [] } = (await res.json()) as { Answer?: { type: number; data: string }[] };
+			return Answer.filter((a) => a.type === 16).map((a) => txtData(a.data));
+		},
 		mx: (name) => r.resolveMx(name).then((rows) => rows.map((m) => m.exchange.toLowerCase()), none),
 	};
 }
+
+/** A TXT record as DNS over HTTPS shows it, its pieces in quotes ("v=DKIM1; …" "…"), as one string. */
+export const txtData = (data: string) =>
+	[...data.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => (m[1] ?? "").replace(/\\(.)/g, "$1")).join("");
 
 const host = (h: string) => h.toLowerCase().replace(/\.$/, "");
 const spaces = (s: string) => s.replace(/\s+/g, "");
