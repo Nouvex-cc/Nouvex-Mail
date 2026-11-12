@@ -414,6 +414,29 @@ func (q *Queries) GetDomain(ctx context.Context, id string) (Domain, error) {
 	return i, err
 }
 
+const getImportJob = `-- name: GetImportJob :one
+SELECT id, account_id, source_id, folders, folder, after_uid, done, total, error, created_at, finished_at FROM import_job WHERE id = $1
+`
+
+func (q *Queries) GetImportJob(ctx context.Context, id string) (ImportJob, error) {
+	row := q.db.QueryRow(ctx, getImportJob, id)
+	var i ImportJob
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.SourceID,
+		&i.Folders,
+		&i.Folder,
+		&i.AfterUid,
+		&i.Done,
+		&i.Total,
+		&i.Error,
+		&i.CreatedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const getMessageID = `-- name: GetMessageID :one
 SELECT message_id FROM message WHERE id = $1 AND account_id = $2
 `
@@ -886,6 +909,32 @@ func (q *Queries) LocalMailbox(ctx context.Context, arg LocalMailboxParams) (Mai
 	return i, err
 }
 
+const localMailboxNamed = `-- name: LocalMailboxNamed :one
+SELECT id, account_id, name, uid_validity, role, uid_next, message_count, highest_mod_seq, local FROM mailbox WHERE account_id = $1 AND local AND name = $2
+`
+
+type LocalMailboxNamedParams struct {
+	AccountID string
+	Name      string
+}
+
+func (q *Queries) LocalMailboxNamed(ctx context.Context, arg LocalMailboxNamedParams) (Mailbox, error) {
+	row := q.db.QueryRow(ctx, localMailboxNamed, arg.AccountID, arg.Name)
+	var i Mailbox
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Name,
+		&i.UidValidity,
+		&i.Role,
+		&i.UidNext,
+		&i.MessageCount,
+		&i.HighestModSeq,
+		&i.Local,
+	)
+	return i, err
+}
+
 const lockAccount = `-- name: LockAccount :exec
 SELECT pg_advisory_xact_lock(hashtext($1::text))
 `
@@ -1140,6 +1189,59 @@ func (q *Queries) SetFolderState(ctx context.Context, arg SetFolderStateParams) 
 		arg.MessageCount,
 		arg.HighestModSeq,
 	)
+	return err
+}
+
+const setImportError = `-- name: SetImportError :exec
+UPDATE import_job SET error = $2 WHERE id = $1
+`
+
+type SetImportErrorParams struct {
+	ID    string
+	Error pgtype.Text
+}
+
+func (q *Queries) SetImportError(ctx context.Context, arg SetImportErrorParams) error {
+	_, err := q.db.Exec(ctx, setImportError, arg.ID, arg.Error)
+	return err
+}
+
+const setImportProgress = `-- name: SetImportProgress :exec
+UPDATE import_job SET folder = $2, after_uid = $3, done = $4, error = NULL,
+  finished_at = CASE WHEN $5::bool THEN now() END
+WHERE id = $1
+`
+
+type SetImportProgressParams struct {
+	ID       string
+	Folder   int32
+	AfterUid int64
+	Done     int32
+	Finished bool
+}
+
+func (q *Queries) SetImportProgress(ctx context.Context, arg SetImportProgressParams) error {
+	_, err := q.db.Exec(ctx, setImportProgress,
+		arg.ID,
+		arg.Folder,
+		arg.AfterUid,
+		arg.Done,
+		arg.Finished,
+	)
+	return err
+}
+
+const setImportTotal = `-- name: SetImportTotal :exec
+UPDATE import_job SET total = $2 WHERE id = $1
+`
+
+type SetImportTotalParams struct {
+	ID    string
+	Total pgtype.Int4
+}
+
+func (q *Queries) SetImportTotal(ctx context.Context, arg SetImportTotalParams) error {
+	_, err := q.db.Exec(ctx, setImportTotal, arg.ID, arg.Total)
 	return err
 }
 

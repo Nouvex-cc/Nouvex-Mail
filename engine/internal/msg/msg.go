@@ -206,6 +206,37 @@ func (j *DraftSave) UnmarshalJSON(value []byte) error {
 	return nil
 }
 
+// Command: API asks the engine to move the next messages of an import into a
+// hosted mailbox. The engine sends it again until the import is done.
+type ImportRun struct {
+	// The hosted mailbox the mail goes into.
+	AccountId string `json:"accountId"`
+
+	// JobId corresponds to the JSON schema field "jobId".
+	JobId string `json:"jobId"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (j *ImportRun) UnmarshalJSON(value []byte) error {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(value, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["accountId"]; raw != nil && !ok {
+		return fmt.Errorf("field accountId in ImportRun: required")
+	}
+	if _, ok := raw["jobId"]; raw != nil && !ok {
+		return fmt.Errorf("field jobId in ImportRun: required")
+	}
+	type Plain ImportRun
+	var plain Plain
+	if err := json.Unmarshal(value, &plain); err != nil {
+		return err
+	}
+	*j = ImportRun(plain)
+	return nil
+}
+
 // Command: our MX took a message for a hosted account; the engine seals and stores
 // it (engine/internal/mx).
 type MailDeliver struct {

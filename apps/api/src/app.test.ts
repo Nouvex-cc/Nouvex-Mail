@@ -608,6 +608,67 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 );
 
 // Needs a migrated database (docker compose up -d postgres && bun run db:migrate).
+test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
+	"an import takes the user's own folders into a hosted mailbox, one at a time",
+	async () => {
+		const { db } = await import("./db");
+		const { mailAccount, mailbox } = await import("./db/schema");
+		const { inArray } = await import("drizzle-orm");
+		// CI runs no engine, so the stream it makes may not be there.
+		const { jetstreamManager } = await import("@nats-io/jetstream");
+		const { nats } = await import("./nats");
+		const jsm = await jetstreamManager((await nats()).nc);
+		await jsm.streams.add({ name: "COMMANDS", subjects: ["cmd.>"], retention: "workqueue" }).catch(() => {});
+		const me = await signedIn("Lena");
+		const other = await signedIn("Max");
+		const call = (path: string, method = "GET", body?: unknown) =>
+			app.request(path, {
+				method,
+				headers: { cookie: me.cookie, "content-type": "application/json" },
+				body: body === undefined ? undefined : JSON.stringify(body),
+			});
+		const account = (userId: string, kind: "imap" | "hosted") => ({
+			id: crypto.randomUUID(),
+			userId,
+			email: `${crypto.randomUUID()}@x.test`,
+			kind,
+			imapHost: "",
+			imapPort: 0,
+			smtpHost: "",
+			smtpPort: 0,
+			username: "",
+			secret: new Uint8Array(),
+		});
+		const hosted = account(me.id, "hosted");
+		const old = account(me.id, "imap");
+		const theirs = account(other.id, "imap");
+		await db.insert(mailAccount).values([hosted, old, theirs]);
+		await db
+			.insert(mailbox)
+			.values(
+				["INBOX", "Work/Clients"].map((name) => ({ id: crypto.randomUUID(), accountId: old.id, name, uidValidity: 1 })),
+			);
+		try {
+			const start = (into: string, sourceId: string, folders: unknown[]) =>
+				call(`/accounts/${into}/imports`, "POST", { sourceId, folders });
+			const inbox = { from: "INBOX", role: "inbox", name: "" };
+			expect((await start(old.id, hosted.id, [inbox])).status).toBe(422);
+			expect((await start(hosted.id, theirs.id, [inbox])).status).toBe(422);
+			expect((await start(hosted.id, old.id, [{ from: "Elsewhere", role: "inbox", name: "" }])).status).toBe(422);
+			expect((await start(hosted.id, old.id, [{ from: "Work/Clients", role: "", name: "" }])).status).toBe(422);
+			const res = await start(hosted.id, old.id, [inbox, { from: "Work/Clients", role: "", name: "Clients" }]);
+			expect(res.status).toBe(201);
+			expect((await start(hosted.id, old.id, [inbox])).status).toBe(422);
+			const list = (await (await call(`/accounts/${hosted.id}/imports`)).json()) as { id: string; total: null }[];
+			expect(list).toMatchObject([
+				{ id: ((await res.json()) as { id: string }).id, sourceId: old.id, done: 0, total: null },
+			]);
+		} finally {
+			await db.delete(mailAccount).where(inArray(mailAccount.userId, [me.id, other.id]));
+		}
+	},
+);
+
 test.skipIf(!process.env.DATABASE_URL)("domains: Cloudflare sets them up with a token it never keeps", async () => {
 	const { dnsDeps } = await import("./domains");
 	const me = await signedIn("Lena");

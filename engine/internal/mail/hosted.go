@@ -53,9 +53,16 @@ func provision(ctx context.Context, pool *pgxpool.Pool, store Store, acc db.Mail
 	return s.acc.Version, s.tx.Commit(ctx)
 }
 
-// localBox finds the account's local folder with a role, made under name when it's missing.
+// localBox finds the account's local folder with a role, made under name when it's missing. Without a role, it's
+// a folder of the user's own (an imported one), found by name.
 func (s *syncer) localBox(role, name string) (db.Mailbox, error) {
-	box, err := s.q.LocalMailbox(s.ctx, db.LocalMailboxParams{AccountID: s.acc.ID, Role: role})
+	var box db.Mailbox
+	var err error
+	if role == "" {
+		box, err = s.q.LocalMailboxNamed(s.ctx, db.LocalMailboxNamedParams{AccountID: s.acc.ID, Name: name})
+	} else {
+		box, err = s.q.LocalMailbox(s.ctx, db.LocalMailboxParams{AccountID: s.acc.ID, Role: role})
+	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return box, err
 	}

@@ -1,0 +1,12 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"title": "ImportRun",
+	"description": "Command: API asks the engine to move the next messages of an import into a hosted mailbox. The engine sends it again until the import is done.",
+	"type": "object",
+	"properties": {
+		"accountId": { "type": "string", "description": "The hosted mailbox the mail goes into." },
+		"jobId": { "type": "string" }
+	},
+	"required": ["accountId", "jobId"],
+	"additionalProperties": false
+}

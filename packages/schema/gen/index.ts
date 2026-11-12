@@ -2,6 +2,7 @@ export type * from "./account-check";
 export type * from "./account-checked";
 export type * from "./domain-setup";
 export type * from "./draft-save";
+export type * from "./import-run";
 export type * from "./mail-deliver";
 export type * from "./mailbox-sync";
 export type * from "./mailbox-synced";
