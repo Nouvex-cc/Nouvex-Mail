@@ -99,6 +99,20 @@ type Domain struct {
 	SesStatus         pgtype.Text
 }
 
+type ImportJob struct {
+	ID         string
+	AccountID  string
+	SourceID   string
+	Folders    []byte
+	Folder     int32
+	AfterUid   int64
+	Done       int32
+	Total      pgtype.Int4
+	Error      pgtype.Text
+	CreatedAt  pgtype.Timestamptz
+	FinishedAt pgtype.Timestamptz
+}
+
 type InternalDelivery struct {
 	SenderAccountID    string
 	MessageID          string

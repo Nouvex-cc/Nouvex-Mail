@@ -277,3 +277,20 @@ SELECT coalesce((SELECT count FROM send_count WHERE account_id = $1 AND day = (n
 -- name: AddSent :exec
 INSERT INTO send_count (account_id, day, count) VALUES ($1, (now() AT TIME ZONE 'utc')::date, sqlc.arg(n)::int)
 ON CONFLICT (account_id, day) DO UPDATE SET count = send_count.count + excluded.count;
+
+-- name: GetImportJob :one
+SELECT * FROM import_job WHERE id = $1;
+
+-- name: SetImportTotal :exec
+UPDATE import_job SET total = $2 WHERE id = $1;
+
+-- name: SetImportProgress :exec
+UPDATE import_job SET folder = $2, after_uid = $3, done = $4, error = NULL,
+  finished_at = CASE WHEN sqlc.arg(finished)::bool THEN now() END
+WHERE id = $1;
+
+-- name: SetImportError :exec
+UPDATE import_job SET error = $2 WHERE id = $1;
+
+-- name: LocalMailboxNamed :one
+SELECT * FROM mailbox WHERE account_id = $1 AND local AND name = $2;

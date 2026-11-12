@@ -112,6 +112,7 @@ func run() error {
 		FilterSubjects: []string{
 			"cmd.mailbox.sync", "cmd.message.update", "cmd.message.send", "cmd.draft.save", "cmd.message.seed",
 			"cmd.mail.deliver", "cmd.domain.setup", "cmd.message.unsend", "cmd.send.feedback",
+			"cmd.import.run",
 		},
 		AckPolicy: jetstream.AckExplicitPolicy,
 		// A server that is down or a wrong password shouldn't be retried forever.
@@ -380,6 +381,29 @@ func run() error {
 			if len(in.Arrived) > 0 {
 				ev, _ := json.Marshal(msg.MessageArrived{AccountId: in.AccountID, MessageIds: in.Arrived})
 				_ = nc.Publish("evt.message.arrived", ev)
+			}
+			return owed
+		case "cmd.import.run":
+			// One batch, then the next step goes to the back of the mailbox's queue.
+			var r msg.ImportRun
+			if err := json.Unmarshal(m.Data(), &r); err != nil {
+				_ = m.Term()
+				return owed
+			}
+			v, more, err := mail.ImportStep(ctx, pool, store, master, r.JobId)
+			if err == nil && more {
+				_, err = js.Publish(ctx, "cmd.import.run", m.Data())
+			}
+			if err != nil {
+				slog.Error("import failed", "account", r.AccountId, "job", r.JobId, "err", err)
+				_ = db.New(pool).SetImportError(ctx, db.SetImportErrorParams{ID: r.JobId, Error: pgtype.Text{String: err.Error(), Valid: true}})
+				_ = m.NakWithDelay(time.Minute)
+				return owed
+			}
+			_ = m.Ack()
+			if v > 0 {
+				ev, _ := json.Marshal(msg.MailboxSynced{AccountId: r.AccountId, Version: int(v)})
+				_ = nc.Publish("evt.mailbox.synced", ev)
 			}
 			return owed
 		case "cmd.draft.save":

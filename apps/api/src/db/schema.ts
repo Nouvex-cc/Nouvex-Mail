@@ -198,6 +198,39 @@ export const sendCount = pgTable(
 	(t) => [primaryKey({ columns: [t.accountId, t.day] })],
 );
 
+// Moving mail from another account of the user (an IMAP one) into a hosted mailbox, a hundred messages at a time.
+// The API makes it; the engine moves it along and writes its progress.
+export type ImportFolder = {
+	// The source folder's IMAP name.
+	from: string;
+	// Where it goes: a hosted folder's role, or "" for a folder of its own called name.
+	role: string;
+	name: string;
+};
+export const importJob = pgTable(
+	"import_job",
+	{
+		id: text("id").primaryKey(),
+		accountId: text("account_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		sourceId: text("source_id")
+			.notNull()
+			.references(() => mailAccount.id, { onDelete: "cascade" }),
+		folders: jsonb("folders").$type<ImportFolder[]>().notNull(),
+		// Where it is: the folder in folders, and the last UID moved from it.
+		folder: integer("folder").notNull().default(0),
+		afterUid: bigint("after_uid", { mode: "number" }).notNull().default(0),
+		done: integer("done").notNull().default(0),
+		total: integer("total"),
+		// Why the last step failed; cleared by the next that works.
+		error: text("error"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		finishedAt: timestamp("finished_at", { withTimezone: true }),
+	},
+	(t) => [index().on(t.accountId)],
+);
+
 // Where our MX delivers each address: a hosted account's own address, or an alias of it. Lowercase.
 export const address = pgTable(
 	"address",

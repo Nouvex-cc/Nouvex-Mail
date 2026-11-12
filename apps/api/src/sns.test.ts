@@ -183,4 +183,6 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 			await db.delete(user).where(eq(user.id, id));
 		}
 	},
+	// Loading the whole API for the first time takes a few seconds on CI's runners.
+	30_000,
 );

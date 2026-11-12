@@ -7,6 +7,7 @@ import type {
 	AccountChecked,
 	DomainSetup,
 	DraftSave,
+	ImportRun,
 	MailboxSync,
 	MessageSend,
 	MessageUnsend,
@@ -14,7 +15,7 @@ import type {
 	SendFeedback,
 } from "@nouvex/schema";
 import { s3 } from "bun";
-import { and, asc, desc, eq, gt, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
@@ -29,6 +30,7 @@ import {
 	changeLog,
 	device,
 	domain,
+	importJob,
 	labelColors,
 	mailAccount,
 	mailbox,
@@ -659,6 +661,114 @@ app.openapi(
 				),
 			);
 		return c.body(null, 204);
+	},
+);
+
+// Importing: mail from another of the user's accounts (an IMAP one) moves into a hosted mailbox, folder by folder,
+// into the folders the user picked. The source stays as it was.
+const ImportOut = z.object({
+	id: z.string(),
+	sourceId: z.string(),
+	done: z.int(),
+	// Null until the engine has counted the source folders.
+	total: z.int().nullable(),
+	error: z.string().nullable(),
+	createdAt: z.string(),
+	finishedAt: z.string().nullable(),
+});
+const hostedRoles = ["inbox", "archive", "sent", "drafts", "junk", "trash"] as const;
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/imports",
+		operationId: "listImports",
+		request: { params: z.object({ accountId: z.string() }) },
+		responses: {
+			200: { description: "Newest first", content: { "application/json": { schema: z.array(ImportOut) } } },
+		},
+	}),
+	async (c) => {
+		const rows = await db
+			.select()
+			.from(importJob)
+			.where(eq(importJob.accountId, c.req.valid("param").accountId))
+			.orderBy(desc(importJob.createdAt));
+		return c.json(
+			rows.map((j) => ({
+				id: j.id,
+				sourceId: j.sourceId,
+				done: j.done,
+				total: j.total,
+				error: j.error,
+				createdAt: j.createdAt.toISOString(),
+				finishedAt: j.finishedAt?.toISOString() ?? null,
+			})),
+			200,
+		);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/imports",
+		operationId: "startImport",
+		description:
+			"Moves the mail of the source account's folders into this hosted mailbox: each into a folder for a role, or into a folder of its own by name. Folders left out stay behind.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							sourceId: z.string(),
+							folders: z
+								.array(
+									z.object({
+										from: z.string(),
+										role: z.enum([...hostedRoles, ""]),
+										name: z.string().trim().max(100),
+									}),
+								)
+								.min(1)
+								.max(500),
+						}),
+					},
+				},
+			},
+		},
+		responses: {
+			201: { description: "Started", content: { "application/json": { schema: z.object({ id: z.string() }) } } },
+			422: { description: "Not possible", content: Problem },
+		},
+	}),
+	async (c) => {
+		const { accountId } = c.req.valid("param");
+		const { sourceId, folders } = c.req.valid("json");
+		const [acc] = await db.select({ kind: mailAccount.kind }).from(mailAccount).where(eq(mailAccount.id, accountId));
+		if (acc?.kind !== "hosted") return c.json({ error: "Mail can only be imported into mailboxes Nouvex hosts." }, 422);
+		const [source] = await db
+			.select({ kind: mailAccount.kind })
+			.from(mailAccount)
+			.where(and(eq(mailAccount.id, sourceId), eq(mailAccount.userId, c.get("userId"))));
+		if (source?.kind !== "imap") return c.json({ error: "Import from one of your other mail accounts." }, 422);
+		const known = new Set(
+			(await db.select({ name: mailbox.name }).from(mailbox).where(eq(mailbox.accountId, sourceId))).map((b) => b.name),
+		);
+		if (folders.some((f) => !known.has(f.from) || (f.role === "" && !f.name)))
+			return c.json({ error: "Pick folders of that account, and name the ones of your own." }, 422);
+		const [running] = await db
+			.select({ id: importJob.id })
+			.from(importJob)
+			.where(and(eq(importJob.accountId, accountId), isNull(importJob.finishedAt), isNull(importJob.error)));
+		if (running) return c.json({ error: "An import into this mailbox is still running." }, 422);
+		const id = crypto.randomUUID();
+		await db.insert(importJob).values({ id, accountId, sourceId, folders });
+		const cmd: ImportRun = { accountId, jobId: id };
+		const { js } = await nats();
+		await js.publish("cmd.import.run", JSON.stringify(cmd));
+		return c.json({ id }, 201);
 	},
 );
 

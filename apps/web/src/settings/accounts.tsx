@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, Input, LabelColorPicker, Settings, Sidebar, Switch, Textarea, useToast } from "@nouvex/ui";
+import { Button, Input, LabelColorPicker, Select, Settings, Sidebar, Switch, Textarea, useToast } from "@nouvex/ui";
 import { Archive, Mail, Plus, X } from "@nouvex/ui/icons";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { type Account, useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
+import { db } from "../db";
+import { folders, type Plan, suggest, type Target } from "../importing";
 import { forget } from "../sync";
 import type { Module, Page } from "./registry";
 
@@ -71,6 +74,7 @@ function AccountPage({ account: a }: { account: Account }) {
 			</form>
 
 			{a.kind === "hosted" && <Aliases account={a} />}
+			{a.kind === "hosted" && <Importing account={a} />}
 
 			<Settings.Section>
 				<Settings.Row
@@ -167,6 +171,151 @@ function Aliases({ account: a }: { account: Account }) {
 					Add alias
 				</Button>
 			</form>
+		</Settings.Section>
+	);
+}
+
+const targets: { value: Target; label: string }[] = [
+	{ value: "inbox", label: "Inbox" },
+	{ value: "archive", label: "Archive" },
+	{ value: "sent", label: "Sent" },
+	{ value: "drafts", label: "Drafts" },
+	{ value: "folder", label: "Own folder" },
+	{ value: "junk", label: "Junk" },
+	{ value: "trash", label: "Trash" },
+	{ value: "skip", label: "Leave behind" },
+];
+
+type Import = {
+	id: string;
+	sourceId: string;
+	done: number;
+	total: number | null;
+	error: string | null;
+	finishedAt: string | null;
+};
+
+// Brings the mail of another of the user's accounts into this hosted mailbox, folder by folder as the user picks.
+function Importing({ account: a }: { account: Account }) {
+	const accounts = useAccounts();
+	const toast = useToast();
+	const sources = (accounts.data ?? []).filter((x) => x.kind === "imap");
+	const [sourceId, setSourceId] = useState("");
+	const [plans, setPlans] = useState<Plan[]>([]);
+	const [busy, setBusy] = useState(false);
+	const imports = useQuery({
+		queryKey: ["imports", a.id],
+		queryFn: async () => (await fetch(`/accounts/${a.id}/imports`)).json() as Promise<Import[]>,
+		refetchInterval: (q) => (q.state.data?.some((j) => !j.finishedAt && !j.error) ? 3000 : false),
+	});
+	const pick = async (id: string) => {
+		setSourceId(id);
+		const boxes = await db.mailboxes.where("accountId").equals(id).toArray();
+		const counted = await Promise.all(
+			boxes.map(async (b) => ({
+				name: b.name,
+				role: b.role,
+				count: await db.messages.where("mailboxId").equals(b.id).count(),
+			})),
+		);
+		setPlans(suggest(counted));
+	};
+	const chosen = folders(plans);
+	const from = (id: string) => sources.find((x) => x.id === id)?.email ?? "another account";
+	return (
+		<Settings.Section title="Import mail">
+			{imports.data?.map((j) => (
+				<Settings.Row
+					key={j.id}
+					label={`From ${from(j.sourceId)}`}
+					hint={
+						j.error
+							? `Stopped: ${j.error}`
+							: j.finishedAt
+								? `Done, ${j.done.toLocaleString()} messages`
+								: `${j.done.toLocaleString()} of ${j.total?.toLocaleString() ?? "…"} messages`
+					}
+				/>
+			))}
+			<Settings.Row
+				id="import"
+				label="From another account"
+				hint={
+					sources.length
+						? "Copies its mail into this mailbox. The other account stays as it is."
+						: "Add your old account first (Add account), then bring its mail here."
+				}
+			>
+				{sources.length > 0 && (
+					<Select.Root
+						value={sourceId}
+						onValueChange={(v) => v && void pick(String(v))}
+						items={[
+							{ value: "", label: "Choose an account" },
+							...sources.map((x) => ({ value: x.id, label: x.email })),
+						]}
+					>
+						<Select.Trigger className="w-56" />
+						<Select.Popup>
+							{sources.map((x) => (
+								<Select.Item key={x.id} value={x.id}>
+									{x.email}
+								</Select.Item>
+							))}
+						</Select.Popup>
+					</Select.Root>
+				)}
+			</Settings.Row>
+			{plans.map((p, i) => (
+				<Settings.Row key={p.from} label={p.from} hint={`${p.count.toLocaleString()} messages`}>
+					{p.to === "folder" && (
+						<Input
+							aria-label={`Folder for ${p.from}`}
+							className="w-40"
+							value={p.name}
+							onChange={(e) => setPlans(plans.with(i, { ...p, name: e.target.value }))}
+						/>
+					)}
+					<Select.Root
+						value={p.to}
+						onValueChange={(v) => setPlans(plans.with(i, { ...p, to: v as Target }))}
+						items={targets}
+					>
+						<Select.Trigger className="w-40" aria-label={`Where ${p.from} goes`} />
+						<Select.Popup>
+							{targets.map((t) => (
+								<Select.Item key={t.value} value={t.value}>
+									{t.label}
+								</Select.Item>
+							))}
+						</Select.Popup>
+					</Select.Root>
+				</Settings.Row>
+			))}
+			{plans.length > 0 && (
+				<div className="py-2">
+					<Button
+						loading={busy}
+						disabled={!chosen.length}
+						onClick={async () => {
+							setBusy(true);
+							const res = await fetch(`/accounts/${a.id}/imports`, {
+								method: "POST",
+								headers: { "content-type": "application/json" },
+								body: JSON.stringify({ sourceId, folders: chosen }),
+							});
+							setBusy(false);
+							if (!res.ok)
+								return toast.add({ title: ((await res.json()) as { error?: string }).error ?? "Couldn't start it." });
+							setPlans([]);
+							setSourceId("");
+							void imports.refetch();
+						}}
+					>
+						Import {chosen.length === 1 ? "1 folder" : `${chosen.length} folders`}
+					</Button>
+				</div>
+			)}
 		</Settings.Section>
 	);
 }
