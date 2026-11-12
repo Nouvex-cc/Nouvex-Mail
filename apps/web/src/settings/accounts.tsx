@@ -8,6 +8,7 @@ import { type Account, useAccounts } from "../accounts";
 import { AddAccount } from "../add-account";
 import { db } from "../db";
 import { folders, type Plan, suggest, type Target } from "../importing";
+import { shareMailbox } from "../keys";
 import { forget } from "../sync";
 import type { Module, Page } from "./registry";
 
@@ -23,6 +24,13 @@ function AccountPage({ account: a }: { account: Account }) {
 		});
 		void accounts.refetch();
 	};
+
+	if (a.shared)
+		return (
+			<Settings.Page title={a.email}>
+				<Sharing account={a} />
+			</Settings.Page>
+		);
 
 	return (
 		<Settings.Page title={a.email}>
@@ -74,6 +82,7 @@ function AccountPage({ account: a }: { account: Account }) {
 			</form>
 
 			{a.kind === "hosted" && <Aliases account={a} />}
+			{a.kind === "hosted" && <Sharing account={a} />}
 			{a.kind === "hosted" && <Importing account={a} />}
 
 			<Settings.Section>
@@ -171,6 +180,82 @@ function Aliases({ account: a }: { account: Account }) {
 					Add alias
 				</Button>
 			</form>
+		</Settings.Section>
+	);
+}
+
+type Member = { userId: string; email: string; name: string; role: "owner" | "member" };
+
+// Who else reads a hosted mailbox. Its owner lets other Nouvex users in by address; they find it next to their own
+// accounts, with all its mail, and can leave it again.
+function Sharing({ account: a }: { account: Account }) {
+	const accounts = useAccounts();
+	const toast = useToast();
+	const navigate = useNavigate();
+	const [busy, setBusy] = useState(false);
+	const members = useQuery({
+		queryKey: ["members", a.id],
+		queryFn: async () => (await fetch(`/accounts/${a.id}/members`)).json() as Promise<Member[]>,
+	});
+	const problem = async (res: Response) => ((await res.json()) as { error?: string }).error ?? "That didn't work.";
+	return (
+		<Settings.Section title={a.shared ? "Shared with you" : "Shared with"}>
+			{members.data?.map((m) => (
+				<Settings.Row
+					key={m.userId}
+					label={m.name || m.email}
+					hint={m.role === "owner" ? `${m.email}, owner` : m.email}
+				>
+					{!a.shared && m.role === "member" && (
+						<Button
+							variant="ghost"
+							aria-label={`Stop sharing with ${m.email}`}
+							onClick={async () => {
+								await fetch(`/accounts/${a.id}/members/${m.userId}`, { method: "DELETE" });
+								void members.refetch();
+							}}
+						>
+							<X strokeWidth={1.75} />
+						</Button>
+					)}
+				</Settings.Row>
+			))}
+			{a.shared ? (
+				<Settings.Row id="leave" label="Leave" hint="It's gone from your accounts; its owner can let you in again">
+					<Button
+						variant="danger"
+						hold={1200}
+						onHoldComplete={async () => {
+							await forget(a.id);
+							await accounts.refetch();
+							navigate({ to: "/settings" });
+						}}
+					>
+						Hold to leave
+					</Button>
+				</Settings.Row>
+			) : (
+				<form
+					className="flex gap-2 py-2"
+					onSubmit={async (e) => {
+						e.preventDefault();
+						const form = e.currentTarget;
+						setBusy(true);
+						const res = await shareMailbox(a, String(new FormData(form).get("email")).trim()).catch(
+							() => new Response(JSON.stringify({ error: "Couldn't open this mailbox's key here." }), { status: 500 }),
+						);
+						setBusy(false);
+						if (!res.ok) return toast.add({ title: await problem(res) });
+						form.reset();
+						void members.refetch();
+					}}
+				>
+					<Input name="email" type="email" required aria-label="Share with" placeholder="Their Nouvex address" />
+					<Button type="submit" loading={busy}>
+						Share
+					</Button>
+				</form>
+			)}
 		</Settings.Section>
 	);
 }

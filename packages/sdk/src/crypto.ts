@@ -188,3 +188,7 @@ export const openRecovery = async (recovery: string, wrapped: Bytes) =>
 /** A hosted account's keys, from the private half wrapped for this user (newAccountKey, or a member's grant). */
 export const openAccount = async (mine: Keys, publicKey: Bytes, wrapped: Bytes) =>
 	unlock(await openSealed(mine, wrapped, accountInfo), publicKey);
+
+/** Shares a hosted account: its private key as wrapped for this user, wrapped again to someone else's public key. */
+export const rewrapAccount = async (mine: Keys, wrapped: Bytes, to: Bytes) =>
+	sealTo(to, await openSealed(mine, wrapped, accountInfo), accountInfo);
