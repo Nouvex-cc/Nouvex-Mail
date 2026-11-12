@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { expect, test } from "bun:test";
-import { applyCloudflare, check, dkimKey, type Lookup, records } from "./domains";
+import { applyCloudflare, check, dkimKey, dnsDeps, type Lookup, records, resolver, txtData } from "./domains";
 
 const domain = { name: "louma.test", verifyToken: "tok", dkimPublic: "PUB" };
 
@@ -118,4 +118,23 @@ test("Cloudflare finds the zone above a subdomain, and says when there is none",
 	await expect(applyCloudflare(z.cf, "other.test", records({ ...domain, name: "other.test" }), false)).rejects.toThrow(
 		"No Cloudflare zone",
 	);
+});
+
+test("a long TXT record comes back whole, however DNS split it", async () => {
+	expect(txtData('"v=DKIM1; p=abc" "def"')).toBe("v=DKIM1; p=abcdef");
+	expect(txtData('"say \\"hi\\""')).toBe('say "hi"');
+	const fetch = dnsDeps.fetch;
+	dnsDeps.fetch = (async () =>
+		Response.json({
+			Answer: [
+				{ type: 5, data: "alias.example." },
+				{ type: 16, data: `"${"a".repeat(255)}" "bcd"` },
+				{ type: 16, data: '"v=spf1 -all"' },
+			],
+		})) as unknown as typeof globalThis.fetch;
+	try {
+		expect(await resolver().txt("nx1._domainkey.example.com")).toEqual([`${"a".repeat(255)}bcd`, "v=spf1 -all"]);
+	} finally {
+		dnsDeps.fetch = fetch;
+	}
 });
