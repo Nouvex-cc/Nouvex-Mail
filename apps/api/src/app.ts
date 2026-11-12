@@ -320,6 +320,16 @@ app.openapi(
 		const [acc] = await db.select({ id: mailAccount.id }).from(mailAccount).where(eq(mailAccount.id, said.accountId));
 		if (!acc) return c.body(null, 200);
 		await db.insert(sendEvent).values({ id: crypto.randomUUID(), accountId: acc.id, kind: said.report.kind });
+		// Over 30 days, more than 0.1% complaints, or more than 5% bounces (5 at least), pause sending outside Nouvex
+		// until someone has looked (docs/deploy.md, Hosted mail).
+		await db.execute(sql`
+			UPDATE mail_account SET sending_paused_at = now()
+			WHERE id = ${acc.id} AND sending_paused_at IS NULL AND EXISTS (
+				SELECT 1 FROM
+					(SELECT count(*) FILTER (WHERE kind = 'complaint') AS complaints, count(*) FILTER (WHERE kind = 'bounce') AS bounces
+					FROM send_event WHERE account_id = ${acc.id} AND created_at > now() - interval '30 days') e,
+					(SELECT coalesce(sum(count), 0) AS sent FROM send_count WHERE account_id = ${acc.id} AND day > current_date - 30) s
+				WHERE e.complaints > 0.001 * s.sent OR (e.bounces >= 5 AND e.bounces > 0.05 * s.sent))`);
 		// It names who the mail went to, so it travels sealed until the engine seals it for the sender.
 		const cmd: SendFeedback = {
 			accountId: acc.id,

@@ -288,6 +288,21 @@ func TestHostedSend(t *testing.T) {
 		t.Fatal("sent from someone else's address")
 	}
 
+	// Outside Nouvex, a day's limit (two recipients so far) and then a pause; both say why and don't retry.
+	DailyLimit = 3
+	t.Cleanup(func() { DailyLimit = 200 })
+	if _, err := send("d5", nil, "a@friend.example", "b@friend.example"); err == nil || Temporary(err) || len(outward) != 2 {
+		t.Fatalf("over the limit: %v, %d sent", err, len(outward))
+	}
+	if _, err := send("d6", nil, "a@friend.example"); err != nil || len(outward) != 3 {
+		t.Fatalf("within the limit: %v", err)
+	}
+	exec(`UPDATE mail_account SET sending_paused_at = now() WHERE id = $1`, f.id)
+	if sent, err := send("d7", nil, "a@friend.example"); !errors.Is(err, errPaused) || sent.Taken || len(outward) != 3 {
+		t.Fatalf("paused: %+v %v", sent, err)
+	}
+	exec(`UPDATE mail_account SET sending_paused_at = NULL WHERE id = $1`, f.id)
+
 	// Taken back out of Max's mailbox; only Nouvex copies can be.
 	if gone, err := Unsend(ctx, q, store, f.id, SendID("d1", "lena@"+domain)); err != nil || len(gone) != 1 {
 		t.Fatalf("unsend %+v %v", gone, err)

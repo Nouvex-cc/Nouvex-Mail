@@ -70,6 +70,21 @@ func (q *Queries) AddJob(ctx context.Context, arg AddJobParams) error {
 	return err
 }
 
+const addSent = `-- name: AddSent :exec
+INSERT INTO send_count (account_id, day, count) VALUES ($1, (now() AT TIME ZONE 'utc')::date, $2::int)
+ON CONFLICT (account_id, day) DO UPDATE SET count = send_count.count + excluded.count
+`
+
+type AddSentParams struct {
+	AccountID string
+	N         int32
+}
+
+func (q *Queries) AddSent(ctx context.Context, arg AddSentParams) error {
+	_, err := q.db.Exec(ctx, addSent, arg.AccountID, arg.N)
+	return err
+}
+
 const addressOwner = `-- name: AddressOwner :one
 SELECT account_id FROM address WHERE address = $1
 `
@@ -298,7 +313,7 @@ func (q *Queries) FindByRole(ctx context.Context, arg FindByRoleParams) (string,
 }
 
 const firstAccount = `-- name: FirstAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to, nickname, color, position, muted, kind FROM mail_account WHERE user_id = $1 AND archived_at IS NULL ORDER BY position, created_at LIMIT 1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to, nickname, color, position, muted, kind, sending_paused_at FROM mail_account WHERE user_id = $1 AND archived_at IS NULL ORDER BY position, created_at LIMIT 1
 `
 
 // The account a user's seeded mail goes to: the first in their order that isn't archived.
@@ -327,6 +342,7 @@ func (q *Queries) FirstAccount(ctx context.Context, userID string) (MailAccount,
 		&i.Position,
 		&i.Muted,
 		&i.Kind,
+		&i.SendingPausedAt,
 	)
 	return i, err
 }
@@ -341,7 +357,7 @@ func (q *Queries) ForgetSent(ctx context.Context) error {
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to, nickname, color, position, muted, kind FROM mail_account WHERE id = $1
+SELECT id, user_id, email, imap_host, imap_port, smtp_host, smtp_port, username, secret, version, created_at, sync_error, display_name, signature, archived_at, sealed_to, nickname, color, position, muted, kind, sending_paused_at FROM mail_account WHERE id = $1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error) {
@@ -369,6 +385,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 		&i.Position,
 		&i.Muted,
 		&i.Kind,
+		&i.SendingPausedAt,
 	)
 	return i, err
 }
@@ -1078,6 +1095,17 @@ func (q *Queries) SendState(ctx context.Context, draftID string) (string, error)
 	var state string
 	err := row.Scan(&state)
 	return state, err
+}
+
+const sentToday = `-- name: SentToday :one
+SELECT coalesce((SELECT count FROM send_count WHERE account_id = $1 AND day = (now() AT TIME ZONE 'utc')::date), 0)::int
+`
+
+func (q *Queries) SentToday(ctx context.Context, accountID string) (int32, error) {
+	row := q.db.QueryRow(ctx, sentToday, accountID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const setFlags = `-- name: SetFlags :exec

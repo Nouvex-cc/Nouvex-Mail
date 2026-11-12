@@ -204,6 +204,13 @@
       "when": 1794338371912,
       "tag": "0028_sending",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794430425998,
+      "tag": "0029_send_limits",
+      "breakpoints": true
     }
   ]
 }
