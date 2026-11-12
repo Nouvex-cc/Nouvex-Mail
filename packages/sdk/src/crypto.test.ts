@@ -11,6 +11,7 @@ import {
 	openPrivate,
 	openRecovery,
 	openSealed,
+	rewrapAccount,
 	sealRecovery,
 	sealTo,
 	unlock,
@@ -48,6 +49,18 @@ test("a hosted account's key opens for its owner, and only under its own label",
 	expect(await openSealed(keys, sealed, "test")).toEqual(new Uint8Array([1, 2, 3]));
 	await expect(openSealed(keys, sealed, "nouvex message key")).rejects.toThrow();
 	await expect(openKey(owner.keys, account.wrapped)).rejects.toThrow();
+});
+
+test("a shared hosted account opens for the one it was shared with, as it does for its owner", async () => {
+	const owner = await newKeys((await derive("pw", "a@b.c")).encKey);
+	const member = await newKeys((await derive("pw", "m@b.c")).encKey);
+	const account = await newAccountKey(owner.publicKey);
+	const theirs = await rewrapAccount(owner.keys, account.wrapped, member.publicKey);
+	const sealed = await sealTo(account.publicKey, new Uint8Array([4, 2]), "test");
+	expect(await openSealed(await openAccount(member.keys, account.publicKey, theirs), sealed, "test")).toEqual(
+		new Uint8Array([4, 2]),
+	);
+	await expect(openAccount(owner.keys, account.publicKey, theirs)).rejects.toThrow();
 });
 
 test("a recovery key opens the private key again, typed loosely", async () => {

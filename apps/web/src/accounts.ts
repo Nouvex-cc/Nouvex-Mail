@@ -18,6 +18,8 @@ export type Account = {
 	keys: { version: number; publicKey: string; wrappedKey: string }[];
 	// A hosted account's other addresses.
 	aliases: string[];
+	// A hosted account someone else owns and shared with this user.
+	shared: boolean;
 };
 
 export type { Focus };

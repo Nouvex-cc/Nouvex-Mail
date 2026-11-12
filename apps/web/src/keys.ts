@@ -13,6 +13,7 @@ import {
 	openAccount,
 	openKey,
 	openPrivate,
+	rewrapAccount,
 	sealRecovery,
 	unlock,
 	wrapPrivate,
@@ -138,6 +139,30 @@ export async function createMailbox(email: string, displayName: string) {
 	});
 	accounts = undefined;
 	return res;
+}
+
+/** Lets another Nouvex user into a hosted mailbox: each of its key versions, wrapped here to their public key. */
+export async function shareMailbox(a: Account, email: string) {
+	const json = { "content-type": "application/json" };
+	const res = await fetch(`/accounts/${a.id}/members/key`, {
+		method: "POST",
+		headers: json,
+		body: JSON.stringify({ email }),
+	});
+	if (!res.ok) return res;
+	const to = Uint8Array.fromBase64(((await res.json()) as { publicKey: string }).publicKey);
+	const me = await keys();
+	const wrapped = await Promise.all(
+		a.keys.map(async (k) => ({
+			version: k.version,
+			wrappedKey: (await rewrapAccount(me, Uint8Array.fromBase64(k.wrappedKey), to)).toBase64(),
+		})),
+	);
+	return fetch(`/accounts/${a.id}/members`, {
+		method: "POST",
+		headers: json,
+		body: JSON.stringify({ email, keys: wrapped }),
+	});
 }
 
 /**

@@ -15,7 +15,7 @@ import type {
 	SendFeedback,
 } from "@nouvex/schema";
 import { s3 } from "bun";
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
 import { upgradeWebSocket } from "hono/bun";
 import { cors } from "hono/cors";
@@ -40,6 +40,7 @@ import {
 	senderRule,
 	userKey,
 	userPrefs,
+	user as userTable,
 } from "./db/schema";
 import { applyCloudflare, check, cloudflare, dkimKey, dnsDeps, records } from "./domains";
 import { fetchImage, post } from "./image";
@@ -47,7 +48,8 @@ import { nats } from "./nats";
 import { open, seal } from "./secret";
 import { fromAws, report, type Sns, snsDeps, verify } from "./sns";
 
-type Env = { Variables: { userId: string } };
+// owner: whether the signed-in user owns the account in the path, not only reaches it as a member (/accounts/{id}).
+type Env = { Variables: { userId: string; owner: boolean } };
 export const app = new OpenAPIHono<Env>();
 
 app.use("*", httpInstrumentationMiddleware({ serviceName: "nouvex-api" }));
@@ -85,13 +87,21 @@ app.use("/rich/*", signedIn);
 app.use("/rules", signedIn);
 app.use("/unsubscribe", signedIn);
 
-// Someone else's account answers like a missing one.
+/** The accounts a user reaches: their own, and hosted ones shared with them (account_member). */
+const reaches = (userId: string) =>
+	or(
+		eq(mailAccount.userId, userId),
+		sql`exists (select 1 from ${accountMember} where ${accountMember.accountId} = ${mailAccount.id} and ${accountMember.userId} = ${userId})`,
+	);
+
+// Someone else's account answers like a missing one; a shared one only lets its owner change how it's set up.
 app.use("/accounts/:accountId/*", async (c, next) => {
-	const [own] = await db
-		.select({ id: mailAccount.id })
+	const [acc] = await db
+		.select({ userId: mailAccount.userId })
 		.from(mailAccount)
-		.where(and(eq(mailAccount.id, c.req.param("accountId")), eq(mailAccount.userId, c.get("userId"))));
-	if (!own) return c.body(null, 404);
+		.where(and(eq(mailAccount.id, c.req.param("accountId")), reaches(c.get("userId"))));
+	if (!acc) return c.body(null, 404);
+	c.set("owner", acc.userId === c.get("userId"));
 	await next();
 });
 
@@ -143,6 +153,8 @@ app.openapi(
 								keys: z.array(z.object({ version: z.int(), publicKey: z.string(), wrappedKey: z.string() })),
 								// A hosted account's other addresses, which it receives and can send from.
 								aliases: z.array(z.string()),
+								// Shared: a hosted account someone else owns and let this user in on.
+								shared: z.boolean(),
 							}),
 						),
 					},
@@ -164,9 +176,10 @@ app.openapi(
 				color: mailAccount.color,
 				muted: mailAccount.muted,
 				kind: mailAccount.kind,
+				ownerId: mailAccount.userId,
 			})
 			.from(mailAccount)
-			.where(eq(mailAccount.userId, userId))
+			.where(reaches(userId))
 			.orderBy(mailAccount.position, mailAccount.createdAt);
 		const grants = await db
 			.select({
@@ -197,8 +210,9 @@ app.openapi(
 			.orderBy(addressTable.address);
 		const b64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
 		return c.json(
-			accounts.map((a) => ({
+			accounts.map(({ ownerId, ...a }) => ({
 				...a,
+				shared: ownerId !== userId,
 				keys: grants
 					.filter((g) => g.accountId === a.id && g.wrappedKey)
 					.map((g) => ({
@@ -387,6 +401,7 @@ const ownDomain = async (userId: string, id: string) =>
 	)[0];
 const DomainParam = z.object({ domainId: z.string() });
 const Problem = { "application/json": { schema: z.object({ error: z.string() }) } };
+const notOwner = "Only the mailbox's owner can change this.";
 
 // Looks the records up and keeps what was found; the first time the TXT record shows, the domain is the user's.
 async function recheck(d: typeof domain.$inferSelect) {
@@ -622,9 +637,14 @@ app.openapi(
 			params: z.object({ accountId: z.string() }),
 			body: { content: { "application/json": { schema: z.object({ address: z.email() }) } } },
 		},
-		responses: { 204: { description: "Added" }, 422: { description: "Not possible", content: Problem } },
+		responses: {
+			204: { description: "Added" },
+			403: { description: "Only the owner adds aliases", content: Problem },
+			422: { description: "Not possible", content: Problem },
+		},
 	}),
 	async (c) => {
+		if (!c.get("owner")) return c.json({ error: notOwner }, 403);
 		const { accountId } = c.req.valid("param");
 		const address = c.req.valid("json").address.toLowerCase();
 		const [acc] = await db.select({ kind: mailAccount.kind }).from(mailAccount).where(eq(mailAccount.id, accountId));
@@ -647,9 +667,13 @@ app.openapi(
 		path: "/accounts/{accountId}/aliases/{address}",
 		operationId: "removeAlias",
 		request: { params: z.object({ accountId: z.string(), address: z.string() }) },
-		responses: { 204: { description: "Removed; mail to it is refused from now on" } },
+		responses: {
+			204: { description: "Removed; mail to it is refused from now on" },
+			403: { description: "Only the owner removes aliases", content: Problem },
+		},
 	}),
 	async (c) => {
+		if (!c.get("owner")) return c.json({ error: notOwner }, 403);
 		const { accountId, address } = c.req.valid("param");
 		await db
 			.delete(addressTable)
@@ -740,10 +764,12 @@ app.openapi(
 		},
 		responses: {
 			201: { description: "Started", content: { "application/json": { schema: z.object({ id: z.string() }) } } },
+			403: { description: "Only the owner imports", content: Problem },
 			422: { description: "Not possible", content: Problem },
 		},
 	}),
 	async (c) => {
+		if (!c.get("owner")) return c.json({ error: notOwner }, 403);
 		const { accountId } = c.req.valid("param");
 		const { sourceId, folders } = c.req.valid("json");
 		const [acc] = await db.select({ kind: mailAccount.kind }).from(mailAccount).where(eq(mailAccount.id, accountId));
@@ -769,6 +795,165 @@ app.openapi(
 		const { js } = await nats();
 		await js.publish("cmd.import.run", JSON.stringify(cmd));
 		return c.json({ id }, 201);
+	},
+);
+
+// Sharing a hosted mailbox: its owner's device wraps the mailbox's private key to another Nouvex user's public key,
+// and from then on they read and send from it like their own. The server never sees the key.
+// ponytail: removing someone doesn't make a new key version, so what they already downloaded they can still open;
+// the API stops serving them at once. A new version on removal is the upgrade (account_key versions are ready).
+const Member = z.object({
+	userId: z.string(),
+	email: z.string(),
+	name: z.string(),
+	role: z.enum(["owner", "member"]),
+});
+
+app.openapi(
+	createRoute({
+		method: "get",
+		path: "/accounts/{accountId}/members",
+		operationId: "listMembers",
+		description: "Who reads this hosted mailbox: its owner first.",
+		request: { params: z.object({ accountId: z.string() }) },
+		responses: { 200: { description: "The members", content: { "application/json": { schema: z.array(Member) } } } },
+	}),
+	async (c) => {
+		const rows = await db
+			.selectDistinct({
+				userId: accountMember.userId,
+				email: userTable.email,
+				name: userTable.name,
+				role: accountMember.role,
+			})
+			.from(accountMember)
+			.innerJoin(userTable, eq(userTable.id, accountMember.userId))
+			.where(eq(accountMember.accountId, c.req.valid("param").accountId));
+		return c.json(
+			rows.toSorted(
+				(a, b) => Number(a.role !== "owner") - Number(b.role !== "owner") || a.email.localeCompare(b.email),
+			),
+			200,
+		);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/members/key",
+		operationId: "memberKey",
+		description:
+			"The public key of the Nouvex user with this email, for the owner's device to wrap the mailbox's key to.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: { content: { "application/json": { schema: z.object({ email: z.email() }) } } },
+		},
+		responses: {
+			200: {
+				description: "Their key",
+				content: { "application/json": { schema: z.object({ publicKey: z.string() }) } },
+			},
+			403: { description: "Only the owner shares", content: Problem },
+			422: { description: "Not a Nouvex user yet", content: Problem },
+		},
+	}),
+	async (c) => {
+		if (!c.get("owner")) return c.json({ error: notOwner }, 403);
+		const [k] = await db
+			.select({ publicKey: userKey.publicKey })
+			.from(userTable)
+			.innerJoin(userKey, eq(userKey.userId, userTable.id))
+			.where(eq(userTable.email, c.req.valid("json").email.toLowerCase()));
+		if (!k) return c.json({ error: "Nobody with this address uses Nouvex yet, or they haven't signed in once." }, 422);
+		return c.json({ publicKey: k.publicKey.toBase64() }, 200);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "post",
+		path: "/accounts/{accountId}/members",
+		operationId: "addMember",
+		description:
+			"Lets another Nouvex user in: the mailbox's key versions, each wrapped to their public key by the owner's device.",
+		request: {
+			params: z.object({ accountId: z.string() }),
+			body: {
+				content: {
+					"application/json": {
+						schema: z.object({
+							email: z.email(),
+							keys: z.array(z.object({ version: z.int(), wrappedKey: z.base64() })).min(1),
+						}),
+					},
+				},
+			},
+		},
+		responses: {
+			204: { description: "In" },
+			403: { description: "Only the owner shares", content: Problem },
+			422: { description: "Not possible", content: Problem },
+		},
+	}),
+	async (c) => {
+		if (!c.get("owner")) return c.json({ error: notOwner }, 403);
+		const { accountId } = c.req.valid("param");
+		const { email, keys } = c.req.valid("json");
+		const [them] = await db
+			.select({ id: userTable.id })
+			.from(userTable)
+			.where(eq(userTable.email, email.toLowerCase()));
+		if (!them) return c.json({ error: "Nobody with this address uses Nouvex yet." }, 422);
+		if (them.id === c.get("userId")) return c.json({ error: "It's your own mailbox already." }, 422);
+		const versions = new Set(
+			(
+				await db.select({ version: accountKey.version }).from(accountKey).where(eq(accountKey.accountId, accountId))
+			).map((k) => k.version),
+		);
+		if (keys.some((k) => !versions.has(k.version))) return c.json({ error: "That isn't this mailbox's key." }, 422);
+		await db
+			.insert(accountMember)
+			.values(
+				keys.map((k) => ({
+					accountId,
+					userId: them.id,
+					role: "member" as const,
+					keyVersion: k.version,
+					wrappedKey: Uint8Array.fromBase64(k.wrappedKey),
+				})),
+			)
+			.onConflictDoUpdate({
+				target: [accountMember.accountId, accountMember.userId, accountMember.keyVersion],
+				set: { wrappedKey: sql`excluded.wrapped_key` },
+			});
+		return c.body(null, 204);
+	},
+);
+
+app.openapi(
+	createRoute({
+		method: "delete",
+		path: "/accounts/{accountId}/members/{userId}",
+		operationId: "removeMember",
+		description: "Takes someone out of a shared mailbox: its owner removes anyone else, a member removes themselves.",
+		request: { params: z.object({ accountId: z.string(), userId: z.string() }) },
+		responses: {
+			204: { description: "Out" },
+			403: { description: "Not theirs to remove", content: Problem },
+		},
+	}),
+	async (c) => {
+		const { accountId, userId } = c.req.valid("param");
+		const self = userId === c.get("userId");
+		if (c.get("owner") === self)
+			return c.json({ error: self ? "An owner can't leave their own mailbox." : notOwner }, 403);
+		await db
+			.delete(accountMember)
+			.where(
+				and(eq(accountMember.accountId, accountId), eq(accountMember.userId, userId), eq(accountMember.role, "member")),
+			);
+		return c.body(null, 204);
 	},
 );
 
@@ -1168,9 +1353,14 @@ app.openapi(
 				},
 			},
 		},
-		responses: { 204: { description: "Saved" }, 404: { description: "No such account" } },
+		responses: {
+			204: { description: "Saved" },
+			403: { description: "Shared with this user: only its owner changes it", content: Problem },
+			404: { description: "No such account" },
+		},
 	}),
 	async (c) => {
+		if (!c.get("owner")) return c.json({ error: notOwner }, 403);
 		const { archived, color, ...change } = c.req.valid("json");
 		const { accountId } = c.req.valid("param");
 		const set = {
@@ -1190,13 +1380,20 @@ app.openapi(
 		method: "delete",
 		path: "/accounts/{accountId}",
 		operationId: "deleteAccount",
-		description: "Removes the account and everything synced from it. The mail server is not touched.",
+		description:
+			"Removes the account and everything synced from it. The mail server is not touched. On a mailbox shared with the user, the user leaves it instead.",
 		request: { params: z.object({ accountId: z.string() }) },
 		responses: { 204: { description: "Removed" }, 404: { description: "No such account" } },
 	}),
 	async (c) => {
 		// ponytail: its bodies and attachments stay in S3; a cleanup job can remove raw/, body/ and att/ of gone ids.
 		const { accountId } = c.req.valid("param");
+		if (!c.get("owner")) {
+			await db
+				.delete(accountMember)
+				.where(and(eq(accountMember.accountId, accountId), eq(accountMember.userId, c.get("userId"))));
+			return c.body(null, 204);
+		}
 		await db.delete(mailAccount).where(eq(mailAccount.id, accountId));
 		await db.delete(changeLog).where(eq(changeLog.accountId, accountId));
 		return c.body(null, 204);
@@ -1226,7 +1423,7 @@ const ownAccounts = async (userId: string, ids: string[]) =>
 				await db
 					.select({ id: mailAccount.id })
 					.from(mailAccount)
-					.where(and(eq(mailAccount.userId, userId), inArray(mailAccount.id, ids)))
+					.where(and(reaches(userId), inArray(mailAccount.id, ids)))
 			).length === new Set(ids).size;
 
 const setMembers = async (groupId: string, accountIds: string[]) => {
@@ -1534,7 +1731,7 @@ app.get(
 				known = db
 					.select({ id: mailAccount.id })
 					.from(mailAccount)
-					.where(and(eq(mailAccount.id, accountId), eq(mailAccount.userId, userId)))
+					.where(and(eq(mailAccount.id, accountId), reaches(userId)))
 					.then((rows) => rows.length > 0);
 				mine.set(accountId, known);
 			}
@@ -1686,7 +1883,7 @@ app.openapi(
 					.innerJoin(mailAccount, eq(mailAccount.id, message.accountId))
 					.where(
 						and(
-							eq(mailAccount.userId, userId),
+							reaches(userId),
 							inArray(
 								message.id,
 								messages.map((m) => m.id),

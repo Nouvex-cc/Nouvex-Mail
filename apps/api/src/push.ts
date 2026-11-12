@@ -56,20 +56,14 @@ export function note(
 }
 
 /**
- * What to push for new mail, per device: the same mail the app itself notifies about (Mail.notify): primary, and
- * updates unless categories are on; nothing for an archived or muted account, or one in a muted or resting group.
+ * What to push for new mail, per device of everyone who reads the account (its owner, and the members of a shared
+ * one): the same mail the app itself notifies about (Mail.notify): primary, and updates unless categories are on;
+ * nothing for an archived or muted account, or one in a muted or resting group of that reader's.
  */
 export async function pushes(e: MessageArrived, at = new Date()) {
 	const [account] = await db.select().from(mailAccount).where(eq(mailAccount.id, e.accountId));
 	if (!account || account.archivedAt || account.muted) return [];
-	const [devices, groups, [prefs], messages, [grant]] = await Promise.all([
-		db.select().from(device).where(eq(device.userId, account.userId)),
-		db
-			.select({ muted: accountGroup.muted, focus: accountGroup.focus })
-			.from(accountGroup)
-			.innerJoin(accountGroupMember, eq(accountGroupMember.groupId, accountGroup.id))
-			.where(eq(accountGroupMember.accountId, account.id)),
-		db.select().from(userPrefs).where(eq(userPrefs.userId, account.userId)),
+	const [messages, members] = await Promise.all([
 		db
 			.select({
 				id: message.id,
@@ -81,20 +75,39 @@ export async function pushes(e: MessageArrived, at = new Date()) {
 			.from(message)
 			.where(and(eq(message.accountId, account.id), inArray(message.id, e.messageIds))),
 		db
-			.select({ wrappedKey: accountMember.wrappedKey })
+			.selectDistinct({ userId: accountMember.userId })
 			.from(accountMember)
-			.where(and(eq(accountMember.accountId, account.id), eq(accountMember.userId, account.userId)))
-			.orderBy(desc(accountMember.keyVersion))
-			.limit(1),
+			.where(eq(accountMember.accountId, account.id)),
 	]);
-	if (groups.some((g) => g.muted)) return [];
-	const loud = (prefs?.prefs as { categories?: boolean } | undefined)?.categories
-		? ["primary"]
-		: ["primary", "updates"];
-	const notes = messages.filter((m) => loud.includes(m.category)).map((m) => note(m, account, grant?.wrappedKey));
-	return devices
-		.filter((d) => !groups.some((g) => resting(g.focus, d.timeZone, at)))
-		.flatMap((d) => notes.map((n) => ({ device: d, push: n })));
+	const readers = [...new Set([account.userId, ...members.map((m) => m.userId)])];
+	const each = await Promise.all(
+		readers.map(async (userId) => {
+			const [devices, groups, [prefs], [grant]] = await Promise.all([
+				db.select().from(device).where(eq(device.userId, userId)),
+				db
+					.select({ muted: accountGroup.muted, focus: accountGroup.focus })
+					.from(accountGroup)
+					.innerJoin(accountGroupMember, eq(accountGroupMember.groupId, accountGroup.id))
+					.where(and(eq(accountGroupMember.accountId, account.id), eq(accountGroup.userId, userId))),
+				db.select().from(userPrefs).where(eq(userPrefs.userId, userId)),
+				db
+					.select({ wrappedKey: accountMember.wrappedKey })
+					.from(accountMember)
+					.where(and(eq(accountMember.accountId, account.id), eq(accountMember.userId, userId)))
+					.orderBy(desc(accountMember.keyVersion))
+					.limit(1),
+			]);
+			if (groups.some((g) => g.muted)) return [];
+			const loud = (prefs?.prefs as { categories?: boolean } | undefined)?.categories
+				? ["primary"]
+				: ["primary", "updates"];
+			const notes = messages.filter((m) => loud.includes(m.category)).map((m) => note(m, account, grant?.wrappedKey));
+			return devices
+				.filter((d) => !groups.some((g) => resting(g.focus, d.timeZone, at)))
+				.flatMap((d) => notes.map((n) => ({ device: d, push: n })));
+		}),
+	);
+	return each.flat();
 }
 
 /** An APNs provider token: ES256, signed with the .p8 key, good for an hour; Apple wants a new one at most every 20 minutes. */

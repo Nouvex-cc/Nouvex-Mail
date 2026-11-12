@@ -669,6 +669,77 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 	},
 );
 
+test.skipIf(!process.env.DATABASE_URL)(
+	"a shared mailbox: its owner lets someone in, they read it and can leave",
+	async () => {
+		const { db } = await import("./db");
+		const { accountKey, accountMember, mailAccount } = await import("./db/schema");
+		const { inArray } = await import("drizzle-orm");
+		const me = await signedIn("Lena");
+		const max = await signedIn("Max");
+		const call = (who: { cookie: string }, path: string, method = "GET", body?: unknown) =>
+			app.request(path, {
+				method,
+				headers: { cookie: who.cookie, "content-type": "application/json" },
+				body: body === undefined ? undefined : JSON.stringify(body),
+			});
+		const id = crypto.randomUUID();
+		await db.insert(mailAccount).values({
+			id,
+			userId: me.id,
+			email: `team@${id}.test`,
+			kind: "hosted",
+			imapHost: "",
+			imapPort: 0,
+			smtpHost: "",
+			smtpPort: 0,
+			username: "",
+			secret: new Uint8Array(),
+		});
+		await db.insert(accountKey).values({ accountId: id, version: 1, publicKey: new Uint8Array([1]) });
+		await db
+			.insert(accountMember)
+			.values({ accountId: id, userId: me.id, role: "owner", keyVersion: 1, wrappedKey: new Uint8Array([2]) });
+		try {
+			const listed = async (who: { cookie: string }) =>
+				((await (await call(who, "/accounts")).json()) as { id: string; shared: boolean; keys: unknown[] }[]).find(
+					(a) => a.id === id,
+				);
+			expect(await listed(max)).toBeUndefined();
+			expect((await call(max, `/accounts/${id}/changes?since=0`)).status).toBe(404);
+
+			const key = await call(me, `/accounts/${id}/members/key`, "POST", { email: max.email });
+			expect(((await key.json()) as { publicKey: string }).publicKey).toBe(btoa("public"));
+			expect((await call(me, `/accounts/${id}/members/key`, "POST", { email: "nobody@x.test" })).status).toBe(422);
+			expect((await call(max, `/accounts/${id}/members/key`, "POST", { email: me.email })).status).toBe(404);
+			const add = (keys: unknown[]) => call(me, `/accounts/${id}/members`, "POST", { email: max.email, keys });
+			expect((await add([{ version: 7, wrappedKey: btoa("w") }])).status).toBe(422);
+			expect((await add([{ version: 1, wrappedKey: btoa("w") }])).status).toBe(204);
+
+			expect(await listed(max)).toMatchObject({ shared: true, keys: [{ version: 1, wrappedKey: btoa("w") }] });
+			expect(await listed(me)).toMatchObject({ shared: false });
+			expect((await call(max, `/accounts/${id}/changes?since=0`)).status).toBe(200);
+			const members = (await (await call(max, `/accounts/${id}/members`)).json()) as { email: string; role: string }[];
+			expect(members.map((m) => [m.email, m.role])).toEqual([
+				[me.email, "owner"],
+				[max.email, "member"],
+			]);
+			// Only the owner changes how it's set up, and can't leave it.
+			expect((await call(max, `/accounts/${id}`, "PATCH", { nickname: "Ours" })).status).toBe(403);
+			expect((await call(max, `/accounts/${id}/aliases`, "POST", { address: `x@${id}.test` })).status).toBe(403);
+			expect((await call(max, `/accounts/${id}/members/${me.id}`, "DELETE")).status).toBe(403);
+			expect((await call(me, `/accounts/${id}/members/${me.id}`, "DELETE")).status).toBe(403);
+
+			// Leaving takes only the member out.
+			expect((await call(max, `/accounts/${id}`, "DELETE")).status).toBe(204);
+			expect(await listed(max)).toBeUndefined();
+			expect(await listed(me)).toBeDefined();
+		} finally {
+			await db.delete(mailAccount).where(inArray(mailAccount.userId, [me.id, max.id]));
+		}
+	},
+);
+
 test.skipIf(!process.env.DATABASE_URL)("domains: Cloudflare sets them up with a token it never keeps", async () => {
 	const { dnsDeps } = await import("./domains");
 	const me = await signedIn("Lena");
