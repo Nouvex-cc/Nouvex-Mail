@@ -93,8 +93,8 @@ func TestSend(t *testing.T) {
 	for i := range to {
 		to[i] = "r@x.example"
 	}
-	if err := c.Send(context.Background(), "lena@louma.cc", to, []byte("Subject: hi\r\n\r\nhi"), map[string]string{"account": "a1"}); err != nil {
-		t.Fatal(err)
+	if took, err := c.Send(context.Background(), "lena@louma.cc", to, []byte("Subject: hi\r\n\r\nhi"), map[string]string{"account": "a1"}); err != nil || len(took) != 120 {
+		t.Fatal(len(took), err)
 	}
 	if len(f.sends) != 3 || f.sends[0]["FromEmailAddress"] != "lena@louma.cc" || f.sends[0]["ConfigurationSetName"] != "nouvex" {
 		t.Fatalf("%d sends: %v", len(f.sends), f.sends)
@@ -107,7 +107,7 @@ func TestSend(t *testing.T) {
 	for kind, want := range map[string]int{"throttle": 451, "reject": 554} {
 		f.fail = kind
 		var se *smtp.SMTPError
-		if err := c.Send(context.Background(), "lena@louma.cc", to[:1], []byte("x"), nil); !errors.As(err, &se) || se.Code != want {
+		if took, err := c.Send(context.Background(), "lena@louma.cc", to[:1], []byte("x"), nil); !errors.As(err, &se) || se.Code != want || len(took) != 0 {
 			t.Fatalf("%s: %v, want %d", kind, err, want)
 		}
 	}

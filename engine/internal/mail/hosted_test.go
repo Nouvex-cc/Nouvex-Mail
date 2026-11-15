@@ -16,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/emersion/go-smtp"
+
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
@@ -251,12 +253,23 @@ func TestHostedSend(t *testing.T) {
 		to   []string
 	}
 	var outward []out
-	Outward = func(_ context.Context, from string, to []string, _ []byte, tags map[string]string) error {
+	// What the servers outside say to an address, if not yes.
+	refuse := map[string]int{}
+	Outward = func(_ context.Context, from string, to []string, _ []byte, tags map[string]string) ([]string, error) {
 		if tags["account"] != f.id {
 			t.Errorf("tags %v", tags)
 		}
 		outward = append(outward, out{from, to})
-		return nil
+		var took []string
+		var err error
+		for _, r := range to {
+			if code := refuse[r]; code != 0 {
+				err = &smtp.SMTPError{Code: code, Message: r + " says no"}
+			} else {
+				took = append(took, r)
+			}
+		}
+		return took, err
 	}
 	t.Cleanup(func() { Outward = nil })
 	send := func(draft string, from *string, to ...string) (Sent, error) {
@@ -302,6 +315,19 @@ func TestHostedSend(t *testing.T) {
 		t.Fatalf("paused: %+v %v", sent, err)
 	}
 	exec(`UPDATE mail_account SET sending_paused_at = NULL WHERE id = $1`, f.id)
+
+	// One recipient takes it and one can't yet: tried again, only the other gets it. When that one refuses for good,
+	// the message stays sent and Lena hears about it in her inbox.
+	DailyLimit = 200
+	refuse["later@away.example"] = 451
+	if _, err := send("d8", nil, "a@friend.example", "later@away.example"); !Temporary(err) {
+		t.Fatalf("one can't yet: %v", err)
+	}
+	refuse["later@away.example"] = 550
+	sent, err = send("d8", nil, "a@friend.example", "later@away.example")
+	if err != nil || !sent.Taken || !slices.Equal(outward[len(outward)-1].to, []string{"later@away.example"}) || len(sent.Inside) != 1 || sent.Inside[0].AccountID != f.id {
+		t.Fatalf("refused for good: %+v %v %+v", sent, err, outward[len(outward)-1])
+	}
 
 	// Taken back out of Max's mailbox; only Nouvex copies can be.
 	if gone, err := Unsend(ctx, q, store, f.id, SendID("d1", "lena@"+domain)); err != nil || len(gone) != 1 {

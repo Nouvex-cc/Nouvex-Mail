@@ -294,3 +294,15 @@ UPDATE import_job SET error = $2 WHERE id = $1;
 
 -- name: LocalMailboxNamed :one
 SELECT * FROM mailbox WHERE account_id = $1 AND local AND name = $2;
+
+-- name: OutwardSent :many
+-- Who of these a message already reached outside Nouvex; older ones are forgotten on the way.
+WITH gone AS (DELETE FROM outward_sent WHERE created_at < now() - interval '2 days')
+SELECT o.recipient FROM outward_sent o WHERE o.message_id = $1 AND o.recipient = ANY(sqlc.arg(recipients)::text[]);
+
+-- name: AddOutwardSent :exec
+INSERT INTO outward_sent (message_id, recipient) SELECT $1, unnest(sqlc.arg(recipients)::text[]) ON CONFLICT DO NOTHING;
+
+-- name: DomainKey :one
+-- The DKIM key a verified domain's mail is signed with (sealed with SECRETS_KEY).
+SELECT dkim_private FROM domain WHERE name = $1 AND verified_at IS NOT NULL;

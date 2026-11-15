@@ -70,6 +70,20 @@ func (q *Queries) AddJob(ctx context.Context, arg AddJobParams) error {
 	return err
 }
 
+const addOutwardSent = `-- name: AddOutwardSent :exec
+INSERT INTO outward_sent (message_id, recipient) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING
+`
+
+type AddOutwardSentParams struct {
+	MessageID  string
+	Recipients []string
+}
+
+func (q *Queries) AddOutwardSent(ctx context.Context, arg AddOutwardSentParams) error {
+	_, err := q.db.Exec(ctx, addOutwardSent, arg.MessageID, arg.Recipients)
+	return err
+}
+
 const addSent = `-- name: AddSent :exec
 INSERT INTO send_count (account_id, day, count) VALUES ($1, (now() AT TIME ZONE 'utc')::date, $2::int)
 ON CONFLICT (account_id, day) DO UPDATE SET count = send_count.count + excluded.count
@@ -273,6 +287,18 @@ DELETE FROM message WHERE id = $1
 func (q *Queries) DeleteMessage(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteMessage, id)
 	return err
+}
+
+const domainKey = `-- name: DomainKey :one
+SELECT dkim_private FROM domain WHERE name = $1 AND verified_at IS NOT NULL
+`
+
+// The DKIM key a verified domain's mail is signed with (sealed with SECRETS_KEY).
+func (q *Queries) DomainKey(ctx context.Context, name string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, domainKey, name)
+	var dkim_private []byte
+	err := row.Scan(&dkim_private)
+	return dkim_private, err
 }
 
 const endSend = `-- name: EndSend :exec
@@ -1069,6 +1095,37 @@ type MoveLocalMessageParams struct {
 func (q *Queries) MoveLocalMessage(ctx context.Context, arg MoveLocalMessageParams) error {
 	_, err := q.db.Exec(ctx, moveLocalMessage, arg.AccountID, arg.ID, arg.Role)
 	return err
+}
+
+const outwardSent = `-- name: OutwardSent :many
+WITH gone AS (DELETE FROM outward_sent WHERE created_at < now() - interval '2 days')
+SELECT o.recipient FROM outward_sent o WHERE o.message_id = $1 AND o.recipient = ANY($2::text[])
+`
+
+type OutwardSentParams struct {
+	MessageID  string
+	Recipients []string
+}
+
+// Who of these a message already reached outside Nouvex; older ones are forgotten on the way.
+func (q *Queries) OutwardSent(ctx context.Context, arg OutwardSentParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, outwardSent, arg.MessageID, arg.Recipients)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var recipient string
+		if err := rows.Scan(&recipient); err != nil {
+			return nil, err
+		}
+		items = append(items, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const saveFlags = `-- name: SaveFlags :exec

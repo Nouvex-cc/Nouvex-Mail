@@ -3,15 +3,18 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
 	"mime"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/emersion/go-message/mail"
 	"github.com/emersion/go-smtp"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,10 +23,11 @@ import (
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/mx"
 )
 
-// Outward sends a hosted account's mail to addresses outside Nouvex: Amazon SES now (internal/ses), our own servers
-// later. tags travel with the message and come back with SES's bounce and complaint reports. Nil until set up.
+// Outward sends a hosted account's mail to addresses outside Nouvex: from this server (internal/direct) or through
+// Amazon SES (internal/ses). It says who took it, also when it fails for the rest. tags travel with the message and
+// come back with SES's bounce and complaint reports. Nil until set up.
 // ponytail: package state set once at start, like here.
-var Outward func(ctx context.Context, from string, to []string, raw []byte, tags map[string]string) error
+var Outward func(ctx context.Context, from string, to []string, raw []byte, tags map[string]string) ([]string, error)
 
 // Arrival is mail a send put straight into a Nouvex mailbox, for the engine to tell that mailbox's clients.
 type Arrival struct {
@@ -87,6 +91,16 @@ func sendHosted(ctx context.Context, acc db.MailAccount, from string, to []strin
 	if acc.SendingPausedAt.Valid {
 		return inside, errPaused
 	}
+	// A message tried again goes only to who didn't get it yet.
+	key := Hashed(messageID)
+	already, err := q.OutwardSent(ctx, db.OutwardSentParams{MessageID: key, Recipients: hashed(outside)})
+	if err != nil {
+		return inside, err
+	}
+	outside = slices.DeleteFunc(outside, func(r string) bool { return slices.Contains(already, Hashed(strings.ToLower(r))) })
+	if len(outside) == 0 {
+		return inside, nil
+	}
 	sent, err := q.SentToday(ctx, acc.ID)
 	if err != nil {
 		return inside, err
@@ -95,14 +109,58 @@ func sendHosted(ctx context.Context, acc db.MailAccount, from string, to []strin
 		return inside, &smtp.SMTPError{Code: 554, Message: fmt.Sprintf(
 			"this mailbox sends to at most %d recipients outside Nouvex a day, and that's reached until midnight UTC", DailyLimit)}
 	}
-	if err := Outward(ctx, from, outside, raw, map[string]string{"account": acc.ID}); err != nil {
+	took, err := Outward(ctx, from, outside, raw, map[string]string{"account": acc.ID})
+	if len(took) > 0 {
+		// It went out to them: a failed count mustn't make the outbox send it to them again, so only logged.
+		if err := q.AddOutwardSent(ctx, db.AddOutwardSentParams{MessageID: key, Recipients: hashed(took)}); err != nil {
+			slog.Warn("remembering who got a message", "account", acc.ID, "err", err)
+		}
+		if err := q.AddSent(ctx, db.AddSentParams{AccountID: acc.ID, N: int32(len(took))}); err != nil {
+			slog.Warn("counting sent mail", "account", acc.ID, "err", err)
+		}
+	}
+	if err == nil || Temporary(err) || len(took)+len(already) == 0 {
 		return inside, err
 	}
-	// It went out: a failed count mustn't make the outbox send it again.
-	if err := q.AddSent(ctx, db.AddSentParams{AccountID: acc.ID, N: int32(len(outside))}); err != nil {
-		slog.Warn("counting sent mail", "account", acc.ID, "err", err)
+	// Some got it, so it doesn't go back to Drafts; the sender hears about the rest in their inbox.
+	refused := slices.DeleteFunc(outside, func(r string) bool { return slices.Contains(took, r) })
+	f := Feedback{Kind: "bounce", Subject: subject(raw)}
+	for _, r := range refused {
+		reason := ""
+		if len(refused) == 1 {
+			reason = Reason(err)
+		}
+		f.Recipients = append(f.Recipients, struct {
+			Address string `json:"address"`
+			Reason  string `json:"reason"`
+		}{r, reason})
+	}
+	slog.Warn("some recipients refused", "account", acc.ID, "err", err)
+	if notice, err := Notify(ctx, here.pool, here.store, acc.ID, Report(from, f)); err != nil {
+		slog.Error("telling the sender about refused recipients", "account", acc.ID, "err", err)
+	} else {
+		inside = append(inside, notice)
 	}
 	return inside, nil
+}
+
+// hashed is addresses as outward_sent keeps them.
+func hashed(addresses []string) []string {
+	out := make([]string, len(addresses))
+	for i, a := range addresses {
+		out[i] = Hashed(strings.ToLower(a))
+	}
+	return out
+}
+
+// subject is a message's subject in words.
+func subject(raw []byte) string {
+	r, err := mail.CreateReader(bytes.NewReader(raw))
+	if err != nil {
+		return ""
+	}
+	s, _ := r.Header.Subject()
+	return s
 }
 
 // sendingAddress is the address a message goes out from: the account's own, or one of its aliases if asked for.
