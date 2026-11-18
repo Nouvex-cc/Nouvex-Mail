@@ -301,6 +301,18 @@ func (q *Queries) DomainKey(ctx context.Context, name string) ([]byte, error) {
 	return dkim_private, err
 }
 
+const domainSendsDirect = `-- name: DomainSendsDirect :one
+SELECT send_direct FROM domain WHERE name = $1 AND verified_at IS NOT NULL
+`
+
+// Whether a verified domain's owner picked our own server over SES.
+func (q *Queries) DomainSendsDirect(ctx context.Context, name string) (bool, error) {
+	row := q.db.QueryRow(ctx, domainSendsDirect, name)
+	var send_direct bool
+	err := row.Scan(&send_direct)
+	return send_direct, err
+}
+
 const endSend = `-- name: EndSend :exec
 UPDATE outbox SET state = $1, error = $2, updated_at = now(),
 	payload = CASE WHEN $1 = 'sent' THEN ''::bytea ELSE payload END
@@ -417,7 +429,7 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (MailAccount, error
 }
 
 const getDomain = `-- name: GetDomain :one
-SELECT id, user_id, name, verify_token, verified_at, catch_all_account_id, dkim_public, dkim_private, dns_check, checked_at, created_at, ses_status FROM domain WHERE id = $1
+SELECT id, user_id, name, verify_token, verified_at, catch_all_account_id, dkim_public, dkim_private, dns_check, checked_at, created_at, ses_status, send_direct FROM domain WHERE id = $1
 `
 
 func (q *Queries) GetDomain(ctx context.Context, id string) (Domain, error) {
@@ -436,6 +448,7 @@ func (q *Queries) GetDomain(ctx context.Context, id string) (Domain, error) {
 		&i.CheckedAt,
 		&i.CreatedAt,
 		&i.SesStatus,
+		&i.SendDirect,
 	)
 	return i, err
 }

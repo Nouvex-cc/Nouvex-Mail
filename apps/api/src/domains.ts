@@ -17,8 +17,19 @@ const mxHost = () => process.env.MX_HOST ?? "mx.nouvex.cc";
 const spfInclude = () => process.env.SPF_INCLUDE ?? "spf.nouvex.cc";
 const sesRegion = () => process.env.SES_REGION ?? "eu-central-1";
 
+/** Whether the server offers both ways out, so each domain can pick (docs/deploy.md). */
+export const sendingChoice = () => process.env.SEND_DIRECT === "true" && !!process.env.SES_REGION;
+/** Whether a domain's mail goes out from our own server: picked by its owner, or the only way this server has. */
+export const sendsDirect = (d: { sendDirect: boolean }) =>
+	process.env.SEND_DIRECT === "true" && (d.sendDirect || !process.env.SES_REGION);
+
 /** Every record a domain needs, the verification first. */
-export function records(d: { name: string; verifyToken: string; dkimPublic: string }): DnsRecord[] {
+export function records(d: {
+	name: string;
+	verifyToken: string;
+	dkimPublic: string;
+	sendDirect: boolean;
+}): DnsRecord[] {
 	return [
 		{ key: "verify", type: "TXT", name: `_nouvex.${d.name}`, value: `nouvex-verify=${d.verifyToken}` },
 		{ key: "mx", type: "MX", name: d.name, value: mxHost(), priority: 10 },
@@ -26,9 +37,9 @@ export function records(d: { name: string; verifyToken: string; dkimPublic: stri
 		{ key: "dkim", type: "TXT", name: `nx1._domainkey.${d.name}`, value: `v=DKIM1; k=rsa; p=${d.dkimPublic}` },
 		// Reports only, until the domain's mail is known to pass; owners tighten it themselves.
 		{ key: "dmarc", type: "TXT", name: `_dmarc.${d.name}`, value: "v=DMARC1; p=none" },
-		// SES's bounces come back here (custom MAIL FROM), so SPF lines up with the domain. Sending from this machine
-		// itself, bounces come to the MX above.
-		...(process.env.SEND_DIRECT === "true"
+		// SES's bounces come back here (custom MAIL FROM), so SPF lines up with the domain. Sending from our own server,
+		// bounces come to the MX above.
+		...(sendsDirect(d)
 			? []
 			: ([
 					{

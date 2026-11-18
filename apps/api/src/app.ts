@@ -42,7 +42,7 @@ import {
 	userPrefs,
 	user as userTable,
 } from "./db/schema";
-import { applyCloudflare, check, cloudflare, dkimKey, dnsDeps, records } from "./domains";
+import { applyCloudflare, check, cloudflare, dkimKey, dnsDeps, records, sendingChoice, sendsDirect } from "./domains";
 import { fetchImage, post } from "./image";
 import { nats } from "./nats";
 import { open, seal } from "./secret";
@@ -366,6 +366,9 @@ const DomainOut = z.object({
 	checkedAt: z.string().nullable(),
 	// Amazon SES's view once verified: "ready", what it waits for, or what went wrong; null before it's asked.
 	sesStatus: z.string().nullable(),
+	// Whether its mail goes out from our own server instead of SES, and whether its owner can pick.
+	sendDirect: z.boolean(),
+	sendingChoice: z.boolean(),
 	// What the domain's DNS needs, with what the last check found (ok is null before the first).
 	records: z.array(
 		z.object({
@@ -386,6 +389,8 @@ const shown = (d: typeof domain.$inferSelect) => ({
 	catchAllAccountId: d.catchAllAccountId,
 	checkedAt: d.checkedAt?.toISOString() ?? null,
 	sesStatus: d.sesStatus,
+	sendDirect: sendsDirect(d),
+	sendingChoice: sendingChoice(),
 	records: records(d).map((r) => ({
 		...r,
 		ok: d.dnsCheck?.[r.key]?.ok ?? null,
@@ -571,8 +576,12 @@ app.openapi(
 			body: {
 				content: {
 					"application/json": {
-						// Mail to an address nobody has goes to this mailbox instead of being refused; null refuses it.
-						schema: z.object({ catchAllAccountId: z.string().nullable() }),
+						schema: z.object({
+							// Mail to an address nobody has goes to this mailbox instead of being refused; null refuses it.
+							catchAllAccountId: z.string().nullable().optional(),
+							// Send from our own server instead of SES, where the server offers both.
+							sendDirect: z.boolean().optional(),
+						}),
 					},
 				},
 			},
@@ -586,7 +595,10 @@ app.openapi(
 	async (c) => {
 		const d = await ownDomain(c.get("userId"), c.req.valid("param").domainId);
 		if (!d) return c.body(null, 404);
-		const { catchAllAccountId } = c.req.valid("json");
+		const { catchAllAccountId, sendDirect } = c.req.valid("json");
+		if (catchAllAccountId === undefined && sendDirect === undefined) return c.json(shown(d), 200);
+		if (sendDirect !== undefined && !sendingChoice())
+			return c.json({ error: "This server sends all mail the same way." }, 422);
 		if (catchAllAccountId) {
 			const [mine] = await db
 				.select({ id: mailAccount.id })
@@ -600,7 +612,9 @@ app.openapi(
 				);
 			if (!mine) return c.json({ error: "Pick one of your mailboxes Nouvex hosts." }, 422);
 		}
-		const [row] = await db.update(domain).set({ catchAllAccountId }).where(eq(domain.id, d.id)).returning();
+		const [row] = await db.update(domain).set({ catchAllAccountId, sendDirect }).where(eq(domain.id, d.id)).returning();
+		// Another way out needs other records, and SES may need setting up.
+		if (row && sendDirect !== undefined) return c.json(shown(await recheck(row)), 200);
 		return c.json(shown(row ?? d), 200);
 	},
 );

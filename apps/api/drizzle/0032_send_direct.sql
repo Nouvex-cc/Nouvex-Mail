@@ -1,0 +1,1 @@
+ALTER TABLE "domain" ADD COLUMN "send_direct" boolean DEFAULT false NOT NULL;

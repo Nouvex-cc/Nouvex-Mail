@@ -139,6 +139,8 @@ export const domain = pgTable(
 		dnsCheck: jsonb("dns_check").$type<Record<string, { ok: boolean; found: string[] }>>(),
 		// Amazon SES's view of it once verified: pending, ready, or what went wrong. Written by the engine.
 		sesStatus: text("ses_status"),
+		// Its mail goes out from our own server instead of SES, where the server offers both (SEND_DIRECT and SES_REGION).
+		sendDirect: boolean("send_direct").notNull().default(false),
 		checkedAt: timestamp("checked_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	},

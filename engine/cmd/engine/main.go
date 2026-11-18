@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -79,24 +80,36 @@ func run() error {
 	}
 	defer pool.Close()
 	mail.KeepHostedIn(pool, store)
-	// Hosted accounts send outside Nouvex through Amazon SES once it's configured (docs/deploy.md)...
+	// Hosted accounts send outside Nouvex through Amazon SES and/or from this machine itself, straight to the
+	// recipients' servers (docs/deploy.md). With both, each domain uses SES unless its owner picked this machine.
 	var sesClient *ses.Client
 	if region := os.Getenv("SES_REGION"); region != "" {
 		if sesClient, err = ses.New(ctx, region, os.Getenv("SES_CONFIGURATION_SET"), ""); err != nil {
 			return err
 		}
-		mail.Outward = sesClient.Send
 	}
-	// Or from this machine itself, straight to the recipients' servers.
-	sendDirect := os.Getenv("SEND_DIRECT") == "true"
-	if sendDirect {
-		sender := &direct.Sender{Hostname: cmp.Or(os.Getenv("MX_HOST"), "mx.nouvex.cc"), Key: func(ctx context.Context, domain string) (string, error) {
+	var sender *direct.Sender
+	if os.Getenv("SEND_DIRECT") == "true" {
+		sender = &direct.Sender{Hostname: cmp.Or(os.Getenv("MX_HOST"), "mx.nouvex.cc"), Key: func(ctx context.Context, domain string) (string, error) {
 			sealed, err := db.New(pool).DomainKey(ctx, domain)
 			if err != nil {
 				return "", err
 			}
 			return secret.Open(master, sealed)
 		}}
+	}
+	switch {
+	case sesClient != nil && sender != nil:
+		mail.Outward = func(ctx context.Context, from string, to []string, raw []byte, tags map[string]string) ([]string, error) {
+			_, domain, _ := strings.Cut(from, "@")
+			if on, _ := db.New(pool).DomainSendsDirect(ctx, strings.ToLower(domain)); on {
+				return sender.Send(ctx, from, to, raw, tags)
+			}
+			return sesClient.Send(ctx, from, to, raw, tags)
+		}
+	case sesClient != nil:
+		mail.Outward = sesClient.Send
+	case sender != nil:
 		mail.Outward = sender.Send
 	}
 
@@ -327,7 +340,7 @@ func run() error {
 			}
 			// Sending from here only needs the domain's DKIM key, which it has from the start.
 			status := "not set up on this server"
-			if sendDirect {
+			if sender != nil && (sesClient == nil || dom.SendDirect) {
 				status = "direct"
 			} else if sesClient != nil {
 				key, err := secret.Open(master, dom.DkimPrivate)

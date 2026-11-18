@@ -23,6 +23,8 @@ export type Domain = {
 	catchAllAccountId: string | null;
 	checkedAt: string | null;
 	sesStatus: string | null;
+	sendDirect: boolean;
+	sendingChoice: boolean;
 	records: DnsRecord[];
 };
 
@@ -42,7 +44,7 @@ const purpose: Record<string, string> = {
 
 // How mail from the domain goes out, from the engine's last look (sesStatus).
 const sending = (status: string | null) => {
-	if (status === "direct") return "From this server, signed with the domain's own key.";
+	if (status === "direct") return "From Nouvex's own server, signed with the domain's own key.";
 	if (status === "ready") return "Through Amazon SES, signed with the domain's own key.";
 	if (status === null) return "Being set up. Check again in a minute.";
 	if (status === "not set up on this server") return "Sending outside Nouvex isn't set up on this server yet.";
@@ -104,6 +106,27 @@ function DomainPage({ domain: d }: { domain: Domain }) {
 					</Button>
 				</Settings.Row>
 				{d.verified && <Settings.Row id="sending" label="Sending" hint={sending(d.sesStatus)} />}
+				{d.verified && d.sendingChoice && (
+					<Settings.Row
+						id="send-direct"
+						label="Send from Nouvex's own server"
+						hint="Instead of Amazon SES. The server is new, so for its first weeks some mail may land in spam."
+					>
+						<Switch
+							aria-label="Send from Nouvex's own server"
+							checked={d.sendDirect}
+							onCheckedChange={async (sendDirect) => {
+								const res = await fetch(`/domains/${d.id}`, {
+									method: "PATCH",
+									headers: { "content-type": "application/json" },
+									body: JSON.stringify({ sendDirect }),
+								});
+								if (!res.ok) toast.add({ title: await problem(res) });
+								void domains.refetch();
+							}}
+						/>
+					</Settings.Row>
+				)}
 				{!done(d) && (
 					<Settings.Row id="cloudflare" label="Cloudflare" hint="Adds the records with a token, used once and not kept">
 						<Button onClick={() => setCf(true)}>Set up in Cloudflare</Button>
@@ -354,6 +377,9 @@ export const domains: Module = {
 				entries: [
 					{ id: "status", label: "Verify domain", keywords: "dns check txt" },
 					{ id: "cloudflare", label: "Set up in Cloudflare", keywords: "dns token automatic" },
+					...(d.sendingChoice
+						? [{ id: "send-direct", label: "Send from Nouvex's own server", keywords: "ses direct ip" }]
+						: []),
 					{ id: "catch-all", label: "Catch-all", keywords: "any address catchall" },
 				],
 				render: () => <DomainPage domain={d} />,

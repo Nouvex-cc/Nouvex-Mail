@@ -598,6 +598,18 @@ test.skipIf(!process.env.DATABASE_URL || !process.env.NATS_URL)(
 
 			expect((await call(me.cookie, `/domains/${mine.id}`, "PATCH", { catchAllAccountId: id })).status).toBe(200);
 			expect((await call(other.cookie, `/domains/${mine.id}`, "PATCH", { catchAllAccountId: null })).status).toBe(404);
+			// Our own server instead of SES is a choice only where the server offers both.
+			expect((await call(me.cookie, `/domains/${mine.id}`, "PATCH", { sendDirect: true })).status).toBe(422);
+			Object.assign(process.env, { SEND_DIRECT: "true", SES_REGION: "eu-north-1" });
+			try {
+				const res = await call(me.cookie, `/domains/${mine.id}`, "PATCH", { sendDirect: true });
+				const picked = (await res.json()) as { sendDirect: boolean; records: { key: string }[] };
+				expect(picked.sendDirect).toBe(true);
+				expect(picked.records.map((r) => r.key)).not.toContain("bounce");
+			} finally {
+				delete process.env.SEND_DIRECT;
+				delete process.env.SES_REGION;
+			}
 			expect((await call(me.cookie, `/domains/${mine.id}`, "DELETE")).status).toBe(409);
 		} finally {
 			dnsDeps.lookup = lookup;
