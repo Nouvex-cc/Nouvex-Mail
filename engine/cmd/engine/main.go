@@ -27,6 +27,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/db"
+	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/direct"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/mail"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/msg"
 	"github.com/Nouvex-cc/Nouvex-Mail/engine/internal/secret"
@@ -78,13 +79,24 @@ func run() error {
 	}
 	defer pool.Close()
 	mail.KeepHostedIn(pool, store)
-	// Hosted accounts send outside Nouvex through Amazon SES once it's configured (docs/deploy.md).
+	// Hosted accounts send outside Nouvex through Amazon SES once it's configured (docs/deploy.md)...
 	var sesClient *ses.Client
 	if region := os.Getenv("SES_REGION"); region != "" {
 		if sesClient, err = ses.New(ctx, region, os.Getenv("SES_CONFIGURATION_SET"), ""); err != nil {
 			return err
 		}
 		mail.Outward = sesClient.Send
+	}
+	// Or from this machine itself, straight to the recipients' servers.
+	if os.Getenv("SEND_DIRECT") == "true" {
+		sender := &direct.Sender{Hostname: cmp.Or(os.Getenv("MX_HOST"), "mx.nouvex.cc"), Key: func(ctx context.Context, domain string) (string, error) {
+			sealed, err := db.New(pool).DomainKey(ctx, domain)
+			if err != nil {
+				return "", err
+			}
+			return secret.Open(master, sealed)
+		}}
+		mail.Outward = sender.Send
 	}
 
 	// Reconnect forever; the default gives up after two minutes, e.g. while the laptop sleeps.

@@ -198,6 +198,18 @@ export const sendCount = pgTable(
 	(t) => [primaryKey({ columns: [t.accountId, t.day] })],
 );
 
+// Who a sent message already reached outside Nouvex, so trying it again after a failure only goes to the rest. Both
+// SHA-256, like message.message_id. Written by the engine, kept two days.
+export const outwardSent = pgTable(
+	"outward_sent",
+	{
+		messageId: text("message_id").notNull(),
+		recipient: text("recipient").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(t) => [primaryKey({ columns: [t.messageId, t.recipient] })],
+);
+
 // Moving mail from another account of the user (an IMAP one) into a hosted mailbox, a hundred messages at a time.
 // The API makes it; the engine moves it along and writes its progress.
 export type ImportFolder = {

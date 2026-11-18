@@ -46,12 +46,14 @@ func New(ctx context.Context, region, configSet, endpoint string) (*Client, erro
 // most is how many recipients SES takes per message.
 const most = 50
 
-// Send hands a message to SES for these recipients, in batches SES takes. tags come back with its reports.
-func (c *Client) Send(ctx context.Context, from string, to []string, raw []byte, tags map[string]string) error {
+// Send hands a message to SES for these recipients, in batches SES takes, and says who it took. tags come back with
+// its reports.
+func (c *Client) Send(ctx context.Context, from string, to []string, raw []byte, tags map[string]string) ([]string, error) {
 	var mt []types.MessageTag
 	for k, v := range tags {
 		mt = append(mt, types.MessageTag{Name: aws.String(k), Value: aws.String(v)})
 	}
+	var took []string
 	for batch := range slices.Chunk(to, most) {
 		in := &sesv2.SendEmailInput{
 			FromEmailAddress: aws.String(from),
@@ -63,10 +65,11 @@ func (c *Client) Send(ctx context.Context, from string, to []string, raw []byte,
 			in.ConfigurationSetName = aws.String(c.configSet)
 		}
 		if _, err := c.c.SendEmail(ctx, in); err != nil {
-			return reply(err)
+			return took, reply(err)
 		}
+		took = append(took, batch...)
 	}
-	return nil
+	return took, nil
 }
 
 // reply turns what SES said into an SMTP reply: throttling and its own troubles are worth another try, a refusal

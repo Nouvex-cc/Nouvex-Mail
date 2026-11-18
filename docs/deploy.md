@@ -51,7 +51,7 @@ New mail reaches the iPhone app as a push while it isn't running. Set `APNS_KEY`
 
 ## Hosted mail
 
-Nouvex can host mailboxes on domains people add in Settings, Domains: our MX receives their mail (`engine/cmd/mx`, with rspamd), and Amazon SES sends what goes outside Nouvex. Mail between Nouvex mailboxes never leaves the server.
+Nouvex can host mailboxes on domains people add in Settings, Domains: our MX receives their mail (`engine/cmd/mx`, with rspamd), and Amazon SES or this machine itself sends what goes outside Nouvex. Mail between Nouvex mailboxes never leaves the server.
 
 Once, for the server:
 1. **DNS of your own domain.** `MX_HOST` (default `mx.nouvex.cc`) points at the machine running the MX, and `SPF_INCLUDE` (default `spf.nouvex.cc`) has `TXT "v=spf1 include:amazonses.com ~all"`. Customers include that one name, so new senders (our own IPs later) only change it here.
@@ -60,7 +60,8 @@ Once, for the server:
    - Make a configuration set (`SES_CONFIGURATION_SET`) with an event destination for bounces and complaints to an SNS topic (`SES_TOPIC_ARN`).
    - Subscribe `https://<your domain>/webhooks/ses` to that topic over HTTPS. The API confirms the subscription by itself.
 3. **An IAM user for the engine** with `ses:SendEmail`, `ses:SendRawEmail`, `ses:CreateEmailIdentity`, `ses:GetEmailIdentity` and `ses:PutEmailIdentityMailFromAttributes` in that region. Its key goes into `deploy/.env` as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
-4. **The MX on this machine.** In `deploy/.env`, `COMPOSE_PROFILES=mx` starts it with rspamd and Valkey on port 25, and `SITE=<your domain>, <MX_HOST>` has Caddy get the certificate it uses for STARTTLS. Port 25 has to be open; the MX takes mail for verified domains only.
+4. **Or send from this machine** instead of SES, with `SEND_DIRECT=true`. The engine signs with each domain's DKIM key and delivers to the recipients' servers on port 25, over IPv4. For receivers to trust it, the machine's IPv4 address needs reverse DNS pointing to `MX_HOST`, and `SPF_INCLUDE`'s record has to list it: `TXT "v=spf1 ip4:<address> include:amazonses.com ~all"`. Bounces that come later reach the sender's inbox through our MX. A new address lands in spam more often for its first weeks.
+5. **The MX on this machine.** In `deploy/.env`, `COMPOSE_PROFILES=mx` starts it with rspamd and Valkey on port 25, and `SITE=<your domain>, <MX_HOST>` has Caddy get the certificate it uses for STARTTLS. Port 25 has to be open; the MX takes mail for verified domains only.
 
 Each hosted mailbox sends to at most 200 recipients outside Nouvex a day. When over 30 days more than 0.1% of what it sent there drew a complaint, or more than 5% bounced (5 at least), the SES webhook pauses that: it then only reaches Nouvex mailboxes and says why. After looking into it, turn it back on:
 

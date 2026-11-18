@@ -185,6 +185,12 @@ type Outbox struct {
 	UpdatedAt pgtype.Timestamptz
 }
 
+type OutwardSent struct {
+	MessageID string
+	Recipient string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Passkey struct {
 	ID           string
 	Name         pgtype.Text

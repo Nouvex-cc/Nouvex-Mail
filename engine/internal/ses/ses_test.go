@@ -93,10 +93,10 @@ func TestSend(t *testing.T) {
 	for i := range to {
 		to[i] = "r@x.example"
 	}
-	if err := c.Send(context.Background(), "lena@louma.cc", to, []byte("Subject: hi\r\n\r\nhi"), map[string]string{"account": "a1"}); err != nil {
-		t.Fatal(err)
+	if took, err := c.Send(context.Background(), "lena@example.com", to, []byte("Subject: hi\r\n\r\nhi"), map[string]string{"account": "a1"}); err != nil || len(took) != 120 {
+		t.Fatal(len(took), err)
 	}
-	if len(f.sends) != 3 || f.sends[0]["FromEmailAddress"] != "lena@louma.cc" || f.sends[0]["ConfigurationSetName"] != "nouvex" {
+	if len(f.sends) != 3 || f.sends[0]["FromEmailAddress"] != "lena@example.com" || f.sends[0]["ConfigurationSetName"] != "nouvex" {
 		t.Fatalf("%d sends: %v", len(f.sends), f.sends)
 	}
 	raw := f.sends[0]["Content"].(map[string]any)["Raw"].(map[string]any)["Data"].(string)
@@ -107,7 +107,7 @@ func TestSend(t *testing.T) {
 	for kind, want := range map[string]int{"throttle": 451, "reject": 554} {
 		f.fail = kind
 		var se *smtp.SMTPError
-		if err := c.Send(context.Background(), "lena@louma.cc", to[:1], []byte("x"), nil); !errors.As(err, &se) || se.Code != want {
+		if took, err := c.Send(context.Background(), "lena@example.com", to[:1], []byte("x"), nil); !errors.As(err, &se) || se.Code != want || len(took) != 0 {
 			t.Fatalf("%s: %v, want %d", kind, err, want)
 		}
 	}
@@ -117,7 +117,7 @@ func TestSetUp(t *testing.T) {
 	c, f := start(t)
 	k, _ := rsa.GenerateKey(rand.Reader, 2048)
 	der, _ := x509.MarshalPKCS8PrivateKey(k)
-	status, err := c.SetUp(context.Background(), "louma.cc", base64.StdEncoding.EncodeToString(der))
+	status, err := c.SetUp(context.Background(), "example.com", base64.StdEncoding.EncodeToString(der))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestSetUp(t *testing.T) {
 		t.Fatalf("status %q", status)
 	}
 	dkim := f.created["DkimSigningAttributes"].(map[string]any)
-	if dkim["DomainSigningSelector"] != "nx1" || f.mailFrom["MailFromDomain"] != "bounce.louma.cc" {
+	if dkim["DomainSigningSelector"] != "nx1" || f.mailFrom["MailFromDomain"] != "bounce.example.com" {
 		t.Fatalf("created %v, mail from %v", f.created, f.mailFrom)
 	}
 	pkcs1, _ := base64.StdEncoding.DecodeString(dkim["DomainSigningPrivateKey"].(string))
@@ -134,7 +134,7 @@ func TestSetUp(t *testing.T) {
 	}
 	// Once SES has seen the records, a second call says so and creates nothing again.
 	f.ready, f.created = true, nil
-	if status, err := c.SetUp(context.Background(), "louma.cc", ""); err != nil || status != "ready" || f.created != nil {
+	if status, err := c.SetUp(context.Background(), "example.com", ""); err != nil || status != "ready" || f.created != nil {
 		t.Fatalf("%q %v %v", status, err, f.created)
 	}
 }
