@@ -97,6 +97,7 @@ type Domain struct {
 	CheckedAt         pgtype.Timestamptz
 	CreatedAt         pgtype.Timestamptz
 	SesStatus         pgtype.Text
+	SendDirect        bool
 }
 
 type ImportJob struct {

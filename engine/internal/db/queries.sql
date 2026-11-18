@@ -303,6 +303,10 @@ SELECT o.recipient FROM outward_sent o WHERE o.message_id = $1 AND o.recipient =
 -- name: AddOutwardSent :exec
 INSERT INTO outward_sent (message_id, recipient) SELECT $1, unnest(sqlc.arg(recipients)::text[]) ON CONFLICT DO NOTHING;
 
+-- name: DomainSendsDirect :one
+-- Whether a verified domain's owner picked our own server over SES.
+SELECT send_direct FROM domain WHERE name = $1 AND verified_at IS NOT NULL;
+
 -- name: DomainKey :one
 -- The DKIM key a verified domain's mail is signed with (sealed with SECRETS_KEY).
 SELECT dkim_private FROM domain WHERE name = $1 AND verified_at IS NOT NULL;
