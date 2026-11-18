@@ -88,7 +88,8 @@ func run() error {
 		mail.Outward = sesClient.Send
 	}
 	// Or from this machine itself, straight to the recipients' servers.
-	if os.Getenv("SEND_DIRECT") == "true" {
+	sendDirect := os.Getenv("SEND_DIRECT") == "true"
+	if sendDirect {
 		sender := &direct.Sender{Hostname: cmp.Or(os.Getenv("MX_HOST"), "mx.nouvex.cc"), Key: func(ctx context.Context, domain string) (string, error) {
 			sealed, err := db.New(pool).DomainKey(ctx, domain)
 			if err != nil {
@@ -324,8 +325,11 @@ func run() error {
 				_ = m.Ack()
 				return owed
 			}
+			// Sending from here only needs the domain's DKIM key, which it has from the start.
 			status := "not set up on this server"
-			if sesClient != nil {
+			if sendDirect {
+				status = "direct"
+			} else if sesClient != nil {
 				key, err := secret.Open(master, dom.DkimPrivate)
 				if err == nil {
 					status, err = sesClient.SetUp(ctx, dom.Name, key)

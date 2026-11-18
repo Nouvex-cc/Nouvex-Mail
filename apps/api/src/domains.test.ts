@@ -17,6 +17,15 @@ test("a DKIM key's public half is what DNS gets", async () => {
 	expect(k.privateKey.length).toBeGreaterThan(1000);
 });
 
+test("sending from this machine needs no SES bounce domain", () => {
+	process.env.SEND_DIRECT = "true";
+	try {
+		expect(records(domain).map((r) => r.key)).toEqual(["verify", "mx", "spf", "dkim", "dmarc"]);
+	} finally {
+		delete process.env.SEND_DIRECT;
+	}
+});
+
 test("checks each record the way mail servers read it", async () => {
 	const want = records(domain);
 	const dns: Lookup = {

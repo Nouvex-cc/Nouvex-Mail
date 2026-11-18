@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { Button, Dialog, Field, Select, Settings, Sidebar, Switch, useToast } from "@nouvex/ui";
+import { Button, Collapsible, Dialog, Field, Select, Settings, Sidebar, Switch, useToast } from "@nouvex/ui";
 import { Copy, Globe, Plus } from "@nouvex/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -40,10 +40,11 @@ const purpose: Record<string, string> = {
 	bounceSpf: "Lets Amazon SES send from the bounce domain",
 };
 
-// What Amazon SES's status means for someone sending from the domain.
+// How mail from the domain goes out, from the engine's last look (sesStatus).
 const sending = (status: string | null) => {
-	if (status === "ready") return "Ready: mail from this domain goes out signed with its own key.";
-	if (status === null) return "Being set up with Amazon SES. Check again in a minute.";
+	if (status === "direct") return "From this server, signed with the domain's own key.";
+	if (status === "ready") return "Through Amazon SES, signed with the domain's own key.";
+	if (status === null) return "Being set up. Check again in a minute.";
 	if (status === "not set up on this server") return "Sending outside Nouvex isn't set up on this server yet.";
 	if (status.startsWith("failed: ")) return `Amazon SES refused it: ${status.slice(8)}`;
 	return `Amazon SES is ${status}. Check again in a few minutes.`;
@@ -51,6 +52,17 @@ const sending = (status: string | null) => {
 
 const problem = async (res: Response) =>
 	((await res.json().catch(() => ({}))) as { error?: string }).error ?? "That didn't work.";
+
+// A domain has one SPF record, so ours goes into the one already there instead of next to it.
+const found = (r: DnsRecord) => {
+	const spf = r.key === "spf" && r.found.find((f) => f.startsWith("v=spf1"));
+	if (spf) return `Add ${r.value.split(" ")[1]} to the one that's there: ${spf}`;
+	return `Found instead: ${r.found.join(" · ")}`;
+};
+
+const missing = (d: Domain) => d.records.filter((r) => r.ok === false);
+// Nothing left to set up: every record was found on the last check.
+const done = (d: Domain) => d.verified && d.records.every((r) => r.ok);
 
 function DomainPage({ domain: d }: { domain: Domain }) {
 	const domains = useDomains();
@@ -60,19 +72,24 @@ function DomainPage({ domain: d }: { domain: Domain }) {
 	const [checking, setChecking] = useState(false);
 	const [cf, setCf] = useState(false);
 	const hosted = (accounts.data ?? []).filter((a) => a.kind === "hosted");
-	const ok = d.records.filter((r) => r.ok).length;
+	const left = missing(d).length;
+	const checked = d.checkedAt
+		? `Checked ${new Date(d.checkedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+		: "Add the records below, then check. DNS can take a few minutes to show them.";
 
 	return (
 		<Settings.Page title={d.name}>
 			<Settings.Section>
 				<Settings.Row
 					id="status"
-					label={d.verified ? "Verified" : "Waiting for its TXT record"}
-					hint={
-						d.checkedAt
-							? `${ok} of ${d.records.length} records in place, checked ${new Date(d.checkedAt).toLocaleString()}`
-							: "Add the records below, then check. DNS can take a few minutes to show them."
+					label={
+						!d.verified
+							? "Waiting for its TXT record"
+							: left
+								? `${left === 1 ? "1 record" : `${left} records`} missing`
+								: "Ready"
 					}
+					hint={checked}
 				>
 					<Button
 						loading={checking}
@@ -87,53 +104,49 @@ function DomainPage({ domain: d }: { domain: Domain }) {
 					</Button>
 				</Settings.Row>
 				{d.verified && <Settings.Row id="sending" label="Sending" hint={sending(d.sesStatus)} />}
-				<Settings.Row id="cloudflare" label="Cloudflare" hint="Adds the records with a token, used once and not kept">
-					<Button onClick={() => setCf(true)}>Set up in Cloudflare</Button>
-				</Settings.Row>
+				{!done(d) && (
+					<Settings.Row id="cloudflare" label="Cloudflare" hint="Adds the records with a token, used once and not kept">
+						<Button onClick={() => setCf(true)}>Set up in Cloudflare</Button>
+					</Settings.Row>
+				)}
 			</Settings.Section>
 
-			<Settings.Section title="DNS records">
-				{d.records.map((r) => (
-					<Settings.Row
-						key={r.key}
-						id={`record-${r.key}`}
-						label={
-							<span className="flex items-center gap-2">
-								<span
-									role="img"
-									aria-label={r.ok === null ? "Not checked" : r.ok ? "In place" : "Missing"}
-									className={`size-2 rounded-full ${r.ok === null ? "bg-faint" : r.ok ? "bg-positive" : "bg-danger"}`}
-								/>
-								{purpose[r.key] ?? r.key}
-							</span>
-						}
-						hint={
-							<span className="grid gap-1">
-								<span>
+			{/* Once everything is in place the records are only for looking up, so they fold away. */}
+			<Collapsible.Root key={String(done(d))} defaultOpen={!done(d)} className="-mx-2">
+				<Collapsible.Trigger>
+					DNS records
+					{done(d) && <span className="font-normal text-muted">All in place</span>}
+				</Collapsible.Trigger>
+				<Collapsible.Panel>
+					<div className="grid px-2">
+						{d.records.map((r) => (
+							<div key={r.key} id={`record-${r.key}`} className="grid gap-1 border-b border-line py-3 last:border-b-0">
+								<div className="flex items-center justify-between gap-4">
+									<span className="flex min-w-0 items-center gap-2 font-medium">
+										<span
+											role="img"
+											aria-label={r.ok === null ? "Not checked" : r.ok ? "In place" : "Missing"}
+											className={`size-2 shrink-0 rounded-full ${r.ok === null ? "bg-faint" : r.ok ? "bg-positive" : "bg-danger"}`}
+										/>
+										{purpose[r.key] ?? r.key}
+									</span>
+									<CopyValue value={r.value} />
+								</div>
+								<span className="text-sm break-all text-muted">
 									{r.type} {r.name}
-									{r.priority ? ` (priority ${r.priority})` : ""}
+									{r.priority ? ` · priority ${r.priority}` : ""}
 								</span>
-								<code className="break-all text-ink">{r.value}</code>
+								<code className="truncate text-sm text-ink" title={r.value}>
+									{r.value}
+								</code>
 								{r.ok === false && r.found.length > 0 && (
-									<span className="break-all">Found: {r.found.join(" · ")}</span>
+									<span className="text-sm break-all text-muted">{found(r)}</span>
 								)}
-							</span>
-						}
-						stack
-					>
-						<Button
-							variant="ghost"
-							className="justify-self-start"
-							onClick={async () => {
-								await navigator.clipboard.writeText(r.value);
-								toast.add({ title: "Copied" });
-							}}
-						>
-							<Copy strokeWidth={1.75} /> Copy value
-						</Button>
-					</Settings.Row>
-				))}
-			</Settings.Section>
+							</div>
+						))}
+					</div>
+				</Collapsible.Panel>
+			</Collapsible.Root>
 
 			<Settings.Section>
 				<Settings.Row
@@ -182,6 +195,25 @@ function DomainPage({ domain: d }: { domain: Domain }) {
 			</Settings.Section>
 			<CloudflareDialog domain={d} open={cf} onOpenChange={setCf} />
 		</Settings.Page>
+	);
+}
+
+function CopyValue({ value }: { value: string }) {
+	const [copied, setCopied] = useState(false);
+	return (
+		<Button
+			variant="ghost"
+			size="sm"
+			success={copied && "Copied"}
+			labels={["Copied"]}
+			onClick={async () => {
+				await navigator.clipboard.writeText(value);
+				setCopied(true);
+				setTimeout(() => setCopied(false), 1500);
+			}}
+		>
+			<Copy strokeWidth={1.75} /> Copy value
+		</Button>
 	);
 }
 
